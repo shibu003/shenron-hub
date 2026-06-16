@@ -96,7 +96,17 @@
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; padding:0 12px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { width:188px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
   .node.mcp { width:200px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
-  .node.comp { width:200px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
+  .node.comp { width:244px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
+  /* in-node settings — edit a component's fields directly on the card (Langflow-style) */
+  .nbody { padding:8px 11px 2px; display:grid; gap:7px; }
+  .nfrow { display:grid; gap:2px; }
+  .nflabel { font-size:9px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+  .nf { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); padding:4px 7px; font:11px/1.35 ui-monospace,Menlo,monospace; }
+  .nf:focus { border-color:var(--blue); outline:none; box-shadow:0 0 0 2px rgba(88,166,255,.25); }
+  textarea.nf { resize:vertical; min-height:36px; }
+  select.nf.nkind { font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:600; }
+  .nfbool { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--txt); cursor:pointer; } .nfbool input { width:auto; }
+  .nfres { font-size:11px; color:var(--green); white-space:pre-wrap; max-height:96px; overflow:auto; border-top:1px solid var(--line); padding-top:5px; }
   .node.note { width:250px; cursor:grab; } .node.note .notebody { padding:11px 13px; font-size:12px; line-height:1.55; color:#cdd9e5; white-space:normal; max-height:280px; overflow:auto; }
   .node.note .notebody b { color:#fff; }
   .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
@@ -686,6 +696,16 @@ function placeNodes(){
   const COLW=248, ROWH=120, w=($('#canvas')?.clientWidth||900), per=Math.max(1,Math.floor((w-280)/COLW));
   state.agents.filter(a=>!HIDDEN.has(a.id)).forEach((a,i)=>{ if(!POS[a.id]) POS[a.id]={ x:40+(i%per)*COLW, y:40+Math.floor(i/per)*ROWH }; });
 }
+// in-node settings: render one component field as a compact inline widget bound live to config (data-nf/data-fk)
+function inlineField(c,f){ const id=esc(c.id), k=esc(f.key), val=c.config?.[f.key]??f.value??'';
+  if(f.type==='bool') return `<label class="nfbool"><input type="checkbox" class="nf" data-nf="${id}" data-fk="${k}" ${(val===true||val==='true')?'checked':''}> ${esc(f.label)}</label>`;
+  const w = f.type==='textarea'?`<textarea class="nf" data-nf="${id}" data-fk="${k}" rows="2" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
+    : f.type==='select'?`<select class="nf" data-nf="${id}" data-fk="${k}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
+    : f.type==='number'?`<input class="nf" type="number" data-nf="${id}" data-fk="${k}" value="${esc(val)}">`
+    : f.type==='secret'?`<input class="nf" type="password" data-nf="${id}" data-fk="${k}" value="${esc(val)}" autocomplete="off">`
+    : f.type==='workflow'?`<select class="nf" data-nf="${id}" data-fk="ref" data-rerender="1"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)}</option>`).join('')}</select>`
+    : `<input class="nf" data-nf="${id}" data-fk="${k}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`;
+  return `<div class="nfrow"><label class="nflabel">${esc(f.label)}</label>${w}</div>`; }
 function renderNodes(){
   const canvas=$('#world');
   $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'block';
@@ -736,20 +756,15 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node comp'; n.id=nid; n.dataset.id=c.id; canvas.appendChild(n); attachNode(n,c.id); }
     if(!POS[c.id]) POS[c.id]={x:c.x||200,y:c.y||40};
     n.style.left=POS[c.id].x+'px'; n.style.top=POS[c.id].y+'px'; n.classList.toggle('selected',selected===c.id);
+    if(n.contains(document.activeElement)) continue;   // in-node editing: skip rebuild while a field here is focused (would kill the caret); config is already live-updated
     const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
-    const ch=c.kind==='consensus'?state.handoffs.filter(h=>h.consensus&&h.node===c.id).pop():null;
-    const sub=!isSet?`<span style="color:var(--amber)">${t('comp_pick_kind')}</span>`
-      :c.kind==='input'?(c.config?.text?esc(c.config.text).slice(0,42):t('comp_input_sub'))
-      :c.kind==='router'?`🔀 then if ${esc(c.config?.predicate||'redacted')}${c.config?.predicate==='contains'?` "${esc((c.config?.value||'').slice(0,16))}"`:''}`
-      :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
-      :c.kind==='consensus'?(ch&&ch.consensus.picked?`⚖️ ${esc(ch.consensus.picked)} · agree ${ch.consensus.agreement}`:esc((c.config?.vendors)||'claude,codex,gemini').slice(0,40))
-      :c.kind==='workflow'?(c.config?.ref?`📦 ${esc(sfName(c.config.ref))}`:`<span style="color:var(--amber)">${t('sf_pick')}</span>`)
-      :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
-    const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));   // Wave: per-component custom name (falls back to the kind label)
+    const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));   // per-component custom name (falls back to the kind label)
     const cdesc=(c.config?.desc||'').trim();
+    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.icon+' '+m.label)}</option>`).join('')}</select>`;
+    const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
     n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(cname)}</div>`
       +(cdesc?`<div class="co" style="color:#b8c7d8">${esc(cdesc).slice(0,72)}</div>`:'')
-      +`<div class="co">${sub}</div>`
+      +`<div class="nbody">${kindSel}${fieldsHtml}${res!=null?`<div class="nfres">${esc(res).slice(0,240)}</div>`:''}</div>`
       +(c.accepts.length?portHtml('in',c.id,c.accepts[0]):'')
       +(c.emits.length?portHtml('out',c.id,c.emits[0]):'');
   }
@@ -767,7 +782,7 @@ function renderNodes(){
 }
 function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
-    if(wiring||e.button!==0||e.target.closest('.port'))return;
+    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('input,textarea,select,label,.nf'))return;   // in-node fields: don't start a drag when interacting with a widget
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
   });
@@ -1536,6 +1551,12 @@ function closeMenu(){ $('#autoMenu').classList.remove('open'); }
 document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu(); });
 
 /* Langflow-style keyboard shortcuts */
+// in-node settings: live-bind inline field widgets → component config. Text 'input' updates config WITHOUT a
+// re-render (the focused element survives); selects/checkboxes commit on 'change' (kind switch / sub-flow ref / bool).
+document.addEventListener('input', e=>{ const el=e.target; if(!el.matches||!el.matches('.nf[data-fk]')||el.tagName==='SELECT')return; const c=comp(el.dataset.nf); if(c) c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; });
+document.addEventListener('change', e=>{ const el=e.target; if(!el.matches||!el.matches('.nf[data-nf]'))return; const c=comp(el.dataset.nf); if(!c)return;
+  if(el.dataset.kindsel){ return setCompKind(c, el.value); }                                   // inline kind selector → specialize the node
+  c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; if(el.dataset.rerender||el.type==='checkbox') render(); });
 document.addEventListener('keydown', e=>{
   const tag=(e.target.tagName||'').toLowerCase(), typing=tag==='input'||tag==='textarea'||e.target.isContentEditable;
   if(e.key==='/' && !typing){ e.preventDefault(); $('#palSearch').focus(); return; }
