@@ -40,6 +40,7 @@
   .port:hover::after { opacity:1; } .port:hover { background:var(--blue); }
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
+  .node.dragging { z-index:10; opacity:.92; cursor:grabbing; box-shadow:0 6px 20px -6px rgba(0,0,0,.6); }
   body.wiring .node { cursor:crosshair; } body.wiring { cursor:crosshair; }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
@@ -106,7 +107,7 @@
 <script>
 const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set(); let filter = null;
-let state = { agents: [], handoffs: [] }; let dragFrom = null;
+let state = { agents: [], handoffs: [] }; let nodeDrag = null;
 // Wave A flow-draft wiring (client-side only; Wave B persists it to workflows.json).
 let EDGES = []; let wiring = null; let eidc = 0;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -149,11 +150,14 @@ function renderNodes(){
   for(const a of state.agents){
     const nid='n_'+cssid(a.id); seen.add(nid);
     let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.draggable=true; canvas.appendChild(n);
-      n.addEventListener('dragstart',e=>{if(wiring){e.preventDefault();return;}dragFrom=a.id;e.dataTransfer.setData('text/plain',a.id);});
-      n.addEventListener('dragover',e=>{if(dragFrom&&dragFrom!==a.id){e.preventDefault();n.classList.add('drop');}});
-      n.addEventListener('dragleave',()=>n.classList.remove('drop'));
-      n.addEventListener('drop',e=>{e.preventDefault();n.classList.remove('drop');const f=e.dataTransfer.getData('text/plain');if(f&&f!==a.id)openSend(f,a.id);});
+    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n);
+      // node-body drag = live reposition; release on another node = send handoff (preserved); release on empty = move.
+      n.addEventListener('pointerdown',e=>{
+        if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('[data-pol]'))return;
+        e.preventDefault(); const p=canvasPt(e); const o=POS[a.id]||{x:n.offsetLeft,y:n.offsetTop};
+        nodeDrag={ id:a.id, node:n, offX:p.x-o.x, offY:p.y-o.y, startX:o.x, startY:o.y, moved:false };
+        n.classList.add('dragging'); n.style.pointerEvents='none';
+      });
     }
     n.style.left=POS[a.id].x+'px'; n.style.top=POS[a.id].y+'px';
     const mine=state.handoffs.filter(h=>h.to===a.id);
@@ -205,6 +209,23 @@ document.addEventListener('pointermove', e=>{ if(!wiring)return; wiring.pt=canva
   else wiring.over=null;
   updateTemp(); });
 document.addEventListener('pointerup', endWire);
+// node-body drag: live reposition + drop-on-node highlight
+document.addEventListener('pointermove', e=>{ if(!nodeDrag)return;
+  const p=canvasPt(e); POS[nodeDrag.id]={ x:Math.max(0,p.x-nodeDrag.offX), y:Math.max(0,p.y-nodeDrag.offY) };
+  nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true;
+  document.querySelectorAll('.node.drop').forEach(x=>x.classList.remove('drop'));
+  const over=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.node');
+  if(over&&over!==nodeDrag.node) over.classList.add('drop');
+  drawLinks(); });
+document.addEventListener('pointerup', e=>{ if(!nodeDrag)return; const nd=nodeDrag; nodeDrag=null;
+  nd.node.classList.remove('dragging'); nd.node.style.pointerEvents='';
+  document.querySelectorAll('.node.drop').forEach(x=>x.classList.remove('drop'));
+  const over=nd.moved && (document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.node');
+  if(over&&over!==nd.node&&over.dataset.id){                        // drop on another node = send (source snaps back)
+    POS[nd.id]={x:nd.startX,y:nd.startY}; nd.node.style.left=nd.startX+'px'; nd.node.style.top=nd.startY+'px';
+    openSend(nd.id, over.dataset.id);
+  }
+  drawLinks(); });
 function drawLinks(){
   // flow-draft wiring (Wave A): solid bezier, type label, click-to-delete
   const fe = EDGES.map(e=>{ const a=portPos(e.source,'out'), b=portPos(e.target,'in'); if(!a||!b)return '';
