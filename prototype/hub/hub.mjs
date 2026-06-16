@@ -292,6 +292,42 @@ function setPassport(id, { caps, share }) {                   // Wave H/B: edit 
   save(); trail('passport', { agent: id, caps: a.passport.caps, never: a.passport.share.never.length });
   return { id, passport: a.passport };
 }
+// Wave E1 — trust-as-you-build: dry-run the SAME firewall + capability enforcement over a draft flow WITHOUT
+// executing any agent, so the cockpit can show "what would the trust boundary do" before Run. The thing Langflow
+// structurally can't show (it has no trust model). Read-only — never mutates state, never sends. Concrete
+// strip counts are shown only where the upstream text is known (input nodes / flow input); agent outputs are
+// runtime, so their outgoing edges report the wire POLICY (fenced categories) instead of counts — honest, no overclaim.
+function trustPreview({ nodes, edges, input }) {
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
+  const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));
+  const N = nodes.filter((n) => !trg.has(n.id)), E = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target));
+  const byId = new Map(N.map((n) => [n.id, n]));
+  const companyOfNode = (n) => { const a = n && n.agent && state.agents[n.agent]; return a ? (a.company || null) : null; };
+  const known = new Map();                                   // node id -> text the firewall can evaluate concretely (input nodes + flow input)
+  for (const n of N) if (n.kind === 'input') known.set(n.id, (n.config && n.config.text) || input || '');
+  const wires = E.map((e) => {
+    const s = byId.get(e.source), t = byId.get(e.target);
+    const sc = companyOfNode(s), tc = companyOfNode(t), cross = !!sc && !!tc && sc !== tc;
+    const never = (e.share && Array.isArray(e.share.never)) ? e.share.never : [];
+    const fences = ['secrets/PII'].concat(never.length ? [`never:${never.join(',')}`] : []).concat(cross ? ['cross-company'] : []);
+    const up = known.has(e.source) ? known.get(e.source) : undefined;   // concrete only when upstream emits known text
+    const removed = up !== undefined ? redact(up, { never }).removed : null;
+    return { id: e.id || `${e.source}→${e.target}`, source: e.source, target: e.target, crossCompany: cross, fences, previewRemoved: removed, knownUpstream: up !== undefined };
+  });
+  const gates = [];
+  for (const n of N) {
+    if (n.kind === 'agent') { const a = state.agents[n.agent]; if (a) gates.push({ node: n.id, kind: 'agent', caps: normalizePassport(a.passport).caps }); }
+    if (n.kind === 'mcp') {
+      const inc = E.filter((e) => e.target === n.id);
+      const from = inc[0] ? (byId.get(inc[0].source)?.agent || inc[0].source) : null;
+      const up = from && state.agents[from];
+      const mode = up ? sendMode(up.passport) : 'approval';
+      gates.push({ node: n.id, kind: 'mcp', server: n.server, tool: n.tool, externalSend: mode, gate: mode === 'deny' ? 'denied' : mode === 'allow' ? (n.auto ? 'auto' : 'approval') : 'approval' });
+    }
+  }
+  const stripCount = wires.reduce((a, w) => a + (w.previewRemoved ? w.previewRemoved.reduce((x, r) => x + r.count, 0) : 0), 0);
+  return { wires, gates, summary: { wiresFenced: wires.filter((w) => w.fences.length).length, stripCount, gatedSends: gates.filter((g) => g.kind === 'mcp' && g.gate !== 'auto').length, deniedSends: gates.filter((g) => g.gate === 'denied').length } };
+}
 function advanceRun(h) {
   const run = state.runs[h.runId]; if (!run) return;
   if (!(h.node in run.outputs)) run.outputs[h.node] = h.error ? `[error] ${h.error}` : (h.result || '');
@@ -529,6 +565,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
       if (p === '/api/ghostwrite') { ghostwrite(j).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }  // Wave L: NL → validated flow
+      if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
       let m;
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))

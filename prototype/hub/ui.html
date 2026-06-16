@@ -102,6 +102,19 @@
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
   textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
   input.cin, select.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  #trustpanel { position:absolute; top:12px; right:12px; width:340px; max-height:calc(100% - 24px); overflow:auto; z-index:30;
+    background:rgba(13,17,23,.97); border:1px solid var(--amber); border-radius:10px; padding:11px 12px; box-shadow:0 8px 30px rgba(0,0,0,.5); font-size:12px; }
+  #trustpanel .tp-h { display:flex; justify-content:space-between; align-items:center; margin-bottom:7px; }
+  #trustpanel .tp-x { cursor:pointer; color:var(--dim); padding:0 4px; }
+  #trustpanel .tp-sum { background:rgba(245,158,11,.10); border:1px solid var(--line); border-radius:6px; padding:6px 8px; margin-bottom:8px; }
+  #trustpanel .tp-sec { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--dim); margin:9px 0 4px; }
+  #trustpanel .tp-row { display:flex; flex-direction:column; gap:2px; padding:5px 0; border-top:1px solid rgba(255,255,255,.05); }
+  #trustpanel .tp-wire { font-family:ui-monospace,monospace; font-size:11px; }
+  #trustpanel .tp-fence { display:inline-block; font-size:10px; background:#1c2230; border:1px solid var(--line); border-radius:4px; padding:0 5px; margin:1px 3px 1px 0; }
+  #trustpanel .tp-fence.xco { border-color:var(--amber); color:var(--amber); }
+  #trustpanel .tp-strip { color:var(--amber); } #trustpanel .tp-clean { color:var(--dim); } #trustpanel .tp-rt { color:var(--dim); font-style:italic; }
+  #trustpanel .tp-cap { font-size:11px; color:var(--dim); } #trustpanel .tp-gate-approval { color:var(--amber); } #trustpanel .tp-gate-denied { color:var(--red); } #trustpanel .tp-gate-auto { color:var(--green); }
+  #trustpanel .tp-note { font-size:10px; color:var(--dim); margin-top:9px; line-height:1.4; }
   .presetrow { display:flex; gap:5px; flex-wrap:wrap; }
   .presetrow button { flex:1; min-width:88px; font-size:11px; padding:4px 6px; background:var(--panel2,#161b22); color:var(--ink,#e6edf3); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
   .presetrow button:hover { border-color:var(--amber); }
@@ -164,6 +177,7 @@
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
+    <button class="tb" id="btnTrust" onclick="checkTrust()"></button>
     <div class="menu">
       <button class="tb" id="btnAuto" onclick="toggleMenu(event)"></button>
       <div class="menu-pop" id="autoMenu">
@@ -192,7 +206,7 @@
       <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button></div>
     </div>
   </aside>
-  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div><section id="coach"></section><div id="wireTip"></div></main>
+  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div><section id="coach"></section><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside></main>
   <aside id="inspector"></aside>
 </div>
 
@@ -260,6 +274,8 @@ const I18N = {
   cap_always:{ja:'常時',en:'always'}, cap_note:{ja:'external_send は hub が強制。net / fs は宣言＋監査（実 sandbox は runner 側・将来）。',en:'external_send is hub-enforced. net / fs are declared + audited (real sandbox is runner-side · roadmap).'},
   h_presets:{ja:'信頼プリセット（1 クリック）',en:'trust preset (1-click)'}, preset_untrusted:{ja:'未信頼 3rd-party',en:'untrusted 3rd-party'}, preset_internal:{ja:'社内',en:'internal'}, preset_trusted:{ja:'信頼済',en:'trusted'}, preset_applied:{ja:'プリセット適用',en:'preset applied'},
   safe_btn:{ja:'🔒 Safe Handoff 例',en:'🔒 Safe Handoff example'}, safe_desc:{ja:'会社をまたぐ handoff を trust 境界つきで配置（秘密除去＋承認制送信）。',en:'Lays out a cross-company handoff fenced by the trust bundle (secret-stripped + approval-gated send).'}, safe_placed:{ja:'Safe Handoff を配置。配線 🔒 と passport を確認して ▶ Run。',en:'Safe Handoff placed. Check the 🔒 wire + passports, then ▶ Run.'},
+  check_trust:{ja:'🔒 Check trust',en:'🔒 Check trust'}, tp_title:{ja:'Trust プレビュー（実行前）',en:'Trust preview (before run)'}, tp_before:{ja:'実行前に',en:'Before you run:'}, tp_strips:{ja:'件の秘密/PII を除去',en:'secrets/PII stripped'}, tp_gates:{ja:'件の外部送信をゲート',en:'external send(s) gated'}, tp_denied:{ja:'件を拒否',en:'denied'},
+  tp_wires:{ja:'配線（data firewall）',en:'wires (data firewall)'}, tp_caps:{ja:'capability ゲート',en:'capability gates'}, tp_runtime:{ja:'実行時に評価',en:'evaluated at runtime'}, tp_note:{ja:'実 enforcement コードで dry-run（agent は走らせず・送信なし）。net/fs は宣言、実 sandbox は runner 側。',en:'Dry-run with the real enforcement code (no agents run, nothing sent). net/fs are declared; real sandbox is runner-side.'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
@@ -298,7 +314,7 @@ const t = (k) => (I18N[k]?.[LANG]) ?? (I18N[k]?.en) ?? k;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
-  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnAuto').textContent=t('automate');
+  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
@@ -313,6 +329,7 @@ const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
 let CAPVOCAB = { net:['none','read','full'], fs:['none','diff-only','repo'], external_send:['deny','approval','allow'], secrets:['deny'] };   // Wave B: capability vocabulary (refreshed from /api/capvocab)
+let TRUSTPREVIEW = null;   // Wave E1: last "🔒 Check trust" dry-run (wires + gates); annotates the canvas + panel
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
@@ -578,9 +595,12 @@ document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){
 /* ---------- edges ---------- */
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
 function drawLinks(){
+  const tp = TRUSTPREVIEW ? Object.fromEntries(TRUSTPREVIEW.wires.map(w=>[w.id,w])) : null;   // Wave E1: annotate wires with the dry-run
   const fe = EDGES.map(e=>{ const a=portPos(e.source,'out'), b=portPos(e.target,'in'); if(!a||!b)return '';
-    const fenced=!!(e.share&&((e.share.never||[]).length));                       // Wave A: this wire has a data-firewall policy
-    const lbl=(fenced?'🔒 ':'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':typeColor(e.type);
+    const pw = tp ? tp[e.id] : null;
+    const fenced = pw ? pw.fences.length>0 : !!(e.share&&((e.share.never||[]).length));        // Wave A/E1: this wire has a data-firewall policy
+    const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
+    const lbl=(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
@@ -841,6 +861,33 @@ async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1')
 async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   openModal({ title:t('m_run_t'), submitLabel:t('m_run_b'), fields:[{key:'input',label:t('m_entry'),type:'textarea',value:'Target brief: Series A fintech VPs of Sales scaling outbound.'}],
     onSubmit:async v=>{ await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input:v.input }); conn(t('t_running')); refresh(); } }); }
+// Wave E1 — trust-as-you-build: dry-run the firewall + capability gates over the current draft (no agents run,
+// nothing sent) and show, BEFORE Run, what the trust boundary will do. The differentiator Langflow can't show.
+async function checkTrust(){
+  const f=buildFlow(); if(!f) return toast(t('t_wire1'));
+  let r; try{ r=await api('/api/trust/preview',{ nodes:f.nodes, edges:f.edges, input:'' }); }catch(e){ return toast(e.message); }
+  TRUSTPREVIEW=r; renderTrustPanel(); drawLinks();
+  const s=r.summary; conn(`${t('tp_title')} · strip ${s.stripCount} · gate ${s.gatedSends}${s.deniedSends?' · deny '+s.deniedSends:''}`);
+}
+function clearTrust(){ TRUSTPREVIEW=null; $('#trustpanel').style.display='none'; drawLinks(); }
+function renderTrustPanel(){
+  const el=$('#trustpanel'), r=TRUSTPREVIEW; if(!r){ el.style.display='none'; return; }
+  const s=r.summary;
+  const wireRows=r.wires.map(w=>{
+    const strip = w.knownUpstream ? (w.previewRemoved.length? `<span class="tp-strip">${w.previewRemoved.map(x=>esc(x.label)+'×'+x.count).join(', ')}</span>` : `<span class="tp-clean">clean</span>`) : `<span class="tp-rt">${t('tp_runtime')}</span>`;
+    const fen = w.fences.map(f=>`<span class="tp-fence${/cross/.test(f)?' xco':''}">${esc(f)}</span>`).join('');
+    return `<div class="tp-row"><div class="tp-wire">${esc(w.source)} → ${esc(w.target)}${w.crossCompany?' ⚠':''}</div><div>${fen} ${strip}</div></div>`;
+  }).join('');
+  const gateRows=r.gates.map(g=> g.kind==='agent'
+    ? `<div class="tp-row"><div class="tp-wire">🤖 ${esc(g.node)}</div><div class="tp-cap">net:${esc(g.caps.net)} · fs:${esc(g.caps.fs)} · send:${esc(g.caps.external_send)}</div></div>`
+    : `<div class="tp-row"><div class="tp-wire">🔌 ${esc(g.node)}</div><div class="tp-cap tp-gate-${esc(g.gate)}">${esc(g.server)}.${esc(g.tool)} → ${esc(g.gate)}</div></div>`).join('');
+  el.innerHTML=`<div class="tp-h"><b>🔒 ${t('tp_title')}</b><span class="tp-x" onclick="clearTrust()">✕</span></div>
+    <div class="tp-sum">${t('tp_before')} <b>${s.stripCount}</b> ${t('tp_strips')} · <b>${s.gatedSends}</b> ${t('tp_gates')}${s.deniedSends?` · <b style="color:var(--red)">${s.deniedSends}</b> ${t('tp_denied')}`:''}</div>
+    <div class="tp-sec">${t('tp_wires')}</div>${wireRows||'<div class="empty">—</div>'}
+    <div class="tp-sec">${t('tp_caps')}</div>${gateRows||'<div class="empty">—</div>'}
+    <div class="tp-note">${t('tp_note')}</div>`;
+  el.style.display='block';
+}
 async function saveAutomation(){ closeMenu(); const f=buildFlow();
   const tn=f&&f.nodes.find(n=>n.kind==='trigger'); if(!tn) return toast(t('t_need_trig'));
   if(!f.nodes.some(n=>n.kind==='agent')) return toast(t('t_need_agent'));
@@ -922,7 +969,7 @@ function ghostWrite(){
     } });
 }
 function loadFlow(flow){                          // materialize a generated/saved flow onto the canvas (fresh draft)
-  TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; EDGES=[];
+  TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // hide all, then reveal the flow's agents
   for(const n of flow.nodes){
     POS[n.id]={ x:n.x||40, y:n.y||40 };
