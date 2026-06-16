@@ -1,376 +1,452 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>BuildHUD — handoff cockpit</title>
-<!-- Zero-dep cockpit for the durable handoff hub. Drag one agent onto another to send a handoff.
-     Offline agents still receive it (durable inbox) and act on next poll. React Flow is the later
-     upgrade (docs G2); vanilla DnD keeps the prototype dependency-free. Hub re-reads this file per
-     GET / — edit + reload, no hub restart. -->
+<title>BuildHUD — cockpit</title>
+<!-- Langflow-style visual flow-builder for the durable handoff hub. Left palette · top toolbar ·
+     canvas · right inspector. Click a node to configure it. Drag the body to move, drag a port to
+     wire (typed). Save/Run a flow, or turn a trigger→chain into an automation. JA/EN toggle (🌐).
+     Zero-dep; the hub re-reads this file per GET / (edit + reload, no restart). -->
 <style>
-  :root { --bg:#0e1116; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --dim:#8b949e;
+  :root { --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#30363d; --txt:#e6edf3; --dim:#8b949e;
           --green:#3fb950; --amber:#d29922; --blue:#58a6ff; --red:#f85149; --grey:#6e7681; }
   * { box-sizing:border-box; }
-  body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
-  header { display:flex; align-items:center; gap:14px; padding:9px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  header h1 { font-size:15px; margin:0; font-weight:600; } header h1 span { color:var(--dim); font-weight:400; }
-  #summary { display:flex; gap:7px; align-items:center; }
-  .cnt { font-size:12px; border:1px solid var(--line); background:#0d1117; border-radius:999px; padding:2px 10px; cursor:pointer; color:var(--dim); user-select:none; }
-  .cnt b { color:var(--txt); } .cnt.on { box-shadow:0 0 0 1px currentColor inset; }
-  .cnt.submitted{color:var(--grey)} .cnt.awaiting_approval{color:var(--amber)} .cnt.running{color:var(--blue)}
-  .cnt.completed{color:var(--green)} .cnt.failed{color:var(--red)} .cnt.online{color:var(--green)}
-  #add { margin-left:auto; display:flex; gap:6px; align-items:center; }
-  #add input { background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:5px 8px; font:inherit; width:150px; }
-  .btn { font-size:12px; border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:5px 11px; cursor:pointer; }
-  #conn { font-size:12px; color:var(--dim); min-width:74px; text-align:right; }
-  .wrap { display:grid; grid-template-columns:1fr 380px; height:calc(100vh - 50px); }
-  #canvas { position:relative; overflow:auto; }
-  svg.links { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-  svg .flow { stroke-dasharray:7 6; animation:dash .7s linear infinite; }
-  @keyframes dash { to { stroke-dashoffset:-13; } }
-  .node { position:absolute; width:206px; background:var(--panel); border:1px solid var(--line); border-radius:10px;
-          padding:10px 12px; cursor:grab; user-select:none; transition:border-color .15s, box-shadow .15s; }
-  .node:hover { border-color:var(--blue); } .node.drop { border-color:var(--green); box-shadow:0 0 0 2px var(--green) inset; }
-  .node.busy { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue) inset; animation:busy 1.1s ease-in-out infinite; }
-  @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
-  /* Wave A — typed wiring ports (React Flow handle concept, vanilla). out(right)→in(left) drag draws an edge. */
-  .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue);
-          top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; transition:box-shadow .1s, background .1s; }
-  .port.in { left:-7px; } .port.out { right:-7px; }
-  .port::after { content:attr(data-t); position:absolute; bottom:15px; left:50%; transform:translateX(-50%); font-size:9px;
-                 color:var(--dim); white-space:nowrap; opacity:0; pointer-events:none; }
-  .port:hover::after { opacity:1; } .port:hover { background:var(--blue); }
-  .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
-  .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
-  .node.dragging { z-index:10; opacity:.92; cursor:grabbing; box-shadow:0 6px 20px -6px rgba(0,0,0,.6); }
-  .node.trigger { width:170px; border-color:var(--amber); background:#1b1407; }
-  .node.trigger .name { color:var(--amber); } .node.trigger .badge { border-color:var(--amber); color:var(--amber); }
-  .node.trigger .port.out { border-color:var(--amber); }
-  .nodebtn { cursor:pointer; color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:0 5px; font-size:11px; background:#0d1117; }
-  .nodebtn:hover { color:var(--txt); border-color:var(--blue); }
-  /* Wave D palette — agent/skill catalog; drag/＋ to the canvas, ⧉ to copy the MCP call */
-  #palette { position:fixed; left:10px; top:58px; width:236px; max-height:calc(100vh - 120px); overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; z-index:6; box-shadow:0 10px 34px -12px #000; }
-  #palette.hidden { display:none; }
-  #palette .ph { display:flex; align-items:center; padding:9px 11px; border-bottom:1px solid var(--line); font-weight:600; font-size:13px; }
-  #palette .ph .x { margin-left:auto; cursor:pointer; color:var(--dim); }
-  #palSearch { width:calc(100% - 18px); margin:9px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 8px; font:inherit; }
-  .palrow { display:flex; align-items:center; gap:6px; padding:6px 11px; border-top:1px solid #20262d; font-size:12px; }
-  .palrow .pm { flex:1; min-width:0; } .palrow .pm b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); overflow:hidden; }
+  button { font:inherit; }
+  #topbar { display:flex; align-items:center; gap:12px; height:48px; padding:0 14px; border-bottom:1px solid var(--line); background:var(--panel); }
+  .brand { font-weight:600; font-size:14px; white-space:nowrap; } .brand span { color:var(--dim); font-weight:400; }
+  #flowName { background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 10px; font:inherit; width:200px; }
+  .tb-actions { display:flex; align-items:center; gap:8px; }
+  .tb { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:7px 13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .tb:hover { border-color:var(--blue); }
+  .tb.primary { border-color:var(--blue); color:var(--blue); } .tb.go { border-color:var(--green); color:var(--green); }
+  .menu { position:relative; }
+  .menu-pop { position:absolute; top:38px; right:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:230px; z-index:30; box-shadow:0 12px 34px -12px #000; display:none; }
+  .menu-pop.open { display:block; }
+  .menu-pop button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--txt); padding:8px 10px; border-radius:6px; cursor:pointer; }
+  .menu-pop button:hover { background:#0d1117; } .menu-pop .mh { color:var(--dim); font-size:11px; padding:6px 10px 2px; }
+  #lang { margin-left:auto; } #conn { font-size:12px; color:var(--dim); min-width:70px; text-align:right; }
+  #app { display:grid; grid-template-columns:212px 1fr 326px; height:calc(100vh - 49px); }
+  #palette { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
+  .pal-head { padding:11px 13px 7px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
+  #palSearch { margin:0 11px 8px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 9px; font:inherit; }
+  #palList { flex:1; overflow:auto; }
+  .palrow { display:flex; align-items:center; gap:7px; padding:7px 11px; cursor:default; border-top:1px solid #20262d; }
+  .palrow:hover { background:var(--panel2); }
+  .palrow .pm { flex:1; min-width:0; } .palrow .pm b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
   .palrow .pm span { color:var(--dim); font-size:11px; }
+  .palrow.trig .pm b { color:var(--amber); } .palrow.on { opacity:.5; }
   .palrow .pb { cursor:pointer; border:1px solid var(--line); border-radius:6px; padding:1px 7px; color:var(--txt); background:#0d1117; }
-  .palrow .pb:hover { border-color:var(--blue); } .palrow.on .add { opacity:.45; cursor:default; }
-  body.wiring .node { cursor:crosshair; } body.wiring { cursor:crosshair; }
+  .palrow .pb:hover { border-color:var(--blue); }
+  .pal-add { padding:9px 11px; border-top:1px solid var(--line); display:grid; gap:6px; }
+  .pal-add input { background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 8px; font:inherit; }
+  .pal-add .row2 { display:flex; gap:6px; } .pal-add .row2 button { flex:1; }
+  .pal-add button { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:6px; cursor:pointer; }
+  .pal-add button:hover { border-color:var(--blue); }
+  #canvas { position:relative; overflow:auto; background:radial-gradient(circle at 1px 1px, #20262d 1px, transparent 0) 0 0/22px 22px; }
+  svg.links { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  svg .flow { stroke-dasharray:7 6; animation:dash .7s linear infinite; } @keyframes dash { to { stroke-dashoffset:-13; } }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
+  #hint { position:absolute; top:16px; left:18px; color:var(--dim); font-size:12px; max-width:340px; }
+  .node { position:absolute; width:198px; background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:10px 12px; cursor:grab; user-select:none; transition:border-color .12s, box-shadow .12s; }
+  .node:hover { border-color:#48515c; }
+  .node.selected { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 8px 22px -10px var(--blue); }
+  .node.busy { border-color:var(--blue); animation:busy 1.1s ease-in-out infinite; }
+  @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
   .node .name { font-weight:600; display:flex; align-items:center; gap:7px; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--grey); flex:none; }
   .dot.on { background:var(--green); animation:pulse 1.8s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{ box-shadow:0 0 0 0 rgba(63,185,80,.6);} 50%{ box-shadow:0 0 0 5px rgba(63,185,80,0);} }
-  .node .co { color:var(--dim); font-size:11px; margin:1px 0 8px; } .node .row { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
-  .pill { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:999px; font-size:11px; padding:2px 9px; cursor:pointer; }
-  .pill.auto { border-color:var(--amber); color:var(--amber); } .pill.approval { border-color:var(--blue); color:var(--blue); }
-  .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
-  .hint { padding:14px 16px; color:var(--dim); font-size:12px; }
-  #panel { border-left:1px solid var(--line); overflow:auto; padding:12px; }
-  #panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:6px 2px; display:flex; }
-  #panel h2 .clear { margin-left:auto; cursor:pointer; color:var(--blue); text-transform:none; letter-spacing:0; }
-  .h { border:1px solid var(--line); border-radius:8px; padding:9px 10px; margin-bottom:8px; background:var(--panel); cursor:pointer; }
-  .h .top { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .node .co { color:var(--dim); font-size:11px; margin:2px 0 0; }
+  .node .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
+  .node .pol { font-size:10px; color:var(--dim); margin-top:6px; } .node .pol.auto { color:var(--amber); }
+  .node.trigger { width:172px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); }
+  .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; }
+  .port.in { left:-7px; } .port.out { right:-7px; } .port:hover { background:var(--blue); }
+  .node.trigger .port.out { border-color:var(--amber); }
+  .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
+  .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
+  body.wiring, body.wiring .node { cursor:crosshair; }
+  #inspector { border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:13px; }
+  .ins-h { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:2px 2px 10px; display:flex; align-items:center; }
+  .ins-h .back { margin-left:auto; cursor:pointer; color:var(--blue); text-transform:none; letter-spacing:0; }
+  .field { margin-bottom:11px; } .field label { display:block; font-size:11px; color:var(--dim); margin-bottom:3px; }
+  .field .v { font-size:13px; } .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 9px; font-size:11px; color:var(--txt); }
+  .ibtn { width:100%; text-align:left; border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:8px 11px; cursor:pointer; margin-bottom:7px; display:flex; align-items:center; gap:8px; }
+  .ibtn:hover { border-color:var(--blue); } .ibtn.danger:hover { border-color:var(--red); color:var(--red); }
+  .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
+  textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
+  #summary { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  .cnt { font-size:11px; border:1px solid var(--line); background:#0d1117; border-radius:999px; padding:2px 9px; cursor:pointer; color:var(--dim); user-select:none; }
+  .cnt b { color:var(--txt); } .cnt.on { box-shadow:0 0 0 1px currentColor inset; }
+  .cnt.online{color:var(--green)} .cnt.submitted{color:var(--grey)} .cnt.awaiting_approval{color:var(--amber)}
+  .cnt.running{color:var(--blue)} .cnt.completed{color:var(--green)} .cnt.failed{color:var(--red)}
+  .h { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:7px; background:var(--panel2); cursor:pointer; }
+  .h .top { display:flex; align-items:center; gap:7px; font-size:12px; }
   .h .who { color:var(--dim); } .h .who b { color:var(--txt); } .h .time { margin-left:auto; color:var(--dim); font-size:11px; }
   .st { font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid; }
   .st.submitted{color:var(--grey);border-color:var(--grey)} .st.awaiting_approval{color:var(--amber);border-color:var(--amber)}
   .st.approved,.st.running{color:var(--blue);border-color:var(--blue)} .st.completed{color:var(--green);border-color:var(--green)}
   .st.failed,.st.rejected{color:var(--red);border-color:var(--red)}
   .h .body { font-size:12px; color:var(--dim); margin-top:6px; white-space:pre-wrap; max-height:120px; overflow:auto; }
-  .h.open .body { max-height:none; }
-  .tl { margin-top:8px; border-left:2px solid var(--line); padding-left:10px; display:none; }
-  .h.open .tl { display:block; }
-  .tl .ev { font-size:11px; color:var(--dim); position:relative; margin:3px 0; }
-  .tl .ev::before { content:''; position:absolute; left:-15px; top:5px; width:7px; height:7px; border-radius:50%; background:var(--line); }
-  .tl .ev b { color:var(--txt); }
-  .h .acts { display:flex; gap:6px; margin-top:7px; }
-  button.act { font-size:12px; border-radius:6px; border:1px solid var(--line); padding:3px 11px; cursor:pointer; background:#0d1117; color:var(--txt); }
+  .h.open .body { max-height:none; } .h .acts { display:flex; gap:6px; margin-top:7px; }
+  button.act { font-size:12px; border-radius:6px; border:1px solid var(--line); padding:4px 11px; cursor:pointer; background:#0d1117; color:var(--txt); }
   button.ok { border-color:var(--green); color:var(--green); } button.no { border-color:var(--red); color:var(--red); }
-  dialog { background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:12px; width:440px; padding:0; }
-  dialog .dh { padding:12px 16px; border-bottom:1px solid var(--line); font-weight:600; }
+  .empty { color:var(--dim); font-size:12px; padding:10px 2px; }
+  dialog { background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:12px; width:460px; padding:0; }
+  dialog .dh { padding:13px 16px; border-bottom:1px solid var(--line); font-weight:600; }
   dialog .db { padding:14px 16px; display:grid; gap:9px; } dialog label { font-size:12px; color:var(--dim); }
-  dialog input, dialog textarea { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:inherit; }
-  dialog textarea { min-height:90px; resize:vertical; } dialog .df { display:flex; gap:8px; justify-content:flex-end; padding:0 16px 14px; }
+  dialog .minfo { font-size:12px; color:var(--dim); }
+  dialog input, dialog textarea { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:8px 10px; font:inherit; }
+  dialog textarea { min-height:88px; resize:vertical; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  dialog .df { display:flex; gap:8px; justify-content:flex-end; padding:0 16px 14px; }
   ::backdrop { background:rgba(0,0,0,.55); }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel2); border:1px solid var(--line); color:var(--txt); padding:9px 16px; border-radius:9px; font-size:12px; opacity:0; pointer-events:none; transition:.2s; box-shadow:0 10px 30px -10px #000; z-index:50; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 </style>
 
-<header>
-  <h1>BuildHUD <span>· handoff cockpit</span></h1>
-  <button class="btn" onclick="togglePalette()" title="Agent / skill palette">☰ palette</button>
-  <div id="summary"></div>
-  <div id="add">
-    <input id="addName" placeholder="new agent id…" onkeydown="if(event.key==='Enter')addAgent()">
-    <button class="btn" onclick="addAgent()">＋ agent</button>
-    <button class="btn" onclick="addTrigger()" title="Add a build_state trigger node">＋ trigger</button>
-    <button class="btn" onclick="saveFlow()" title="Save the wired graph as a workflow">💾 save</button>
-    <button class="btn" onclick="runFlow()" title="Run the wired graph topologically">▶ run</button>
-    <button class="btn" onclick="saveAutomation()" title="Save trigger + chain as an automation">📋 auto</button>
-    <button class="btn" onclick="fireEvent()" title="Fire a build_state event → runs matching automations">⚡ fire</button>
-    <button class="btn" onclick="exportFlow()" title="Export the wired flow as an MCP tool call">⇪ export</button>
-    <span id="conn">connecting…</span>
+<header id="topbar">
+  <div class="brand">BuildHUD <span>· cockpit</span></div>
+  <input id="flowName">
+  <div class="tb-actions">
+    <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
+    <button class="tb go" id="btnRun" onclick="runFlow()"></button>
+    <div class="menu">
+      <button class="tb" id="btnAuto" onclick="toggleMenu(event)"></button>
+      <div class="menu-pop" id="autoMenu">
+        <div class="mh" id="mhTrig"></div>
+        <button id="miAuto" onclick="saveAutomation()"></button>
+        <button id="miFire" onclick="fireEvent()"></button>
+        <div class="mh" id="mhShare"></div>
+        <button id="miExport" onclick="exportFlow()"></button>
+      </div>
+    </div>
   </div>
+  <button class="tb" id="lang" onclick="toggleLang()"></button>
+  <span id="conn"></span>
 </header>
-<div id="palette" class="hidden">
-  <div class="ph">Palette <span class="x" onclick="togglePalette()">✕</span></div>
-  <input id="palSearch" placeholder="search agents / skills…" oninput="renderPalette()">
-  <div id="palList"></div>
-</div>
-<div class="wrap">
-  <div id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div class="hint" id="hint">No agents yet — add one, or start the hub with prototype/agents/*.json.</div></div>
-  <div id="panel"><h2>Handoffs <span class="clear" id="clear" style="display:none" onclick="setFilter(null)">clear filter ✕</span></h2><div id="list"></div></div>
+
+<div id="app">
+  <aside id="palette">
+    <div class="pal-head" id="palHead"></div>
+    <input id="palSearch" oninput="renderPalette()">
+    <div id="palList"></div>
+    <div class="pal-add">
+      <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
+      <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button></div>
+    </div>
+  </aside>
+  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div></main>
+  <aside id="inspector"></aside>
 </div>
 
-<dialog id="send"><form method="dialog">
-  <div class="dh">Hand off <span id="sdFrom"></span> → <span id="sdTo"></span></div>
-  <div class="db">
-    <div><label>skill</label><input id="sdSkill" placeholder="review-branch"></div>
-    <div><label>input</label><textarea id="sdInput" placeholder="what should the agent do?"></textarea></div>
-  </div>
-  <div class="df"><button value="cancel" class="act">cancel</button><button id="sdSend" value="send" class="act ok">send handoff</button></div>
-</form></dialog>
+<dialog id="modal"></dialog>
+<div id="toast"></div>
 
 <script>
+/* ---------- i18n (JA/EN toggle, persisted) ---------- */
+let LANG = localStorage.getItem('bh_lang') || 'ja';
+const I18N = {
+  save:{ja:'💾 保存',en:'💾 Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, automate:{ja:'⚡ 自動化 ▾',en:'⚡ Automate ▾'},
+  mh_trig:{ja:'配線した trigger → chain から',en:'From the wired trigger → chain'},
+  mi_auto:{ja:'📋 automation として保存…',en:'📋 Save as automation…'},
+  mi_fire:{ja:'⚡ build-state イベントを発火…',en:'⚡ Fire build-state event…'},
+  mh_share:{ja:'共有',en:'Share'}, mi_export:{ja:'⇪ flow を MCP tool として export…',en:'⇪ Export flow as MCP tool…'},
+  lang_btn:{ja:'🌐 EN',en:'🌐 日本語'}, ph_flow:{ja:'無題の flow',en:'untitled flow'},
+  conn_connecting:{ja:'接続中…',en:'connecting…'}, conn_live:{ja:'● 接続',en:'● live'}, conn_off:{ja:'○ hub オフライン',en:'○ hub offline'},
+  palette:{ja:'パレット',en:'Palette'}, ph_search:{ja:'agent / skill を検索…',en:'search agents / skills…'},
+  ph_newagent:{ja:'新しい agent id…',en:'new agent id…'}, add_agent:{ja:'＋ agent',en:'＋ agent'}, add_trigger:{ja:'⚡ ＋ trigger',en:'⚡ ＋ trigger'},
+  hint:{ja:'パレットの agent をキャンバスへ、<b>out→in</b> ポートを配線、<b>▶ 実行</b>。ノードをクリックで設定。',en:'Drag agents from the <b>palette</b> onto the canvas, wire <b>out→in</b> ports, then <b>▶ Run</b>. Click a node to configure it.'},
+  pal_empty:{ja:'agent なし — prototype/agents/*.json で hub を起動',en:'no agents — start the hub with prototype/agents/*.json'},
+  on_canvas:{ja:'キャンバス上',en:'on canvas'}, add_canvas:{ja:'キャンバスに追加',en:'add to canvas'}, copy_mcp_t:{ja:'MCP 呼び出しをコピー',en:'copy MCP call'}, select_t:{ja:'選択',en:'select'},
+  insp_agent:{ja:'Agent',en:'Agent'}, insp_trigger:{ja:'Trigger',en:'Trigger'}, close:{ja:'閉じる ✕',en:'close ✕'},
+  f_company:{ja:'会社',en:'company'}, f_skill:{ja:'skill',en:'skill'}, f_presence:{ja:'presence / runtime',en:'presence / runtime'},
+  online:{ja:'🟢 オンライン',en:'🟢 online'}, offline:{ja:'⚪ オフライン',en:'⚪ offline'}, runs_hub:{ja:' · hub で実行',en:' · runs in hub'},
+  f_accepts:{ja:'accepts（受け取る型）',en:'accepts'}, f_emits:{ja:'emits（出す型）',en:'emits'}, f_policy:{ja:'policy（承認方針）',en:'policy'},
+  pol_auto:{ja:'⚡ auto — 承認なしで実行',en:'⚡ auto — runs without approval'}, pol_appr:{ja:'✋ approval — 人間ゲート',en:'✋ approval — human gate'}, toggle_sfx:{ja:' · 切替',en:' · toggle'},
+  btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
+  f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
+  btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
+  trig_hint:{ja:'この trigger の out ポートを agent に配線 →（⚡ 自動化 → automation として保存）。',en:"Wire this trigger's out-port into an agent, then ⚡ Automate → Save as automation."},
+  trig_set:{ja:'(クリックで match を設定)',en:'(click to set match)'},
+  insp_flow:{ja:'Flow & 実行',en:'Flow & runs'}, s_online:{ja:'オンライン',en:'online'}, s_queued:{ja:'待機',en:'queued'}, s_await:{ja:'承認待ち',en:'awaiting'}, s_running:{ja:'実行中',en:'running'}, s_done:{ja:'完了',en:'done'}, s_failed:{ja:'失敗',en:'failed'},
+  hf_empty_f:{ja:'このフィルタに handoff なし。',en:'No handoffs in this filter.'}, hf_empty:{ja:'handoff なし。flow を配線して ▶ 実行、または agent を選んで handoff を送る。',en:'No handoffs yet. Wire a flow and ▶ Run, or select an agent → Send a handoff.'},
+  approve:{ja:'承認',en:'approve'}, decline:{ja:'却下',en:'decline'},
+  m_save_t:{ja:'workflow として保存',en:'Save as workflow'}, m_save_b:{ja:'保存',en:'Save'}, m_name:{ja:'Workflow 名',en:'Workflow name'},
+  m_run_t:{ja:'flow を実行',en:'Run flow'}, m_run_b:{ja:'▶ 実行',en:'▶ Run'}, m_entry:{ja:'入口ノードへの入力',en:'Input for the entry node(s)'},
+  m_auto_t:{ja:'automation として保存',en:'Save as automation'}, m_auto_name:{ja:'Automation 名',en:'Automation name'}, m_auto_in:{ja:'入口ノードへの既定入力',en:'Default input for the entry node(s)'},
+  m_fire_t:{ja:'build-state イベントを発火',en:'Fire build-state event'}, m_fire_info:{ja:'この event にマッチする有効な automation を全て実行します。',en:'Runs every enabled automation whose trigger matches this event.'}, m_fire_b:{ja:'⚡ 発火',en:'⚡ Fire'}, m_event:{ja:'event（JSON）',en:'event (JSON)'},
+  m_export_info:{ja:'workflow として保存しました。任意の MCP クライアントから呼べます:',en:'Saved as a workflow. Call it from any MCP client:'}, m_copy:{ja:'⧉ コピー',en:'⧉ Copy'}, m_mcp_call:{ja:'MCP tool 呼び出し',en:'MCP tool call'},
+  m_send_b:{ja:'送信',en:'Send'}, f_from:{ja:'from（送信元）',en:'from (sender)'}, f_input:{ja:'入力',en:'input'}, ph_input:{ja:'agent に何をさせる?',en:'what should the agent do?'}, cancel:{ja:'キャンセル',en:'cancel'},
+  t_wire1:{ja:'先に配線してください: out ポートを in ポートへドラッグ。',en:'Wire a flow first: drag an out-port onto an in-port.'}, t_wire2:{ja:'先に flow を配線してください。',en:'Wire a flow first.'},
+  t_need_trig:{ja:'パレットで ⚡ trigger を追加し chain に配線してください。',en:'Add a ⚡ trigger (palette) and wire it into the chain first.'}, t_need_agent:{ja:'trigger を最低 1 つの agent に配線してください。',en:'Wire the trigger into at least one agent.'},
+  t_match_ok:{ja:'match を更新しました',en:'match updated'}, t_badjson:{ja:'不正な JSON',en:'invalid JSON'}, t_mcp_copied:{ja:'MCP 呼び出しをコピーしました',en:'MCP call copied'}, t_snip_copied:{ja:'MCP tool スニペットをコピーしました',en:'MCP tool snippet copied'}, t_running:{ja:'flow を実行中…',en:'running flow…'},
+};
+const t = (k) => (I18N[k]?.[LANG]) ?? (I18N[k]?.en) ?? k;
+function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
+function applyChrome(){   // static (non-state) chrome strings
+  document.documentElement.lang = LANG;
+  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnAuto').textContent=t('automate');
+  $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
+  $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
+  $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger');
+  $('#hint').innerHTML=t('hint');
+}
+
+/* ---------- state + helpers ---------- */
 const $ = (s, r=document) => r.querySelector(s);
-const POS = {}; const expanded = new Set(); let filter = null;
-let state = { agents: [], handoffs: [] }; let nodeDrag = null;
-// Wave A flow-draft wiring (client-side only; Wave B persists it to workflows.json).
-let EDGES = []; let wiring = null; let eidc = 0;
-// Wave C trigger nodes (client-side; saved into an automation on "save auto").
-let TRIGGERS = []; let tidc = 0;
-// Wave D: canvas membership filter (palette = catalog; ✕ hides a node, palette ＋ re-adds it).
-const HIDDEN = new Set();
+const POS = {}; const expanded = new Set();
+let state = { agents: [], handoffs: [], runs: [] };
+let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0;
+const HIDDEN = new Set(); let selected = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
-const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STC = { submitted:'var(--grey)', awaiting_approval:'var(--amber)', approved:'var(--blue)', running:'var(--blue)', completed:'var(--green)', failed:'var(--red)', rejected:'var(--red)' };
 const FLOW = new Set(['submitted','awaiting_approval','approved','running']);
-function rel(ts){ const s=Math.max(0,(Date.now()-ts)/1000); if(s<60)return Math.round(s)+'s'; if(s<3600)return Math.round(s/60)+'m'; if(s<86400)return Math.round(s/3600)+'h'; return Math.round(s/86400)+'d'; }
+const rel = (ts) => { const s=Math.max(0,(Date.now()-ts)/1000); return s<60?Math.round(s)+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'; };
 
 async function api(path, body) {
   const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'content-type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
   return r.json();
 }
 async function refresh() {
-  try { state = await api('/api/state'); $('#conn').textContent='● live'; $('#conn').style.color='var(--green)'; render(); }
-  catch { $('#conn').textContent='○ hub offline'; $('#conn').style.color='var(--red)'; }
+  try { state = await api('/api/state'); $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
+  catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
-function setFilter(f){ filter = (filter===f)?null:f; render(); }
-async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; refresh(); }
-// Wave B2: turn the wired draft (EDGES + the agents they touch) into a flow {nodes,edges}; save it / run it via the hub.
-function buildFlow(){ if(!EDGES.length) return null;
-  const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
-  const nodes=[...ids].map(id=>{ const t=trig(id); if(t) return { id, kind:'trigger', trigger:{type:t.type, match:t.match, when:t.when}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
-    const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
-  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
-async function saveFlow(){ const f=buildFlow(); if(!f) return alert('Wire nodes first: drag an out-port (right) onto an in-port (left).');
-  const name=prompt('Workflow name', f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
-  const wf=await api('/api/workflows',{ name, nodes:f.nodes, edges:f.edges }); $('#conn').textContent='saved '+wf.id; refresh(); }
-async function runFlow(){ const f=buildFlow(); if(!f) return alert('Wire nodes first: drag an out-port (right) onto an in-port (left).');
-  const input=prompt('Input for the entry node(s)','Target brief: Series A fintech VPs of Sales scaling outbound.'); if(input===null) return;
-  await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input }); refresh(); }
-// --- Wave C: trigger nodes + automations ---
-function addTrigger(){ const id='trigger-'+(++tidc);
-  TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*30 });
-  render(); }
-function editTrigger(id){ const t=trig(id); if(!t) return;
-  const s=prompt('build_state match (JSON) — the event shape that fires this trigger', JSON.stringify(t.match||{})); if(s===null) return;
-  try{ t.match=JSON.parse(s); }catch{ return alert('invalid JSON'); } render(); }
-async function saveAutomation(){ const f=buildFlow();
-  const tn=f&&f.nodes.find(n=>n.kind==='trigger'); if(!tn) return alert('Add a ⚡ trigger (＋ trigger) and wire it into the chain first.');
-  if(!f.nodes.some(n=>n.kind==='agent')) return alert('Wire the trigger into at least one agent.');
-  const name=prompt('Automation name', 'auto-'+f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
-  const input=prompt('Default input for the entry node(s)','Target: design-partner ICP from the green build.'); if(input===null) return;
-  const m=await api('/api/automations',{ name, trigger:tn.trigger, input, nodes:f.nodes, edges:f.edges }); $('#conn').textContent='automation '+m.id; refresh(); }
-async function fireEvent(){ const s=prompt('Fire a build_state event (JSON) — runs every enabled automation it matches', '{"event":"review_completed","status":"green"}'); if(s===null) return;
-  let ev; try{ ev=JSON.parse(s); }catch{ return alert('invalid JSON'); }
-  const r=await api('/api/fire',{ event:ev }); $('#conn').textContent='fired '+(r.fired?.length||0)+' automation(s)'; refresh(); }
-// --- Wave D: agent/skill palette (catalog = the hub's shared agent index) + MCP export ---
-function togglePalette(){ $('#palette').classList.toggle('hidden'); renderPalette(); }
-function renderPalette(){ const pal=$('#palette'); if(pal.classList.contains('hidden')) return;
+function render(){ placeNodes(); renderNodes(); drawLinks(); renderPalette(); renderInspector(); }
+function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
+function conn(m){ const c=$('#conn'); c.textContent=m; c.style.color='var(--blue)'; }
+
+const ag = (id) => state.agents.find(a=>a.id===id);
+const trig = (id) => TRIGGERS.find(t=>t.id===id);
+const nodeOf = (id) => ag(id) || trig(id);
+const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
+
+/* ---------- palette ---------- */
+function renderPalette(){
   const q=($('#palSearch').value||'').toLowerCase();
-  const list=state.agents.filter(a=>!q||(a.id+' '+(a.skill||'')+' '+(a.company||'')).toLowerCase().includes(q));
-  $('#palList').innerHTML = list.map(a=>{ const on=!HIDDEN.has(a.id);
-    return `<div class="palrow ${on?'on':''}">
-      <div class="pm"><b>${esc(a.id)}</b><span>${esc(a.skill||'—')}${a.company?' · '+esc(a.company):''}</span></div>
-      <span class="pb add" data-padd="${esc(a.id)}" title="${on?'already on canvas':'add to canvas'}">${on?'on':'＋'}</span>
-      <span class="pb" data-pmcp="${esc(a.id)}" title="copy MCP call">⧉</span></div>`;
-  }).join('') || '<div class="palrow"><span style="color:var(--dim)">no match</span></div>';
+  const agents=state.agents.filter(a=>!q||(a.id+' '+(a.skill||'')+' '+(a.company||'')).toLowerCase().includes(q));
+  $('#palList').innerHTML =
+    agents.map(a=>{ const on=!HIDDEN.has(a.id);
+      return `<div class="palrow ${on?'on':''}" title="${on?t('on_canvas'):t('add_canvas')}">
+        <div class="pm"><b>${esc(a.id)}</b><span>${esc(a.skill||'—')}${a.company?' · '+esc(a.company):''}</span></div>
+        <span class="pb" data-padd="${esc(a.id)}" title="${on?t('on_canvas'):t('add_canvas')}">${on?'·':'＋'}</span>
+        <span class="pb" data-pmcp="${esc(a.id)}" title="${t('copy_mcp_t')}">⧉</span></div>`; }).join('')
+    + TRIGGERS.map(tr=>`<div class="palrow trig"><div class="pm"><b>⚡ ${esc(tr.id)}</b><span>${esc(tr.type)} ${esc(matchStr(tr))}</span></div>
+        <span class="pb" data-psel="${esc(tr.id)}" title="${t('select_t')}">→</span></div>`).join('')
+    || `<div class="empty" style="padding:10px 12px">${t('pal_empty')}</div>`;
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
   $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
+  $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
 }
-async function copyText(t,label){ try{ await navigator.clipboard.writeText(t); $('#conn').textContent=label||'copied'; }catch{ prompt(label||'copy:', t); } }
-function copyMcp(id){ const a=ag(id); copyText(JSON.stringify({ tool:'send_handoff', args:{ to:id, skill:a?.skill||'task', input:'…' } }), 'MCP call copied'); }
-async function exportFlow(){ const f=buildFlow(); if(!f) return alert('Wire a flow first (drag out→in ports).');
-  const name=prompt('Export as MCP tool — workflow name', f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
-  const wf=await api('/api/workflows',{ name, nodes:f.nodes, edges:f.edges });
-  const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } });
-  await copyText(snip,'MCP tool snippet copied'); alert('Saved workflow "'+wf.id+'".\nCall it as an MCP tool:\n\n'+snip); refresh(); }
+async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
+function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
 
-function render(){
-  renderSummary(); placeNodes(); renderNodes(); drawLinks(); renderList(); renderPalette();
-}
-function renderSummary(){
-  const c = {}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
-  const onN = state.agents.filter(a=>a.online).length;
-  const pill = (k,label,n)=>`<span class="cnt ${k} ${filter===k?'on':''}" onclick="setFilter('${k}')"><b>${n||0}</b> ${label}</span>`;
-  $('#summary').innerHTML =
-    `<span class="cnt online" style="cursor:default"><b>${onN}</b>/${state.agents.length} online</span>`+
-    pill('submitted','queued',c.submitted)+pill('awaiting_approval','awaiting',c.awaiting_approval)+
-    pill('running','running',(c.running||0)+(c.approved||0))+pill('completed','done',c.completed)+
-    pill('failed','failed',(c.failed||0)+(c.rejected||0));
-}
+/* ---------- canvas nodes ---------- */
 function placeNodes(){
-  const COLW=250, ROWH=156, per=Math.max(1,Math.floor(((($('#canvas').clientWidth)||900)-40)/COLW));
-  state.agents.forEach((a,i)=>{ if(!POS[a.id]) POS[a.id]={ x:30+(i%per)*COLW, y:30+Math.floor(i/per)*ROWH }; });
+  const COLW=248, ROWH=120, w=($('#canvas')?.clientWidth||900), per=Math.max(1,Math.floor((w-280)/COLW));
+  state.agents.filter(a=>!HIDDEN.has(a.id)).forEach((a,i)=>{ if(!POS[a.id]) POS[a.id]={ x:40+(i%per)*COLW, y:40+Math.floor(i/per)*ROWH }; });
 }
 function renderNodes(){
-  const canvas=$('#canvas'); $('#hint').style.display=state.agents.length?'none':'block';
+  const canvas=$('#canvas');
+  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length)?'none':'block';
   const seen=new Set();
   for(const a of state.agents){
-    if(HIDDEN.has(a.id)) continue;            // Wave D: ✕-removed from canvas (still in the palette)
+    if(HIDDEN.has(a.id)) continue;
     const nid='n_'+cssid(a.id); seen.add(nid);
     let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNodeDrag(n,a.id); }
+    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNode(n,a.id); }
     n.style.left=POS[a.id].x+'px'; n.style.top=POS[a.id].y+'px';
     const mine=state.handoffs.filter(h=>h.to===a.id);
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const busy=mine.some(h=>h.status==='running'||h.status==='approved');
-    n.classList.toggle('busy',busy);
-    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}<span class="badge">${pending}</span>
-      <span class="nodebtn" data-mcp="${esc(a.id)}" title="copy MCP call">⧉</span>
-      <span class="nodebtn" data-hide="${esc(a.id)}" title="remove from canvas (keeps it in the palette)">✕</span></div>
+    n.classList.toggle('busy',busy); n.classList.toggle('selected',selected===a.id);
+    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>
       <div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}</div>
-      <div class="row"><span class="pill ${a.policy}" data-pol="${esc(a.id)}">${a.policy==='auto'?'⚡ auto':'✋ approval'}</span>
-      <span>${a.online?'online':'offline'}</span>${busy?'<span style="color:var(--blue)">▶ running</span>':''}</div>
-      <span class="port in"  data-in="${esc(a.id)}"  data-t="${esc((a.accepts||['*']).join(', '))}"></span>
-      <span class="port out" data-out="${esc(a.id)}" data-t="${esc((a.emits||['*']).join(', '))}"></span>`;
+      <div class="pol ${a.policy}">${a.policy==='auto'?'⚡ auto':'✋ approval'}${busy?' · ▶ running':a.online?'':' · offline'}</div>
+      <span class="port in" data-in="${esc(a.id)}"></span><span class="port out" data-out="${esc(a.id)}"></span>`;
   }
-  for(const t of TRIGGERS){
-    const nid='n_'+cssid(t.id); seen.add(nid);
+  for(const tr of TRIGGERS){
+    const nid='n_'+cssid(tr.id); seen.add(nid);
     let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=t.id; canvas.appendChild(n); attachNodeDrag(n,t.id); }
-    if(!POS[t.id]) POS[t.id]={x:t.x||40,y:t.y||40};
-    n.style.left=POS[t.id].x+'px'; n.style.top=POS[t.id].y+'px';
-    const mt=t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
-    n.innerHTML=`<div class="name">⚡ trigger<span class="badge">${esc(t.type)}</span></div>
-      <div class="co">${t.type==='build_state'?esc(mt||'(click edit)'):t.type==='schedule'?esc(t.when||'cron'):'manual'}</div>
-      <div class="row"><span class="pill" data-edit="${esc(t.id)}">edit</span></div>
-      <span class="port out" data-out="${esc(t.id)}" data-t="*"></span>`;
+    if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=tr.id; canvas.appendChild(n); attachNode(n,tr.id); }
+    if(!POS[tr.id]) POS[tr.id]={x:tr.x||30,y:tr.y||30};
+    n.style.left=POS[tr.id].x+'px'; n.style.top=POS[tr.id].y+'px'; n.classList.toggle('selected',selected===tr.id);
+    n.innerHTML=`<div class="name">⚡ trigger</div><div class="co">${esc(tr.type)}</div>
+      <div class="pol">${esc(matchStr(tr)||t('trig_set'))}</div><span class="port out" data-out="${esc(tr.id)}"></span>`;
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
-  canvas.querySelectorAll('[data-pol]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();togglePolicy(el.getAttribute('data-pol'));});
-  canvas.querySelectorAll('[data-edit]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();editTrigger(el.getAttribute('data-edit'));});
-  canvas.querySelectorAll('[data-mcp]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();copyMcp(el.getAttribute('data-mcp'));});
-  canvas.querySelectorAll('[data-hide]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();HIDDEN.add(el.getAttribute('data-hide'));render();});
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
-function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
-// ---- Wave A/C: node model (agents + trigger nodes), typed port wiring (out→in) ----
-const ag = (id) => state.agents.find(a=>a.id===id);
-const trig = (id) => TRIGGERS.find(t=>t.id===id);
-const nodeOf = (id) => ag(id) || trig(id);
-function attachNodeDrag(n, id){    // node-body drag = live reposition; release on a node = send; release on empty = move
+function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
-    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('[data-pol]')||e.target.closest('[data-edit]')||e.target.closest('[data-mcp]')||e.target.closest('[data-hide]'))return;
+    if(wiring||e.button!==0||e.target.closest('.port'))return;
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
-    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, startX:o.x, startY:o.y, moved:false };
-    n.classList.add('dragging'); n.style.pointerEvents='none';
+    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false };
   });
 }
-function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null;
-  return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
+function selectNode(id){ selected=id; render(); }
+function deselect(){ if(selected){ selected=null; render(); } }
+$('#canvas').addEventListener('pointerdown', e=>{ if(e.target.id==='canvas'||e.target.tagName==='svg'||e.target.tagName==='g') deselect(); });
+
+/* ---------- wiring ---------- */
+function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
-function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const t=nodeOf(tgt); if(!t||t.kind==='trigger')return false; // can't wire INTO a trigger
-  const e=nodeOf(src)?.emits||['*'], a=t.accepts||['*'];
-  return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }            // isValidConnection = type intersection
-function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
-  const common=e.find(t=>t!=='*'&&a.includes(t)); if(common)return common;
-  if(a.includes('*')) return e.find(t=>t!=='*')||'*'; if(e.includes('*')) return a.find(t=>t!=='*')||'*'; return '*'; }
 function canvasPt(e){ const c=$('#canvas'), r=c.getBoundingClientRect(); return { x:e.clientX-r.left+c.scrollLeft, y:e.clientY-r.top+c.scrollTop }; }
-function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:null, over:null };
-  document.body.classList.add('wiring'); updateTemp(); }
+function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger')return false;
+  const e=nodeOf(src)?.emits||['*'], a=tn.accepts||['*']; return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }
+function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
+  const c=e.find(x=>x!=='*'&&a.includes(x)); if(c)return c; if(a.includes('*')) return e.find(x=>x!=='*')||'*'; if(e.includes('*')) return a.find(x=>x!=='*')||'*'; return '*'; }
+function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:null, over:null }; document.body.classList.add('wiring'); updateTemp(); }
 function updateTemp(){ const tw=$('#tempwire'); if(!wiring){ tw.removeAttribute('d'); return; }
-  const a=portPos(wiring.src,'out'); if(!a)return;
-  const b = wiring.over ? portPos(wiring.over,'in') : (wiring.pt||a);
-  const ok = wiring.over ? canConnect(wiring.src,wiring.over) : null;
-  tw.setAttribute('d', fpath(a,b)); tw.setAttribute('stroke-width','2');
-  tw.setAttribute('stroke', ok===true?'var(--green)':ok===false?'var(--red)':'var(--blue)'); }
-function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false;
-  if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
+  const a=portPos(wiring.src,'out'); if(!a)return; const b=wiring.over?portPos(wiring.over,'in'):(wiring.pt||a);
+  const ok=wiring.over?canConnect(wiring.src,wiring.over):null;
+  tw.setAttribute('d', fpath(a,b)); tw.setAttribute('stroke-width','2'); tw.setAttribute('stroke', ok===true?'var(--green)':ok===false?'var(--red)':'var(--blue)'); }
+function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false; if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
   EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
 function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
   wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d');
   document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid')); }
-// hit-test the in-port under the pointer (elementFromPoint works for mouse + touch implicit capture)
-document.addEventListener('pointermove', e=>{ if(!wiring)return; wiring.pt=canvasPt(e);
-  document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid'));
-  const inp=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.port.in');
-  if(inp){ const t=inp.getAttribute('data-in'); wiring.over=t; inp.classList.add(canConnect(wiring.src,t)?'valid':'invalid'); }
-  else wiring.over=null;
-  updateTemp(); });
-document.addEventListener('pointerup', endWire);
-// node-body drag: live reposition + drop-on-node highlight
-document.addEventListener('pointermove', e=>{ if(!nodeDrag)return;
-  const p=canvasPt(e); POS[nodeDrag.id]={ x:Math.max(0,p.x-nodeDrag.offX), y:Math.max(0,p.y-nodeDrag.offY) };
-  nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true;
-  document.querySelectorAll('.node.drop').forEach(x=>x.classList.remove('drop'));
-  const over=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.node');
-  if(over&&over!==nodeDrag.node) over.classList.add('drop');
-  drawLinks(); });
-document.addEventListener('pointerup', e=>{ if(!nodeDrag)return; const nd=nodeDrag; nodeDrag=null;
-  nd.node.classList.remove('dragging'); nd.node.style.pointerEvents='';
-  document.querySelectorAll('.node.drop').forEach(x=>x.classList.remove('drop'));
-  const over=nd.moved && (document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.node');
-  if(over&&over!==nd.node&&over.dataset.id){                        // drop on another node = send (source snaps back)
-    POS[nd.id]={x:nd.startX,y:nd.startY}; nd.node.style.left=nd.startX+'px'; nd.node.style.top=nd.startY+'px';
-    openSend(nd.id, over.dataset.id);
-  }
-  drawLinks(); });
+document.addEventListener('pointermove', e=>{
+  if(wiring){ wiring.pt=canvasPt(e);
+    document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid'));
+    const inp=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.port.in');
+    if(inp){ const tt=inp.getAttribute('data-in'); wiring.over=tt; inp.classList.add(canConnect(wiring.src,tt)?'valid':'invalid'); } else wiring.over=null;
+    updateTemp(); return; }
+  if(nodeDrag){ const p=canvasPt(e); POS[nodeDrag.id]={ x:Math.max(0,p.x-nodeDrag.offX), y:Math.max(0,p.y-nodeDrag.offY) };
+    nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true; drawLinks(); }
+});
+document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved) selectNode(nd.id); } });
+
+/* ---------- edges ---------- */
+function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
 function drawLinks(){
-  // flow-draft wiring (Wave A): solid bezier, type label, click-to-delete
   const fe = EDGES.map(e=>{ const a=portPos(e.source,'out'), b=portPos(e.target,'in'); if(!a||!b)return '';
     const d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, esc(e.type).length*6+10);
-    return `<path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2" opacity=".85"/>`
-      +`<path class="hit" d="${d}" data-edge="${e.id}"></path>`
-      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="var(--line)"/>`
-      +`<text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="var(--blue)">${esc(e.type)}</text>`;
+    return `<path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2" opacity=".85"/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="var(--line)"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="var(--blue)">${esc(e.type)}</text>`;
   }).join('');
-  // handoff runtime edges (center→center, animated in-flight)
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.to); if(!a||!b)return '';
     const c=STC[h.status]||'var(--grey)'; const mx=(a.x+b.x)/2; const flow=FLOW.has(h.status);
-    return `<path class="${flow?'flow':''}" d="M${a.x},${a.y} Q${mx},${a.y} ${mx},${(a.y+b.y)/2} T${b.x},${b.y}" fill="none" stroke="${c}" stroke-width="2" opacity="${h.status==='completed'?0.45:0.9}"/><circle cx="${b.x}" cy="${b.y}" r="3.5" fill="${c}"/>`;
+    return `<path class="${flow?'flow':''}" d="M${a.x},${a.y} Q${mx},${a.y} ${mx},${(a.y+b.y)/2} T${b.x},${b.y}" fill="none" stroke="${c}" stroke-width="2" opacity="${h.status==='completed'?0.4:0.9}"/><circle cx="${b.x}" cy="${b.y}" r="3.5" fill="${c}"/>`;
   }).join('');
   $('#staticlinks').innerHTML = fe + he;
   $('#staticlinks').querySelectorAll('.hit').forEach(el=> el.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==el.dataset.edge); drawLinks(); });
 }
-function renderList(){
-  $('#clear').style.display=filter?'inline':'none';
+
+/* ---------- inspector ---------- */
+function renderInspector(){
+  const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected);
+  if(a) return void (ins.innerHTML = inspAgent(a));
+  if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
+  ins.innerHTML = inspDefault();
+  ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
+  ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
+  ins.querySelectorAll('[data-ok]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-ok'),'approve');});
+  ins.querySelectorAll('[data-no]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-no'),'decline');});
+}
+function inspAgent(a){
+  return `<div class="ins-h">${t('insp_agent')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="field"><label>id</label><div class="v">${esc(a.id)}</div></div>
+    <div class="field"><label>${t('f_company')}</label><div class="v">${esc(a.company||'—')}</div></div>
+    <div class="field"><label>${t('f_skill')}</label><div class="v">${esc(a.skill||'—')}</div></div>
+    <div class="field"><label>${t('f_presence')}</label><div class="v">${a.online?t('online'):t('offline')}${a.local?t('runs_hub'):''}</div></div>
+    <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(a.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(a.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="field"><label>${t('f_policy')}</label>
+      <button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
+    <button class="ibtn" onclick="sendHandoff('${esc(a.id)}')">${t('btn_send')}</button>
+    <button class="ibtn" onclick="copyMcp('${esc(a.id)}')">${t('btn_copy_mcp')}</button>
+    <button class="ibtn danger" onclick="HIDDEN.add('${esc(a.id)}');deselect()">${t('btn_remove')}</button>`;
+}
+function inspTrigger(tr){
+  return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="field"><label>${t('f_type')}</label><div class="v">build_state</div></div>
+    <div class="field"><label>${t('f_match')}</label><textarea class="match" id="matchEdit">${esc(JSON.stringify(tr.match||{}, null, 2))}</textarea></div>
+    <button class="ibtn" id="matchSave">${t('btn_apply')}</button>
+    <button class="ibtn danger" onclick="removeTrigger('${esc(tr.id)}')">${t('btn_del_trig')}</button>
+    <div class="empty">${t('trig_hint')}</div>`;
+}
+function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave'); if(!btn)return;
+  btn.onclick=()=>{ try{ tr.match=JSON.parse(ta.value); toast(t('t_match_ok')); render(); }catch{ toast(t('t_badjson')); } }; }
+function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
+function inspDefault(){
+  const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
+  const onN=state.agents.filter(a=>a.online).length;
+  const pill=(k,lbl)=>`<span class="cnt ${k} ${filter===k?'on':''}" data-f="${k}"><b>${(k==='running'?(c.running||0)+(c.approved||0):k==='failed'?(c.failed||0)+(c.rejected||0):c[k]||0)}</b> ${lbl}</span>`;
   let hs=[...state.handoffs].reverse();
   if(filter) hs=hs.filter(h=> filter==='running'?['running','approved'].includes(h.status): filter==='failed'?['failed','rejected'].includes(h.status): h.status===filter);
-  $('#list').innerHTML = hs.map(h=>{ const open=expanded.has(h.id);
+  const list = hs.map(h=>{ const open=expanded.has(h.id);
     return `<div class="h ${open?'open':''}" data-id="${h.id}">
       <div class="top"><span class="st ${h.status}">${h.status}</span>
-        <span class="who"><b>${esc(h.from)}</b> → <b>${esc(h.to)}</b> · ${esc(h.skill)}</span>
-        <span class="time">${rel(h.updatedAt)} ago</span></div>
-      ${h.input?`<div class="body">${esc(h.input).slice(0,open?2000:160)}</div>`:''}
-      ${h.result?`<div class="body" style="color:var(--green)">${esc(h.result).slice(0,open?4000:300)}</div>`:''}
+        <span class="who"><b>${esc(h.from)}</b> → <b>${esc(h.to)}</b> · ${esc(h.skill)}</span><span class="time">${rel(h.updatedAt)}</span></div>
+      ${h.result?`<div class="body" style="color:var(--green)">${esc(h.result).slice(0,open?4000:160)}</div>`:''}
       ${h.error?`<div class="body" style="color:var(--red)">${esc(h.error)}</div>`:''}
-      <div class="tl">${(h.history||[]).map(e=>`<div class="ev"><b>${e.status}</b> · ${esc(e.by||'')} · ${rel(e.ts)} ago</div>`).join('')}</div>
-      ${h.status==='awaiting_approval'?`<div class="acts"><button class="act ok" data-ok="${h.id}">approve</button><button class="act no" data-no="${h.id}">decline</button></div>`:''}
-    </div>`; }).join('') || `<div class="hint" style="padding:6px 2px">${filter?'No handoffs in this filter.':'No handoffs yet — drag an agent onto another.'}</div>`;
-  $('#list').querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.getAttribute('data-id'); expanded.has(id)?expanded.delete(id):expanded.add(id); render(); });
-  $('#list').querySelectorAll('[data-ok]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-ok'),'approve');});
-  $('#list').querySelectorAll('[data-no]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-no'),'decline');});
+      ${open&&h.input?`<div class="body">in: ${esc(h.input).slice(0,1500)}</div>`:''}
+      ${h.status==='awaiting_approval'?`<div class="acts"><button class="act ok" data-ok="${h.id}">${t('approve')}</button><button class="act no" data-no="${h.id}">${t('decline')}</button></div>`:''}
+    </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
+  return `<div class="ins-h">${t('insp_flow')}</div>
+    <div id="summary"><span class="cnt online"><b>${onN}</b>/${state.agents.length} ${t('s_online')}</span>
+      ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}`;
 }
-function openSend(from,to){ const ta=state.agents.find(a=>a.id===to);
-  $('#sdFrom').textContent=from; $('#sdTo').textContent=to; $('#sdSkill').value=ta?.skill||''; $('#sdInput').value='';
-  const dlg=$('#send'); dlg.showModal();
-  $('#sdSend').onclick=async e=>{ e.preventDefault(); await api('/api/handoffs',{from,to,skill:$('#sdSkill').value.trim()||'task',input:$('#sdInput').value}); dlg.close(); refresh(); };
-}
-async function act(id,what){ await api(`/api/handoffs/${id}/${what}`,{}); refresh(); }
-async function togglePolicy(id){ const a=state.agents.find(x=>x.id===id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
 
-refresh(); setInterval(refresh, 1500); window.addEventListener('resize', render);
+/* ---------- actions ---------- */
+async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
+function copyMcp(id){ const a=ag(id); copyText(JSON.stringify({ tool:'send_handoff', args:{ to:id, skill:a?.skill||'task', input:'…' } }), t('t_mcp_copied')); }
+async function act(id,what){ await api(`/api/handoffs/${id}/${what}`,{}); refresh(); }
+function sendHandoff(to){ const a=ag(to);
+  openModal({ title:`handoff → ${to}`, submitLabel:t('m_send_b'), fields:[
+    {key:'from',label:t('f_from'),value:'cockpit'}, {key:'skill',label:t('f_skill'),value:a?.skill||'task'},
+    {key:'input',label:t('f_input'),type:'textarea',placeholder:t('ph_input')} ],
+    onSubmit:async v=>{ await api('/api/handoffs',{ from:v.from||'cockpit', to, skill:v.skill||'task', input:v.input||'' }); refresh(); } });
+}
+function flowName(){ const v=$('#flowName').value.trim(); if(v) return v; const f=buildFlow(); return f? f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→') : 'flow'; }
+function buildFlow(){ if(!EDGES.length) return null;
+  const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
+  const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
+    const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
+  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
+async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
+  openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
+    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
+async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
+  openModal({ title:t('m_run_t'), submitLabel:t('m_run_b'), fields:[{key:'input',label:t('m_entry'),type:'textarea',value:'Target brief: Series A fintech VPs of Sales scaling outbound.'}],
+    onSubmit:async v=>{ await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input:v.input }); conn(t('t_running')); refresh(); } }); }
+async function saveAutomation(){ closeMenu(); const f=buildFlow();
+  const tn=f&&f.nodes.find(n=>n.kind==='trigger'); if(!tn) return toast(t('t_need_trig'));
+  if(!f.nodes.some(n=>n.kind==='agent')) return toast(t('t_need_agent'));
+  openModal({ title:t('m_auto_t'), submitLabel:t('m_save_b'), fields:[
+    {key:'name',label:t('m_auto_name'),value:'auto-'+f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')},
+    {key:'input',label:t('m_auto_in'),type:'textarea',value:'Target: design-partner ICP from the green build.'} ],
+    onSubmit:async v=>{ if(!v.name)return; const m=await api('/api/automations',{ name:v.name, trigger:tn.trigger, input:v.input, nodes:f.nodes, edges:f.edges }); conn('automation '+m.id); refresh(); } }); }
+async function fireEvent(){ closeMenu();
+  openModal({ title:t('m_fire_t'), info:t('m_fire_info'), submitLabel:t('m_fire_b'), fields:[{key:'event',label:t('m_event'),type:'textarea',value:'{ "event": "review_completed", "status": "green" }'}],
+    onSubmit:async v=>{ let ev; try{ ev=JSON.parse(v.event); }catch{ return toast(t('t_badjson')); } const r=await api('/api/fire',{ event:ev }); conn('fired '+(r.fired?.length||0)); refresh(); } }); }
+async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toast(t('t_wire2'));
+  const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id;
+  const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
+  openModal({ title:`MCP tool: ${wf.id}`, info:t('m_export_info'), submitLabel:t('m_copy'), fields:[{key:'snip',label:t('m_mcp_call'),type:'readonly',value:snip}], onSubmit:()=>copyText(snip,t('t_snip_copied')) }); refresh(); }
+async function copyText(text,label){ try{ await navigator.clipboard.writeText(text); conn(label); toast(label); }catch{ openModal({title:label,fields:[{key:'x',label:t('m_mcp_call'),type:'readonly',value:text}]}); } }
+
+/* ---------- modal + menu ---------- */
+function openModal({title, fields=[], submitLabel='OK', onSubmit, info}){
+  const dlg=$('#modal');
+  dlg.innerHTML=`<form method="dialog"><div class="dh">${esc(title)}</div><div class="db">
+    ${info?`<div class="minfo">${esc(info)}</div>`:''}
+    ${fields.map(f=>`<label>${esc(f.label)}</label>`+(f.type==='textarea'?`<textarea data-k="${f.key}" placeholder="${esc(f.placeholder||'')}">${esc(f.value||'')}</textarea>`
+       : f.type==='readonly'?`<textarea data-k="${f.key}" readonly>${esc(f.value||'')}</textarea>`
+       : `<input data-k="${f.key}" placeholder="${esc(f.placeholder||'')}" value="${esc(f.value||'')}">`)).join('')}
+    </div><div class="df"><button value="cancel" class="act">${t('cancel')}</button>${onSubmit?`<button value="ok" class="act ok">${esc(submitLabel)}</button>`:''}</div></form>`;
+  dlg.showModal();
+  dlg.querySelector('[value="cancel"]').onclick=()=>dlg.close();
+  const ok=dlg.querySelector('[value="ok"]');
+  if(ok) ok.onclick=(e)=>{ e.preventDefault(); const v={}; dlg.querySelectorAll('[data-k]').forEach(el=>v[el.dataset.k]=el.value); dlg.close(); onSubmit(v); };
+  const first=dlg.querySelector('[data-k]'); if(first) setTimeout(()=>first.focus(),30);
+}
+function toggleMenu(e){ e.stopPropagation(); $('#autoMenu').classList.toggle('open'); }
+function closeMenu(){ $('#autoMenu').classList.remove('open'); }
+document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu(); });
+
+applyChrome(); refresh(); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
