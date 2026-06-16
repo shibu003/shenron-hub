@@ -28,7 +28,8 @@ const PUBLIC_URL = cfg.publicUrl || `http://localhost:${PORT}`;
 const REPO_ALLOWLIST = cfg.repoAllowlist || [];
 const REVIEWER = cfg.reviewer || 'stub';            // 'stub' | 'codex' | 'claude'
 const AUTO_APPROVE = !!cfg.autoApprove;             // testing only — bypasses the attended gate
-const AUDIT_LOG = path.join(process.cwd(), 'prototype', 'handoff.log');
+// audit log is configurable so an isolated dry-run doesn't contaminate the real handoff.log evidence (Codex)
+const AUDIT_LOG = cfg.auditLog ? path.resolve(cfg.auditLog) : path.join(process.cwd(), 'prototype', 'handoff.log');
 
 // Trust gate: require a shared token. Refuse to start without one unless --dev (Codex review #1).
 const DEV = process.argv.includes('--dev');
