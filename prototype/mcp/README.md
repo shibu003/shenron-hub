@@ -1,12 +1,13 @@
 # prototype/mcp — BuildHUD MCP server (次セッションの入口)
 
-BuildHUD を **MCP server** として公開し、AI（Claude/Codex 等）が agent / workflow を **発見・検索・実行**できる control plane。設計は `docs/10_MCP_INTERFACE.md`。
-肝 = **clean-mcp 流 token-light index**：`search_*` は小さな ref を返し、`get_*` で必要な 1 件だけ展開（数百 agent でも定数トークン）。
+BuildHUD を **MCP server** として公開し、AI（Claude/Codex 等）が agent / workflow / automation を **発見・検索・実行**できる control plane。設計は `docs/10_MCP_INTERFACE.md`。
+肝 = **clean-mcp 流 token-light index**：`search_*` は小さな ref を返し、`get_*` で必要な 1 件だけ展開（数百 agent でも定数トークン）。3 索引（agent / workflow / automation）は **1 つの generic searcher** を共有。
 
-- `server.mjs` — 依存ゼロの MCP stdio server（newline-delimited JSON-RPC）。`../agents/*.json` と `workflows.json` を索引。
-- `workflows.json` — named workflow（例: `sales-to-marketing`）。
+- `server.mjs` — 依存ゼロの MCP stdio server（newline-delimited JSON-RPC）。`../agents/*.json`・`workflows.json`・`automations.json` を索引。
+- `workflows.json` — named workflow（例: `sales-to-marketing`）。run-on-demand な連鎖。
+- `automations.json` — **trigger-bound** な run（`schedule` / `build_state`）。「build-state を引き金に走らせる」中核。各 automation = trigger ＋ bound workflow ＋ default input。
 
-## Tools（7）
+## Tools（11）
 
 | tool | 種別 | 入力 | 返り |
 |---|---|---|---|
@@ -14,11 +15,15 @@ BuildHUD を **MCP server** として公開し、AI（Claude/Codex 等）が age
 | `get_agent` | read | `{id}` | full agent（on-demand） |
 | `search_workflows` | read | `{query, limit?}` | 小 ref `[{id,name,summary,steps,tags}]` |
 | `get_workflow` | read | `{id}` | full 定義（steps） |
-| `build_state` | read | `{}` | 要約（counts / ids） |
+| `search_automations` | read | `{query, limit?}` | 小 ref `[{id,name,summary,trigger,workflow,enabled,tags}]` |
+| `get_automation` | read | `{id}` | full 定義（trigger / bound workflow / default input） |
+| `build_state` | read | `{}` | 要約（counts / ids / attended-unattended） |
 | `run_handoff` | **act** | `{toAgentId, skill, input, confirm?}` | 1 handoff（`confirm:true` で実行、無しは dry-run） |
 | `run_workflow` | **act** | `{id, input, confirm?}` | workflow 連鎖＋trace（`confirm:true` で実行） |
+| `run_automation` | **act** | `{id, input?, confirm?}` | automation の bound workflow を即 fire（`confirm:true`／`--unattended`） |
+| `fire_event` | **act** | `{event, input?, confirm?}` | build-state event に match した enabled automation を返す＋（`confirm:true`／`--unattended`）fire |
 
-read/act 分離。**act は attended**：`confirm:true` を渡すまで実行せず dry-run plan を返す。
+read/act 分離。**act は二段 fence**：(1) `confirm:true`（or `--unattended`）まで実行せず dry-run plan、(2) 実行は `A2A_SHARED_TOKEN` 必須（無ければ network に出ず即 refuse）。
 
 ## A. MCP client に登録（Claude Code 等）
 
@@ -67,13 +72,43 @@ printf '%s\n' \
 
 **検証済（2026-06-16）**：trace = A社/find-prospects(~677B, Codex) → B社/draft-outreach(~1393B, Claude)、実 LLM でパーソナライズ文面を返却。
 
-## 拡張（agent / workflow を足す）
+## D. Automation（build-state を引き金に）+ autonomous
+
+automation = trigger（`schedule` / `build_state`）に bind した workflow。AI が「build が green になったら走らせる」を宣言的に持てる。
+
+```bash
+# build-state event を投げて、match した automation を確認（attended: dry-run）
+printf '%s\n' \
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fire_event","arguments":{"event":{"event":"review_completed","status":"green"}}}}' \
+| node prototype/mcp/server.mjs
+# → id2 = {event, matched:[{id:"on-green-build-outreach",...}], note:"...confirm:true / --unattended..."}
+```
+
+**autonomous（勝手に走る）= `--unattended` で opt-in**：
+
+```bash
+export A2A_SHARED_TOKEN=$(openssl rand -hex 16)
+node prototype/agents/agent.mjs --config prototype/agents/sales.json     &
+node prototype/agents/agent.mjs --config prototype/agents/marketing.json &
+# --unattended: enabled automation を confirm 無しで fire（CI hook / cron から呼べる）
+printf '%s\n' \
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fire_event","arguments":{"event":{"event":"review_completed","status":"green"}}}}' \
+| node prototype/mcp/server.mjs --unattended
+# → id2 = {event, fired:[{automation, result:<B社 outreach>, trace:[...]}]}
+```
+
+二段 fence は autonomous でも生きる：`--unattended` は dry-run を飛ばすが、**`A2A_SHARED_TOKEN` 無しなら network に出ず即 refuse**（schedule trigger の cron 化は外部 scheduler に委譲、`when` は索引に保持するだけ）。
+
+## 拡張（agent / workflow / automation を足す）
 - agent 追加：`../agents/<name>.json` を 1 つ足すだけ（server が起動時に索引）。
 - workflow 追加：`workflows.json` に `{id,name,summary,tags,steps:[{agent,skill}]}` を足す。
+- automation 追加：`automations.json` に `{id,name,summary,tags,trigger:{type,...},workflow,input,enabled}` を足す。`trigger.type` は `schedule`（`when`=cron）か `build_state`（`match`={event,status,...} の subset 一致）。
 - いずれも search index に自動で載る（token-light のまま）。
 
 ## Fence / 注意（docs/09・10）
-- `run_*` は **attended**（`confirm:true` 必須）。autonomous は将来 opt-in。
+- `run_*` / `fire_event` は既定 **attended**（`confirm:true` 必須）。autonomous は **`--unattended`（or `BUILDHUD_UNATTENDED=1`）で明示 opt-in**。どちらでも実行は `A2A_SHARED_TOKEN` 必須＝二段 fence。
 - trust は **fake**（共有 token + allowlist）。本物の cross-party 認可(OBO/DPoP・M5)は未実装＝ship 不可。
 - MCP の version 文字列/schema は最小・概形 → 本番は `@modelcontextprotocol/sdk` 採用も検討。
 - **full dump tool を作らない**（`get_*` で 1 件ずつ＝token 節約の核）。

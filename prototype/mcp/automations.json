@@ -1,0 +1,22 @@
+[
+  {
+    "id": "nightly-prospect-outreach",
+    "name": "Nightly prospect → outreach",
+    "summary": "Every night, A社 finds fresh prospects and B社 drafts personalized outreach for the standing ICP.",
+    "tags": ["sales", "marketing", "gtm", "scheduled", "outreach"],
+    "trigger": { "type": "schedule", "when": "0 2 * * *" },
+    "workflow": "sales-to-marketing",
+    "input": "Target: Series-A fintech SaaS; ICP VP Sales. Product: AI SDR that books meetings.",
+    "enabled": true
+  },
+  {
+    "id": "on-green-build-outreach",
+    "name": "Green build → outreach",
+    "summary": "When a build goes green (review COMPLETED), kick the sales→marketing chain for the design-partner ICP. The build-state-triggered run.",
+    "tags": ["build-state", "trigger", "ci", "sales", "marketing"],
+    "trigger": { "type": "build_state", "match": { "event": "review_completed", "status": "green" } },
+    "workflow": "sales-to-marketing",
+    "input": "Target: design-partner ICP from the latest green build. Product: BuildHUD agent-handoff layer.",
+    "enabled": true
+  }
+]
