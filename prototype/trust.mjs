@@ -70,3 +70,54 @@ export function auditVerify(chain) {
   }
   return { ok: true, length: chain.length };
 }
+
+// Wave R — audit-backed reputation: aggregate the tamper-evident trail into a LONGITUDINAL, per-agent trust
+// signal (the per-run trust of E1/E2/E3, extended across time → the bridge toward a cross-owner work market).
+// Pure + DERIVED: computed on read from the existing audit + handoffs, never persisted — inbox.json stays the
+// single source of truth. Honest by design (no overclaim):
+//   • only events that NAME an agent are attributed; edge redactions whose endpoints are node ids (in1/out1)
+//     can't be tied to an agent, so they land in `unattributed` — never blamed on someone (fake precision is worse).
+//   • a `deny` = the data firewall doing its job (the agent lacked the grant), so it's a NEUTRAL "blocks enforced"
+//     count, NOT a demerit and NOT folded into cleanRunRate.
+//   • cold-start (no audited runs) → tier 'new', never a 0% score; if the chain doesn't verify the evidence is
+//     untrustworthy → tier 'chain-broken' overrides everything.
+export function reputationFrom(audit = [], handoffs = [], agentIds = []) {
+  const chain = auditVerify(audit);
+  const isAgent = new Set(agentIds);
+  const hById = new Map(handoffs.map((h) => [h.id, h]));
+  const A = {};
+  const acc = (id) => (A[id] ||= { runs: new Set(), dirtyRuns: new Set(), redactionsCaught: 0, denials: 0, approvalsRequired: 0, sendsMade: 0, attribution: 'direct' });
+  for (const id of agentIds) acc(id);                                  // cold-start: every known agent shows up, even with zero activity
+  const unattributed = { edgeRedactions: 0, routes: 0 };
+  for (const h of handoffs) { if (!h.runId) continue; if (isAgent.has(h.to)) acc(h.to).runs.add(h.runId); if (isAgent.has(h.from)) acc(h.from).runs.add(h.runId); }   // honest denominator: runs the agent was actually in
+  for (const e of audit) {
+    const h = e.handoff ? hById.get(e.handoff) : null;
+    if (e.type === 'redact') {
+      const n = (e.removed || []).reduce((x, r) => x + (r.count || 0), 0);
+      if (e.egress) {                                                  // egress to an external tool: no agent field → join handoff.from (the sender)
+        if (h && isAgent.has(h.from)) { const a = acc(h.from); a.redactionsCaught += n; a.attribution = 'partial'; if (h.runId) a.dirtyRuns.add(h.runId); }
+        else unattributed.edgeRedactions += n;
+      } else if (isAgent.has(e.to)) {                                  // handoff-create OR edge-into-agent: `to` names the recipient agent
+        const a = acc(e.to); a.redactionsCaught += n; const rid = h ? h.runId : e.runId; if (rid) a.dirtyRuns.add(rid);
+      } else unattributed.edgeRedactions += n;                         // edge redact with node-id endpoints (in1/out1) → not attributable
+    } else if (e.type === 'deny') {
+      if (isAgent.has(e.from)) acc(e.from).denials += 1;               // firewall enforced a block — neutral (NOT counted against cleanRunRate)
+    } else if (e.type === 'approve') {
+      if (isAgent.has(e.to)) acc(e.to).approvalsRequired += 1;
+    } else if (e.type === 'send') {
+      if (h && isAgent.has(h.from)) { const a = acc(h.from); a.sendsMade += 1; a.attribution = 'partial'; }
+    } else if (e.type === 'route') unattributed.routes += 1;
+    // `passport` events configure caps (not a run signal) → not scored
+  }
+  const agents = {};
+  for (const [id, a] of Object.entries(A)) {
+    const auditedRuns = a.runs.size, cleanRuns = Math.max(0, auditedRuns - a.dirtyRuns.size);
+    const cleanRunRate = auditedRuns ? cleanRuns / auditedRuns : null;
+    const tier = !chain.ok ? 'chain-broken' : auditedRuns === 0 ? 'new'
+      : (auditedRuns >= 3 && cleanRunRate >= 0.8 && a.attribution === 'direct') ? 'verified' : 'observed';
+    agents[id] = { auditedRuns, cleanRuns, cleanRunRate, redactionsCaught: a.redactionsCaught, denials: a.denials,
+      approvalsRequired: a.approvalsRequired, sendsMade: a.sendsMade, attribution: a.attribution, tier,
+      score: auditedRuns ? Math.round(cleanRunRate * 100) : null };
+  }
+  return { agents, chainOk: chain.ok, unattributed };
+}
