@@ -18,10 +18,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
-import { redact, auditAppend, auditVerify, reputationFrom, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
+import { redact, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
@@ -42,6 +42,16 @@ state.audit ||= [];                         // Wave H: hash-chained, tamper-evid
 const trail = (type, detail) => { const e = auditAppend(state.audit, { type, ts: now(), ...detail }); save(); return e; };
 function load() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { handoffs: [], agents: {} }; } }
 function save() { try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch (e) { console.error('[hub] save failed', e.message); } }
+// Wave ③ — the hub's ed25519 signing key for Trust Receipts. Generated on first boot, persisted to a gitignored
+// PEM (*.pem). The public key is exported (safe); the private key NEVER leaves the box and is never committed.
+function loadOrCreateKeypair(pemPath) {
+  let privateKey;
+  try { privateKey = createPrivateKey(fs.readFileSync(pemPath, 'utf8')); }
+  catch { const kp = generateKeyPairSync('ed25519'); fs.writeFileSync(pemPath, kp.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 }); privateKey = kp.privateKey; console.log('[hub] generated ed25519 receipt key →', path.relative(process.cwd(), pemPath)); }
+  return { privateKey, publicKeyPem: createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }) };
+}
+const HUB_KEY = loadOrCreateKeypair(path.join(HERE, 'hub-key.pem'));
+const receiptFor = (runId) => { if (!runId || !state.runs[runId]) throw new Error(`no run "${runId}"`); return signReceipt(buildReceipt({ hub: { id: 'buildhud-hub', publicKey: HUB_KEY.publicKeyPem }, runId, run: state.runs[runId], audit: state.audit, handoffs: state.handoffs, issuedAt: now() }), HUB_KEY.privateKey); };
 
 // ---------- helpers ----------
 const agent = (id) => { const a = (state.agents[id] ||= { id, policy: 'approval', autoFrom: [], lastSeen: 0 }); a.passport = normalizePassport(a.passport); return a; };   // Wave H/B: every agent carries a (structured, migrated) capability passport
@@ -644,6 +654,10 @@ const server = http.createServer((req, res) => {
     return json(res, 200, readIntegrations());
   if (req.method === 'GET' && p === '/api/audit')                // Wave H: tamper-evident trust trail + chain verification
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
+  if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
+    try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } }
+  if (req.method === 'GET' && p === '/api/pubkey')               // the hub's ed25519 public key — verify receipts without the hub
+    return json(res, 200, { alg: 'ed25519', publicKey: HUB_KEY.publicKeyPem });
   if (req.method === 'GET' && p === '/api/buildstate')           // Wave J: the build-state IR vocabulary + match operators
     return json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) });
   if (req.method === 'GET' && p === '/api/capvocab')             // Wave B: the capability-passport vocabulary (drives the passport editor)

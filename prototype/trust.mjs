@@ -4,7 +4,7 @@
 //     leaves to an external tool. Aligns with philosophy #4 (secrets never leak).
 //   • tamper-evident audit — a hash-chained trail of grant/redact/deny/approve/send; any edit breaks the chain.
 // Reused by the hub (enforcement point) and available to the MCP server.
-import { createHash } from 'node:crypto';
+import { createHash, sign, verify } from 'node:crypto';
 
 // "never leave" patterns — secrets/PII that must not cross a trust boundary. {label, re}.
 export const SECRET_PATTERNS = [
@@ -120,4 +120,42 @@ export function reputationFrom(audit = [], handoffs = [], agentIds = []) {
       score: auditedRuns ? Math.round(cleanRunRate * 100) : null };
   }
   return { agents, chainOk: chain.ok, unattributed };
+}
+
+// Wave ③ Proof — a signed, offline-verifiable Trust Receipt for ONE run. The audit is tamper-evident but only
+// checkable INSIDE the hub; a receipt is the PORTABLE artifact a buyer/auditor verifies WITHOUT the hub, via an
+// ed25519 signature. Honest: it attests integrity + authenticity under the hub's key, NOT identity/authority —
+// a self-generated hub key is TOFU (trust WHO signed only via an out-of-band public key). Receipt entries carry
+// labels+counts, never the redacted values. signReceipt/verifyReceipt are pure; key persistence lives in the hub.
+export function runSubchain(audit, handoffs, runId) {
+  const hById = new Map((handoffs || []).map((h) => [h.id, h]));
+  return (audit || []).filter((e) => e.runId === runId || (e.handoff && hById.get(e.handoff) && hById.get(e.handoff).runId === runId));
+}
+// deterministic JSON (recursively sorted keys) so the signer and any verifier hash the EXACT same bytes.
+// Mirrors JSON semantics for `undefined` (object props with undefined values are dropped; undefined → null
+// elsewhere) so a sign-time in-memory `key:undefined` and a post-JSON-round-trip missing key canonicalize alike.
+export function canonical(obj) {
+  if (Array.isArray(obj)) return '[' + obj.map(canonical).join(',') + ']';
+  if (obj && typeof obj === 'object') return '{' + Object.keys(obj).filter((k) => obj[k] !== undefined).sort().map((k) => JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
+  return JSON.stringify(obj) ?? 'null';
+}
+export function buildReceipt({ hub, runId, run, audit, handoffs, issuedAt }) {
+  const entries = runSubchain(audit, handoffs, runId);
+  const tip = (audit && audit.length) ? audit[audit.length - 1] : null;
+  return { version: 1, alg: 'ed25519', hub: { id: hub.id, publicKey: hub.publicKey }, runId,
+    run: run ? { status: run.status, createdAt: run.createdAt } : null, issuedAt,
+    chainTip: { length: (audit || []).length, hash: tip ? tip.hash : 'genesis' }, entries };
+}
+export function signReceipt(receipt, privateKey) {
+  return { ...receipt, signature: sign(null, Buffer.from(canonical(receipt)), privateKey).toString('base64') };
+}
+// Verify with NO hub: (a) every entry still hashes to its stored hash (untampered content), (b) the ed25519
+// signature checks out against the given public key (or the one embedded in the receipt — TOFU).
+export function verifyReceipt(receipt, publicKey) {
+  const r = receipt || {}; const { signature, ...unsigned } = r;
+  let entriesOk = true, at;
+  for (const e of (r.entries || [])) { const { seq, hash, prev, ...event } = e; if (hashOf(seq, prev, event) !== hash) { entriesOk = false; at = seq; break; } }
+  let signatureOk = false;
+  try { signatureOk = !!signature && verify(null, Buffer.from(canonical(unsigned)), publicKey || (r.hub && r.hub.publicKey), Buffer.from(signature, 'base64')); } catch { signatureOk = false; }
+  return { ok: entriesOk && signatureOk, signatureOk, entriesOk, ...(at !== undefined ? { at } : {}) };
 }

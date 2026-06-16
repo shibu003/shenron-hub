@@ -382,6 +382,7 @@ const I18N = {
   td_gate_added:{ja:'ゲート 追加',en:'gate added'}, td_gate_removed:{ja:'ゲート 削除',en:'gate removed'}, td_send_loose:{ja:'送信 緩和',en:'send loosened'}, td_send_tight:{ja:'送信 厳格化',en:'send tightened'},
   td_predicted:{ja:'予測',en:'predicted'}, td_actual:{ja:'実測',en:'actual'},
   gate_run_anyway:{ja:'⚠ 確認の上で実行',en:'⚠ Run anyway'}, gate_risk:{ja:'⚠ 外部送信の拒否 / firewall 緩和を含みます。実行は監査に記録されます。',en:'⚠ Includes denied sends / weakened firewall. The run is recorded in the audit.'},
+  export_receipt:{ja:'証明書を書き出す',en:'Export receipt'}, t_receipt_saved:{ja:'Trust Receipt を保存しました',en:'Trust Receipt saved'},
   ts_title:{ja:'Trust verdict（実行結果）',en:'Trust verdict (last run)'}, ts_stripped:{ja:'除去',en:'stripped'}, ts_sent:{ja:'送信',en:'sent'}, ts_held:{ja:'承認待ち',en:'held'}, ts_blocked:{ja:'遮断',en:'blocked'}, ts_skipped:{ja:'分岐スキップ',en:'skipped'}, ts_noleak:{ja:'秘密/PII の漏れなし',en:'no secrets/PII leaked'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   rep_title:{ja:'評価（監査が示す履歴）',en:'Reputation (what the audit shows)'},
@@ -1190,7 +1191,8 @@ function trustSummary(){
   return `<div class="tsum ${verify.ok?'ok':'bad'}">
     <div class="ts-h"><b>🔒 ${t('ts_title')}</b><span class="ts-run">#${esc(runId)} · ${esc(run.status)}</span><span class="ts-verify ${verify.ok?'ok':'bad'}">${verify.ok?t('aud_ok'):t('aud_bad')}</span></div>
     <div class="ts-line">${t('ts_stripped')} <b>${leakN}</b> · ${t('ts_sent')} <b>${sent}</b>${held?` · ${t('ts_held')} <b>${held}</b>`:''}${blocked?` · ${t('ts_blocked')} <b style="color:var(--red)">${blocked}</b>`:''}${skipped?` · ${t('ts_skipped')} <b>${skipped}</b>`:''}${pred?` · <span style="color:var(--dim)">${t('td_predicted')} ≥${pred.stripCount} / ${t('td_actual')} ${leakN}</span>`:''}</div>
-    <div class="ts-chips">${leakChips}</div>${routeRows}</div>`;
+    <div class="ts-chips">${leakChips}</div>${routeRows}
+    <button class="ts-export" onclick="exportReceipt('${esc(runId)}')" style="margin-top:8px;font-size:11px;border:1px solid var(--line);background:#0d1117;color:var(--txt);border-radius:6px;padding:4px 9px;cursor:pointer">⤓ ${t('export_receipt')}</button></div>`;
 }
 // Wave R — audit-backed reputation: the LONGITUDINAL counterpart to the per-run Trust verdict above. Aggregates
 // the SAME tamper-evident audit per-agent across all runs into a transparent activity+integrity summary. The tier
@@ -1508,6 +1510,9 @@ async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toa
   const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
   openModal({ title:`MCP tool: ${wf.id}`, info:t('m_export_info'), submitLabel:t('m_copy'), fields:[{key:'snip',label:t('m_mcp_call'),type:'readonly',value:snip}], onSubmit:()=>copyText(snip,t('t_snip_copied')) }); refresh(); }
 async function copyText(text,label){ try{ await navigator.clipboard.writeText(text); conn(label); toast(label); }catch{ openModal({title:label,fields:[{key:'x',label:t('m_mcp_call'),type:'readonly',value:text}]}); } }
+// Wave ③ — export a signed Trust Receipt for a run; verify offline with `node prototype/verify-receipt.mjs <file>`.
+function downloadJSON(name,obj){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+async function exportReceipt(runId){ try{ const r=await api('/api/receipt?runId='+encodeURIComponent(runId)); if(r&&r.error) return toast(r.error); downloadJSON(runId+'-trust-receipt.json', r); conn(t('t_receipt_saved')); toast(t('t_receipt_saved')); }catch(e){ toast(e.message); } }
 
 /* ---------- Ghost Writer (Wave L): NL → flow on the canvas. Generate, review, Run (fence intact). ---------- */
 function ghostWrite(){
