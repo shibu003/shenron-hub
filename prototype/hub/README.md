@@ -5,14 +5,14 @@ Offline-tolerant cross-agent handoff: send work to an agent that's **offline**; 
 ## Pieces
 - `hub.mjs` — zero-dep HTTP **broker + local executor**. Durable inbox (`inbox.json`, gitignored), A2A-aligned states (`submitted → awaiting_approval → approved → running → completed|failed|rejected`), per-agent **presence** (last poll) + **policy** (`approval` | `auto` | `autoFrom` allowlist). Serves the UI at `/`. **LOCAL agents** (config in `../agents/*.json`) run **in-process in the hub itself — no worker.mjs needed**; **REMOTE/cross-company** agents stay broker-only (their own runtime runs them, durable inbox holds until they poll). `--vendor stub|codex|claude` forces the local-exec vendor.
 - `worker.mjs` — a **remote** agent's **pull-mode poller**: claims its approved handoffs, runs them via `../runner.mjs` (codex|claude|stub), posts results. Works offline→online. (Local agents no longer need this — the hub runs them.)
-- `ui.html` — the **cockpit** (served at `/`): agents as nodes with presence dots, **drag one onto another to hand off**, live status-colored links, approve/decline cards, per-agent approval⇄auto toggle.
+- `ui.html` — the **cockpit** (served at `/`): a guided flow-builder with a left palette, labeled **IN/OUT ports**, a one-click example flow, status-colored links, approve/decline cards, and per-agent approval⇄auto controls.
 - MCP tools (`../mcp/server.mjs`): `send_handoff`, `list_handoffs`, `get_handoff`, `poll_inbox`, `approve_handoff`, `decline_handoff`, `set_policy` — so an AI can drive the inbox too (MCP-first).
 
 ## Quickstart
 ```bash
 cd /Users/you/GioGio
 node prototype/hub/hub.mjs --vendor stub         # → http://localhost:8795  (--vendor stub = instant local exec; omit for real LLM)
-# open http://localhost:8795 — drag one agent onto another to send a handoff (works while it's offline)
+# open http://localhost:8795 — click "正解例を配置" or wire a node's right OUT port to the next node's left IN port, then ▶ Run.
 # LOCAL agents (sales/marketing) run IN THE HUB — flip to ⚡auto → submit→running→completed with NO worker.
 # (approval fence still applies: ✋approval holds at awaiting_approval until you approve in the UI.)
 

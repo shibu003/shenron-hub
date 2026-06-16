@@ -28,6 +28,8 @@
   #palette { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
   .pal-head { padding:11px 13px 7px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   #palSearch { margin:0 11px 8px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 9px; font:inherit; }
+  .pal-tip { margin:0 11px 9px; padding:8px 9px; border:1px solid #2a3440; border-radius:8px; background:#0f1620; color:#b8c7d8; font-size:11px; }
+  .pal-tip b { color:var(--txt); }
   #palList { flex:1; overflow:auto; }
   .palrow { display:flex; align-items:center; gap:7px; padding:7px 11px; cursor:default; border-top:1px solid #20262d; }
   .palrow:hover { background:var(--panel2); }
@@ -47,6 +49,24 @@
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
   #hint { position:absolute; top:16px; left:18px; color:var(--dim); font-size:12px; max-width:340px; }
+  #coach { position:absolute; left:18px; bottom:18px; width:min(430px, calc(100% - 36px)); z-index:4; }
+  .coach-card,.helpbox { border:1px solid #2f3d4c; background:linear-gradient(135deg,#111a25,#0d1117 72%); border-radius:14px; box-shadow:0 16px 42px -28px #000; }
+  .coach-card { padding:14px; }
+  .coach-title { display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px; margin-bottom:8px; }
+  .coach-title span { color:var(--blue); }
+  .steps { display:grid; gap:7px; margin:10px 0 12px; }
+  .step { display:grid; grid-template-columns:22px 1fr; gap:8px; align-items:start; color:#c9d7e5; font-size:12px; }
+  .step b { display:inline-grid; place-items:center; height:22px; width:22px; border-radius:50%; background:#163252; color:#9bd1ff; font-size:11px; }
+  .legend { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; color:var(--dim); font-size:11px; }
+  .legend span { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:999px; padding:3px 8px; background:#0d1117; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; border:2px solid var(--blue); }
+  .coach-actions { display:flex; gap:8px; align-items:center; }
+  .coach-actions button,.linkbtn { border:1px solid var(--blue); background:#0d1117; color:var(--blue); border-radius:8px; padding:7px 10px; cursor:pointer; font:inherit; }
+  .coach-actions button:hover,.linkbtn:hover { background:#10233a; }
+  .coach-actions small { color:var(--dim); line-height:1.35; }
+  #wireTip { position:absolute; z-index:20; display:none; max-width:320px; pointer-events:none; background:#0d1117; border:1px solid var(--blue); border-radius:9px; color:var(--txt); padding:8px 10px; font-size:12px; box-shadow:0 12px 28px -18px #000; }
+  #wireTip.ok { border-color:var(--green); color:#bdf6c9; }
+  #wireTip.bad { border-color:var(--red); color:#ffc2be; }
   .node { position:absolute; width:198px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
           padding:10px 12px; cursor:grab; user-select:none; box-shadow:0 1px 2px rgba(0,0,0,.45); transition:border-color .12s, box-shadow .12s; }
   .node:hover { border-color:#48515c; box-shadow:0 6px 20px -8px rgba(0,0,0,.7); }
@@ -65,6 +85,8 @@
   .node.comp { width:176px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; } .node.comp .port { border-color:#8957e5; }
   .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#08090c; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; transition:box-shadow .12s; }
   .port.in { left:-7px; } .port.out { right:-7px; } .port:hover { box-shadow:0 0 0 3px rgba(230,237,243,.24); }
+  .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#b8c7d8; font-size:9px; line-height:1; letter-spacing:.06em; background:#0d1117; border:1px solid #2f3d4c; border-radius:999px; padding:2px 5px; pointer-events:none; }
+  .portlabel.in { left:9px; } .portlabel.out { right:9px; }
   .node.trigger .port.out { border-color:var(--amber); }
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
@@ -107,6 +129,15 @@
   button.act { font-size:12px; border-radius:6px; border:1px solid var(--line); padding:4px 11px; cursor:pointer; background:#0d1117; color:var(--txt); }
   button.ok { border-color:var(--green); color:var(--green); } button.no { border-color:var(--red); color:var(--red); }
   .empty { color:var(--dim); font-size:12px; padding:10px 2px; }
+  .helpbox { padding:11px; margin:0 0 12px; color:#c9d7e5; font-size:12px; }
+  .helpbox b { color:var(--txt); }
+  .helpbox .mini { color:var(--dim); margin-top:5px; }
+  .helpbox .ports { display:grid; gap:5px; margin-top:8px; }
+  .helpbox .ports div { display:flex; align-items:center; gap:7px; }
+  .helpbox .ports i { width:11px; height:11px; border-radius:50%; border:2px solid var(--blue); display:inline-block; }
+  .helpbox .ports i.out { border-color:var(--green); }
+  .choice-row { display:grid; gap:7px; }
+  .choice-row select,.choice-row input { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:inherit; }
   dialog { background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:12px; width:460px; padding:0; }
   dialog .dh { padding:13px 16px; border-bottom:1px solid var(--line); font-weight:600; }
   dialog .db { padding:14px 16px; display:grid; gap:9px; } dialog label { font-size:12px; color:var(--dim); }
@@ -150,13 +181,14 @@
   <aside id="palette">
     <div class="pal-head" id="palHead"></div>
     <input id="palSearch" oninput="renderPalette()">
+    <div class="pal-tip" id="palTip"></div>
     <div id="palList"></div>
     <div class="pal-add">
       <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
       <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button></div>
     </div>
   </aside>
-  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div></main>
+  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div><section id="coach"></section><div id="wireTip"></div></main>
   <aside id="inspector"></aside>
 </div>
 
@@ -176,7 +208,30 @@ const I18N = {
   conn_connecting:{ja:'接続中…',en:'connecting…'}, conn_live:{ja:'● 接続',en:'● live'}, conn_off:{ja:'○ hub オフライン',en:'○ hub offline'},
   palette:{ja:'パレット',en:'Palette'}, ph_search:{ja:'agent / skill を検索…',en:'search agents / skills…'},
   ph_newagent:{ja:'新しい agent id…',en:'new agent id…'}, add_agent:{ja:'＋ agent',en:'＋ agent'}, add_trigger:{ja:'⚡ ＋ trigger',en:'⚡ ＋ trigger'},
-  hint:{ja:'パレットの agent をキャンバスへ、<b>out→in</b> ポートを配線、<b>▶ 実行</b>。ノードをクリックで設定。',en:'Drag agents from the <b>palette</b> onto the canvas, wire <b>out→in</b> ports, then <b>▶ Run</b>. Click a node to configure it.'},
+  hint:{ja:'パレットの agent をキャンバスへ、<b>OUT→IN</b> で配線、<b>▶ 実行</b>。迷ったら「正解例を配置」。',en:'Add agents to the canvas, wire <b>OUT→IN</b>, then <b>▶ Run</b>. Use “Place example” if unsure.'},
+  pal_tip:{ja:'左の一覧は部品置き場です。<b>＋</b>でキャンバスへ追加、配線はキャンバス上の丸から行います。',en:'This left panel is the parts shelf. Use <b>＋</b> to place a node; wiring happens on the canvas ports.'},
+  coach_title:{ja:'最初はこの3手だけ',en:'Start with these 3 steps'},
+  coach_1:{ja:'左のパレットから agent / trigger / action をキャンバスに置く。',en:'Place an agent / trigger / action from the left palette.'},
+  coach_2:{ja:'右側の <b>OUT</b> 丸を、次のノード左側の <b>IN</b> 丸へドラッグ。',en:'Drag a right-side <b>OUT</b> port to the next node’s left-side <b>IN</b> port.'},
+  coach_3:{ja:'線がつながったら <b>▶ 実行</b>。自動化したい時だけ trigger を先頭にします。',en:'When the line is connected, click <b>▶ Run</b>. Use a trigger first only for automation.'},
+  demo_btn:{ja:'正解例を配置',en:'Place example'},
+  demo_desc:{ja:'trigger → sales → marketing を自動配置します。',en:'Places trigger → sales → marketing for you.'},
+  demo_placed:{ja:'正解例を配置しました。右OUTから左INへ流れる形です。',en:'Example placed. Data flows from right OUT to left IN.'},
+  legend_in:{ja:'IN = 受け取る入口',en:'IN = receives input'},
+  legend_out:{ja:'OUT = 結果を出す出口',en:'OUT = sends output'},
+  port_in_short:{ja:'IN',en:'IN'}, port_out_short:{ja:'OUT',en:'OUT'},
+  wire_idle:{ja:'次のノードの左側 IN 丸に落としてください。',en:'Drop on the next node’s left-side IN port.'},
+  wire_ok:{ja:'接続できます',en:'Can connect'},
+  wire_bad:{ja:'接続できません',en:'Cannot connect'},
+  wire_same:{ja:'同じノード同士は接続できません。',en:'A node cannot connect to itself.'},
+  wire_trigger_bad:{ja:'trigger は開始点なので IN がありません。agent/action の IN につないでください。',en:'A trigger is a start point; connect to an agent/action IN port.'},
+  wire_type_bad:{ja:'型が違います',en:'Type mismatch'},
+  default_help:{ja:'ここには選択中ノードの説明と、次に必要な操作が出ます。まずは「正解例を配置」を押すと全体像が分かります。',en:'This panel explains the selected node and next action. Click “Place example” first to see the correct shape.'},
+  agent_help:{ja:'このagentは入力を受け取り、処理結果を次へ渡します。左のINが入口、右のOUTが出口です。',en:'This agent receives input, works on it, then passes a result onward. Left IN receives; right OUT sends.'},
+  trigger_help:{ja:'trigger は自動化の開始点です。「レビュー完了」「デプロイ成功」などの出来事が起きた時に、右のOUTから次のagentへ流します。',en:'A trigger starts an automation. When an event like review completed or deploy green happens, it sends flow from OUT to the next agent.'},
+  mcp_help:{ja:'MCP tool はSlack送信やメール送信など外部への実アクションです。既定では実行前に承認が必要です。',en:'An MCP tool performs an external action such as Slack/email. It requires approval by default.'},
+  comp_help:{ja:'コンポーネントは入力・テンプレート・出力表示などの補助部品です。agentの前後に置いて流れを整えます。',en:'Components are helper blocks for input, prompt templates, and output display.'},
+  next_pick:{ja:'次: ノードをクリックして説明を見るか、OUT→INで配線してください。',en:'Next: click a node for details, or wire OUT→IN.'},
   pal_empty:{ja:'agent なし — prototype/agents/*.json で hub を起動',en:'no agents — start the hub with prototype/agents/*.json'},
   on_canvas:{ja:'キャンバス上',en:'on canvas'}, add_canvas:{ja:'キャンバスに追加',en:'add to canvas'}, copy_mcp_t:{ja:'MCP 呼び出しをコピー',en:'copy MCP call'}, select_t:{ja:'選択',en:'select'},
   insp_agent:{ja:'Agent',en:'Agent'}, insp_trigger:{ja:'Trigger',en:'Trigger'}, close:{ja:'閉じる ✕',en:'close ✕'},
@@ -204,7 +259,7 @@ const I18N = {
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
-  f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
+  f_type:{ja:'type',en:'type'}, f_status_match:{ja:'結果条件',en:'result condition'}, f_match:{ja:'詳細条件 JSON（必要なら編集）',en:'advanced match JSON (edit only if needed)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
   trig_hint:{ja:'この trigger の out ポートを agent に配線 →（⚡ 自動化 → automation として保存）。',en:"Wire this trigger's out-port into an agent, then ⚡ Automate → Save as automation."},
   trig_set:{ja:'(クリックで match を設定)',en:'(click to set match)'},
@@ -215,6 +270,10 @@ const I18N = {
   m_run_t:{ja:'flow を実行',en:'Run flow'}, m_run_b:{ja:'▶ 実行',en:'▶ Run'}, m_entry:{ja:'入口ノードへの入力',en:'Input for the entry node(s)'},
   m_auto_t:{ja:'automation として保存',en:'Save as automation'}, m_auto_name:{ja:'Automation 名',en:'Automation name'}, m_auto_in:{ja:'入口ノードへの既定入力',en:'Default input for the entry node(s)'},
   m_fire_t:{ja:'build-state イベントを発火',en:'Fire build-state event'}, m_fire_info:{ja:'この event にマッチする有効な automation を全て実行します。',en:'Runs every enabled automation whose trigger matches this event.'}, m_fire_b:{ja:'⚡ 発火',en:'⚡ Fire'}, m_event:{ja:'event（JSON）',en:'event (JSON)'},
+  fire_plain_info:{ja:'これは「開発で何が起きたか」を手動で再現するテストです。通常は下の選択だけで十分です。JSONは確認用です。',en:'This manually simulates what happened in development. The choices below are enough for normal use; JSON is just the preview.'},
+  fire_what:{ja:'何が起きた?',en:'What happened?'}, fire_result:{ja:'結果',en:'Result'}, fire_where:{ja:'対象（任意）',en:'Target (optional)'}, fire_json:{ja:'詳細 JSON（必要なら編集）',en:'Advanced JSON (edit only if needed)'},
+  fire_review:{ja:'レビューが完了した',en:'Review completed'}, fire_pr:{ja:'PR がマージされた',en:'PR merged'}, fire_ci:{ja:'CI が通った',en:'CI passed'}, fire_test:{ja:'テストが失敗した',en:'Tests failed'}, fire_deploy:{ja:'デプロイが成功した',en:'Deploy green'}, fire_custom:{ja:'カスタム',en:'Custom'},
+  fire_target_ph:{ja:'例: owner/repo、production、feature/x',en:'e.g. owner/repo, production, feature/x'},
   m_export_info:{ja:'workflow として保存しました。任意の MCP クライアントから呼べます:',en:'Saved as a workflow. Call it from any MCP client:'}, m_copy:{ja:'⧉ コピー',en:'⧉ Copy'}, m_mcp_call:{ja:'MCP tool 呼び出し',en:'MCP tool call'},
   m_send_b:{ja:'送信',en:'Send'}, f_from:{ja:'from（送信元）',en:'from (sender)'}, f_input:{ja:'入力',en:'input'}, ph_input:{ja:'agent に何をさせる?',en:'what should the agent do?'}, cancel:{ja:'キャンセル',en:'cancel'},
   t_wire1:{ja:'先に配線してください: out ポートを in ポートへドラッグ。',en:'Wire a flow first: drag an out-port onto an in-port.'}, t_wire2:{ja:'先に flow を配線してください。',en:'Wire a flow first.'},
@@ -233,6 +292,7 @@ function applyChrome(){   // static (non-state) chrome strings
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
+  $('#palTip').innerHTML=t('pal_tip');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger');
   $('#hint').innerHTML=t('hint');
 }
@@ -267,7 +327,7 @@ async function refresh() {
     $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
-function render(){ placeNodes(); renderNodes(); drawLinks(); renderPalette(); renderInspector(); }
+function render(){ placeNodes(); renderNodes(); drawLinks(); renderPalette(); renderInspector(); renderCoach(); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
 function conn(m){ const c=$('#conn'); c.textContent=m; c.style.color='var(--blue)'; }
 
@@ -280,7 +340,7 @@ function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--
 /* Langflow-style: color handles + edges by data type (stable hash → palette; "*"/unknown → gray). */
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
 function typeColor(tp){ if(!tp||tp==='*') return '#9ca3af'; let h=0; for(let i=0;i<tp.length;i++) h=(h*31+tp.charCodeAt(i))>>>0; return TYPE_PALETTE[h%TYPE_PALETTE.length]; }
-const portHtml=(side,id,type)=>`<span class="port ${side}" data-${side}="${esc(id)}" style="border-color:${typeColor(type)}"></span>`;
+const portHtml=(side,id,type)=>`<span class="port ${side}" data-${side}="${esc(id)}" style="border-color:${typeColor(type)}" title="${side==='in'?t('legend_in'):t('legend_out')}"></span><span class="portlabel ${side}">${side==='in'?t('port_in_short'):t('port_out_short')}</span>`;
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ---------- palette ---------- */
@@ -311,6 +371,46 @@ function renderPalette(){
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
   $('#palList').querySelectorAll('[data-pmcpadd]').forEach(el=>el.onclick=()=>{ try{ addMcpNode(JSON.parse(el.getAttribute('data-pmcpadd'))); }catch{} });
   $('#palList').querySelectorAll('[data-pcompadd]').forEach(el=>el.onclick=()=>addComp(el.getAttribute('data-pcompadd')));
+}
+function renderCoach(){
+  const el=$('#coach'); if(!el)return;
+  const hasDraft = EDGES.length || TRIGGERS.length || MCP_NODES.length || COMPONENTS.length;
+  el.style.display = EDGES.length ? 'none' : 'block';
+  el.innerHTML = `<div class="coach-card">
+    <div class="coach-title"><span>●</span>${t('coach_title')}</div>
+    <div class="steps">
+      <div class="step"><b>1</b><div>${t('coach_1')}</div></div>
+      <div class="step"><b>2</b><div>${t('coach_2')}</div></div>
+      <div class="step"><b>3</b><div>${t('coach_3')}</div></div>
+    </div>
+    <div class="coach-actions"><button onclick="placeExampleFlow()">${t('demo_btn')}</button><small>${t('demo_desc')}</small></div>
+    <div class="legend"><span><i></i>${t('legend_in')}</span><span><i></i>${t('legend_out')}</span></div>
+    ${hasDraft?`<div class="mini" style="color:var(--dim);margin-top:8px">${t('next_pick')}</div>`:''}
+  </div>`;
+}
+function compatibleAgents(a,b){
+  if(!a||!b||a.id===b.id) return false;
+  const e=a.emits||['*'], accepts=b.accepts||['*'];
+  return e.includes('*')||accepts.includes('*')||e.some(x=>accepts.includes(x));
+}
+function exampleChain(){
+  const agents=state.agents||[];
+  let first=agents.find(a=>/sales|linkedin|prospect/i.test(`${a.id} ${a.skill||''}`));
+  let second=agents.find(a=>/marketing|outreach|draft/i.test(`${a.id} ${a.skill||''}`) && a.id!==first?.id);
+  if(!first) first=agents[0];
+  if(first && (!second || !compatibleAgents(first,second))) second=agents.find(a=>compatibleAgents(first,a));
+  return first&&second ? [first,second] : [];
+}
+function placeExampleFlow(){
+  const pair=exampleChain(); if(pair.length<2) return toast(t('pal_empty'));
+  const [a,b]=pair, trId='trigger-example';
+  HIDDEN.delete(a.id); HIDDEN.delete(b.id);
+  let tr=TRIGGERS.find(x=>x.id===trId);
+  if(!tr){ tr={ id:trId, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' } }; TRIGGERS.unshift(tr); }
+  POS[trId]={x:42,y:70}; POS[a.id]={x:300,y:70}; POS[b.id]={x:560,y:70};
+  const add=(source,target)=>{ if(!EDGES.some(e=>e.source===source&&e.target===target)) EDGES.push({ id:'fe_'+(++eidc), source, target, type:matchType(source,target) }); };
+  add(trId,a.id); add(a.id,b.id);
+  selected=trId; render(); toast(t('demo_placed'));
 }
 function addComp(kind){ const c=COMP[kind]; if(!c)return; const id=kind+'-'+(++cidc);
   const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
@@ -406,22 +506,38 @@ function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=no
   const e=nodeOf(src)?.emits||['*'], a=tn.accepts||['*']; return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }
 function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
   const c=e.find(x=>x!=='*'&&a.includes(x)); if(c)return c; if(a.includes('*')) return e.find(x=>x!=='*')||'*'; if(e.includes('*')) return a.find(x=>x!=='*')||'*'; return '*'; }
-function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:null, over:null }; document.body.classList.add('wiring'); updateTemp(); }
 function updateTemp(){ const tw=$('#tempwire'); if(!wiring){ tw.removeAttribute('d'); return; }
   const a=portPos(wiring.src,'out'); if(!a)return; const b=wiring.over?portPos(wiring.over,'in'):(wiring.pt||a);
   const ok=wiring.over?canConnect(wiring.src,wiring.over):null;
   tw.setAttribute('d', fpath(a,b)); tw.setAttribute('stroke-width','2'); tw.setAttribute('stroke', ok===true?'var(--green)':ok===false?'var(--red)':'var(--blue)'); }
+function wireMessage(src,tgt){
+  const s=nodeOf(src), target=nodeOf(tgt);
+  if(!tgt) return t('wire_idle');
+  if(src===tgt) return t('wire_same');
+  if(!target || target.kind==='trigger') return t('wire_trigger_bad');
+  if(canConnect(src,tgt)) return `${t('wire_ok')}: ${esc(src)} OUT → ${esc(tgt)} IN (${esc(matchType(src,tgt))})`;
+  return `${t('wire_bad')}: ${t('wire_type_bad')} — OUT [${esc((s?.emits||['*']).join(', '))}] → IN [${esc((target.accepts||['*']).join(', '))}]`;
+}
+function showWireTip(e){
+  const tip=$('#wireTip'); if(!wiring){ tip.style.display='none'; return; }
+  const ok=wiring.over?canConnect(wiring.src,wiring.over):null;
+  tip.className = ok===true ? 'ok' : ok===false ? 'bad' : '';
+  tip.innerHTML = wireMessage(wiring.src,wiring.over);
+  const p=canvasPt(e); tip.style.left=(p.x+16)+'px'; tip.style.top=(p.y+16)+'px'; tip.style.display='block';
+}
 function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false; if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
   EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
+function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:canvasPt(e), over:null }; document.body.classList.add('wiring'); updateTemp(); showWireTip(e); }
 function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
   wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d');
+  $('#wireTip').style.display='none';
   document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid')); }
 document.addEventListener('pointermove', e=>{
   if(wiring){ wiring.pt=canvasPt(e);
     document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid'));
     const inp=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.port.in');
     if(inp){ const tt=inp.getAttribute('data-in'); wiring.over=tt; inp.classList.add(canConnect(wiring.src,tt)?'valid':'invalid'); } else wiring.over=null;
-    updateTemp(); return; }
+    updateTemp(); showWireTip(e); return; }
   if(nodeDrag){ const p=canvasPt(e); POS[nodeDrag.id]={ x:Math.max(0,p.x-nodeDrag.offX), y:Math.max(0,p.y-nodeDrag.offY) };
     nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true; drawLinks(); }
 });
@@ -458,6 +574,7 @@ function renderInspector(){
 }
 function inspAgent(a){
   return `<div class="ins-h">${t('insp_agent')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="helpbox"><b>${t('agent_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
     <div class="field"><label>id</label><div class="v">${esc(a.id)}</div></div>
     <div class="field"><label>${t('f_company')}</label><div class="v">${esc(a.company||'—')}</div></div>
     <div class="field"><label>${t('f_skill')}</label><div class="v">${esc(a.skill||'—')}</div></div>
@@ -483,10 +600,17 @@ function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
     await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }; }
 function inspTrigger(tr){
   return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="helpbox"><b>${t('trigger_help')}</b><div class="mini">${t('trig_hint')}</div></div>
     <div class="field"><label>${t('f_type')}</label><div class="v">build_state</div></div>
     <div class="field"><label>${t('f_event')}</label><select class="cin" id="trigEvent">
       <option value="">${t('trig_custom')}</option>
       ${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(e.event)} (${(e.fields||[]).join(', ')})</option>`).join('')}
+    </select></div>
+    <div class="field"><label>${t('f_status_match')}</label><select class="cin" id="trigStatus">
+      <option value="">—</option>
+      <option value="green" ${tr.match&&tr.match.status==='green'?'selected':''}>green / success</option>
+      <option value="red" ${tr.match&&tr.match.status==='red'?'selected':''}>red / failed</option>
+      <option value="changes_requested" ${tr.match&&tr.match.status==='changes_requested'?'selected':''}>changes requested</option>
     </select></div>
     <div class="field"><label>${t('f_match')}</label><textarea class="match" id="matchEdit">${esc(JSON.stringify(tr.match||{}, null, 2))}</textarea></div>
     <button class="ibtn" id="matchSave">${t('btn_apply')}</button>
@@ -495,10 +619,13 @@ function inspTrigger(tr){
 }
 function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave'); if(!btn)return;
   btn.onclick=()=>{ try{ tr.match=JSON.parse(ta.value); toast(t('t_match_ok')); render(); }catch{ toast(t('t_badjson')); } };
-  const sel=$('#trigEvent'); if(sel) sel.onchange=()=>{ if(sel.value){ tr.match={ ...(tr.match||{}), event:sel.value }; render(); } }; }
+  const sel=$('#trigEvent'); if(sel) sel.onchange=()=>{ if(sel.value){ tr.match={ ...(tr.match||{}), event:sel.value }; render(); } };
+  const st=$('#trigStatus'); if(st) st.onchange=()=>{ tr.match={ ...(tr.match||{}) }; if(st.value) tr.match.status=st.value; else delete tr.match.status; render(); };
+}
 function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 function inspMcp(mn){
   return `<div class="ins-h">${t('insp_mcp')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="helpbox"><b>${t('mcp_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
     <div class="field"><label>${t('f_server')}</label><div class="v">${esc(mn.server)}</div></div>
     <div class="field"><label>${t('f_tool')}</label><div class="v">🔌 ${esc(mn.tool)}</div></div>
     <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
@@ -522,6 +649,7 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{};
         :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join('');
   const res=cn.kind==='output'?lastOutput(cn.id):null;
   return `<div class="ins-h">${meta.icon||'▦'} ${esc(meta.label||cn.kind)} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="helpbox"><b>${t('comp_help')}</b><div class="ports">${cn.accepts.length?`<div><i></i>${t('legend_in')}</div>`:''}${cn.emits.length?`<div><i class="out"></i>${t('legend_out')}</div>`:''}</div></div>
     <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(cn.accepts.length?cn.accepts:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(cn.emits.length?cn.emits:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     ${fields}${meta.fields&&meta.fields.length?`<button class="ibtn" id="compSave">${t('mcp_apply_args')}</button>`:''}
@@ -546,6 +674,7 @@ function inspDefault(){
       ${h.status==='awaiting_approval'?`<div class="acts"><button class="act ok" data-ok="${h.id}">${t('approve')}</button><button class="act no" data-no="${h.id}">${t('decline')}</button></div>`:''}
     </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
   return `<div class="ins-h">${t('insp_flow')}</div>
+    <div class="helpbox"><b>${t('default_help')}</b><div style="margin-top:9px"><button class="linkbtn" onclick="placeExampleFlow()">${t('demo_btn')}</button></div></div>
     <div id="summary"><span class="cnt online"><b>${onN}</b>/${state.agents.length} ${t('s_online')}</span>
       ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}${auditPanel()}`;
 }
@@ -646,9 +775,60 @@ async function saveAutomation(){ closeMenu(); const f=buildFlow();
     {key:'name',label:t('m_auto_name'),value:'auto-'+f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')},
     {key:'input',label:t('m_auto_in'),type:'textarea',value:'Target: design-partner ICP from the green build.'} ],
     onSubmit:async v=>{ if(!v.name)return; const m=await api('/api/automations',{ name:v.name, trigger:tn.trigger, input:v.input, nodes:f.nodes, edges:f.edges }); conn('automation '+m.id); refresh(); } }); }
+function defaultStatusForFire(kind){ return kind==='test_red' ? 'red' : kind==='pr_merged' || kind==='ci_passed' || kind==='deploy_green' ? 'green' : 'green'; }
+function firePayloadFromFields(){
+  const kind=$('#fireKind')?.value || 'review_completed';
+  const status=$('#fireStatus')?.value || defaultStatusForFire(kind);
+  const target=($('#fireTarget')?.value || '').trim();
+  const ev={ event: kind==='custom' ? 'review_completed' : kind };
+  if(kind==='review_completed') ev.status=status;
+  if(kind==='test_red') ev.status='red';
+  if(kind==='deploy_green') ev.status='green';
+  if(target) {
+    if(kind==='deploy_green') ev.env=target;
+    else if(kind==='pr_merged') ev.branch=target;
+    else ev.repo=target;
+  }
+  return ev;
+}
+function syncFirePreview(){
+  const ta=$('#fireJson'); if(!ta) return;
+  ta.value=JSON.stringify(firePayloadFromFields(), null, 2);
+}
 async function fireEvent(){ closeMenu();
-  openModal({ title:t('m_fire_t'), info:t('m_fire_info'), submitLabel:t('m_fire_b'), fields:[{key:'event',label:t('m_event'),type:'textarea',value:'{ "event": "review_completed", "status": "green" }'}],
-    onSubmit:async v=>{ let ev; try{ ev=JSON.parse(v.event); }catch{ return toast(t('t_badjson')); } const r=await api('/api/fire',{ event:ev }); conn('fired '+(r.fired?.length||0)); refresh(); } }); }
+  const dlg=$('#modal');
+  dlg.innerHTML=`<div class="dh">${t('m_fire_t')}</div><div class="db">
+    <div class="minfo">${t('fire_plain_info')}</div>
+    <div class="choice-row">
+      <label>${t('fire_what')}</label>
+      <select id="fireKind">
+        <option value="review_completed">${t('fire_review')}</option>
+        <option value="pr_merged">${t('fire_pr')}</option>
+        <option value="ci_passed">${t('fire_ci')}</option>
+        <option value="test_red">${t('fire_test')}</option>
+        <option value="deploy_green">${t('fire_deploy')}</option>
+        <option value="custom">${t('fire_custom')}</option>
+      </select>
+      <label>${t('fire_result')}</label>
+      <select id="fireStatus">
+        <option value="green">green / success</option>
+        <option value="red">red / failed</option>
+        <option value="changes_requested">changes requested</option>
+      </select>
+      <label>${t('fire_where')}</label>
+      <input id="fireTarget" placeholder="${t('fire_target_ph')}">
+      <label>${t('fire_json')}</label>
+      <textarea class="match" id="fireJson"></textarea>
+    </div>
+  </div><div class="df"><button class="act" id="fireCancel">${t('cancel')}</button><button class="act ok" id="fireSubmit">${t('m_fire_b')}</button></div>`;
+  if(!dlg.open) dlg.showModal();
+  const kind=$('#fireKind'), status=$('#fireStatus'), target=$('#fireTarget');
+  const update=()=>{ if(kind.value!=='custom') status.value=defaultStatusForFire(kind.value); syncFirePreview(); };
+  kind.onchange=update; status.onchange=syncFirePreview; target.oninput=syncFirePreview; update();
+  $('#fireCancel').onclick=()=>dlg.close();
+  $('#fireSubmit').onclick=async()=>{ let ev; try{ ev=JSON.parse($('#fireJson').value); }catch{ return toast(t('t_badjson')); }
+    dlg.close(); const r=await api('/api/fire',{ event:ev }); conn('fired '+(r.fired?.length||0)); refresh(); };
+}
 async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toast(t('t_wire2'));
   const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id;
   const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
