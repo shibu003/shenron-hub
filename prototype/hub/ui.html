@@ -121,6 +121,23 @@
   .caprow { display:flex; align-items:center; gap:8px; margin:4px 0; }
   .caprow .capk { flex:0 0 92px; font-size:11px; color:var(--dim); font-family:ui-monospace,monospace; }
   .caprow select.cin { flex:1; }
+  .trust-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .trust-card { border:1px solid var(--line); background:#0d1117; border-radius:8px; padding:8px; min-width:0; }
+  .trust-card b { display:block; font-size:11px; margin-bottom:4px; }
+  .trust-card .meta { font-size:11px; line-height:1.35; color:var(--dim); word-break:break-word; }
+  .riskline { border:1px solid rgba(245,158,11,.55); color:var(--amber); background:rgba(245,158,11,.08); border-radius:8px; padding:7px 8px; font-size:12px; line-height:1.4; }
+  .data-class { display:flex; gap:8px; align-items:flex-start; padding:8px; border:1px solid var(--line); background:#0d1117; border-radius:8px; margin-bottom:6px; }
+  .data-class input { margin-top:2px; }
+  .data-class.locked { opacity:.88; }
+  .data-class .dc-body { flex:1; min-width:0; }
+  .data-class .dc-title { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; }
+  .data-class .dc-desc { color:var(--dim); font-size:11px; line-height:1.35; margin-top:2px; }
+  .data-class .dc-mode { margin-left:auto; font-size:10px; color:var(--green); border:1px solid rgba(63,185,80,.45); border-radius:999px; padding:0 5px; white-space:nowrap; }
+  .capmini { display:flex; flex-wrap:wrap; gap:4px; }
+  .capmini span { font-size:10px; background:#1c2230; border:1px solid var(--line); border-radius:999px; padding:1px 7px; }
+  .capmini .deny { color:var(--red); border-color:rgba(248,81,73,.6); }
+  .capmini .approval { color:var(--amber); border-color:rgba(245,158,11,.65); }
+  .capmini .allow { color:var(--green); border-color:rgba(63,185,80,.6); }
   .redbadge { color:var(--amber); border:1px solid var(--amber); border-radius:999px; padding:0 6px; font-size:10px; margin-left:6px; }
   .aud { font-size:11px; padding:5px 8px; border-left:2px solid var(--line); margin:3px 0; background:var(--panel2); border-radius:0 6px 6px 0; display:flex; gap:7px; }
   .aud .atype { font-weight:600; text-transform:uppercase; letter-spacing:.03em; font-size:10px; }
@@ -291,9 +308,18 @@ const I18N = {
   tp_wires:{ja:'配線（data firewall）',en:'wires (data firewall)'}, tp_caps:{ja:'capability ゲート',en:'capability gates'}, tp_runtime:{ja:'実行時に評価',en:'evaluated at runtime'}, tp_note:{ja:'実 enforcement コードで dry-run（agent は走らせず・送信なし）。net/fs は宣言、実 sandbox は runner 側。',en:'Dry-run with the real enforcement code (no agents run, nothing sent). net/fs are declared; real sandbox is runner-side.'},
   ts_title:{ja:'Trust verdict（実行結果）',en:'Trust verdict (last run)'}, ts_stripped:{ja:'除去',en:'stripped'}, ts_sent:{ja:'送信',en:'sent'}, ts_held:{ja:'承認待ち',en:'held'}, ts_blocked:{ja:'遮断',en:'blocked'}, ts_skipped:{ja:'分岐スキップ',en:'skipped'}, ts_noleak:{ja:'秘密/PII の漏れなし',en:'no secrets/PII leaked'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
-  insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
-  edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
-  edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
+  insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で何が渡るか、受け手が何をできるかを先に確認します。秘密/PII は常時除去。必要な情報カテゴリだけ追加で止めます。',en:'First check what crosses this wire and what the receiver can do. Secrets/PII are always stripped; add only the extra data classes you need.'},
+  edge_wire:{ja:'配線',en:'wire'}, edge_contract:{ja:'この配線で渡るもの',en:'what crosses this wire'}, edge_source:{ja:'送り手',en:'sender'}, edge_target:{ja:'受け手',en:'receiver'}, edge_company:{ja:'会社',en:'company'}, edge_sends:{ja:'出す型',en:'sends'}, edge_receives:{ja:'受ける型',en:'receives'},
+  edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_target_handles:{ja:'受け手の扱える範囲',en:'receiver handling'}, edge_data_classes:{ja:'情報カテゴリごとの設定',en:'data class policy'}, edge_custom_never:{ja:'追加 never（任意・1行1つ）',en:'extra never (optional, one per line)'}, edge_never:{ja:'追加で除去する語・パターン',en:'extra strings to strip'},
+  edge_locked:{ja:'常時ON',en:'always on'}, edge_optional:{ja:'この配線で止める',en:'block on this wire'}, edge_no_agent:{ja:'受け手が agent ではないため passport はありません。型と配線 firewall だけを確認します。',en:'The receiver is not an agent, so there is no passport here. Review the type contract and wire firewall.'},
+  edge_sandbox:{ja:'受け手 agent の sandbox / passport',en:'receiver agent sandbox / passport'}, edge_sandbox_note:{ja:'external_send は hub が強制。net/fs は現時点では宣言＋監査（runner sandbox は将来）。',en:'external_send is hub-enforced. net/fs are currently declared + audited (runner sandbox is roadmap).'}, edge_apply_untrusted:{ja:'未信頼にする',en:'set untrusted'}, edge_apply_internal:{ja:'社内扱いにする',en:'set internal'}, edge_apply_trusted:{ja:'信頼済みにする',en:'set trusted'},
+  edge_dc_secrets:{ja:'API key / token / .env',en:'API keys / tokens / .env'}, edge_dc_secrets_d:{ja:'OpenAI/AWS/GitHub token、Bearer、JWT、private key、env secret は常に除去。',en:'OpenAI/AWS/GitHub tokens, Bearer, JWT, private keys, and env secrets are always stripped.'},
+  edge_dc_pii:{ja:'メール / PII',en:'email / PII'}, edge_dc_pii_d:{ja:'メールアドレスなど個人情報相当は常に除去。',en:'Email addresses and PII-like fields are always stripped.'},
+  edge_dc_project:{ja:'プロジェクト名・コードネーム',en:'project names / codenames'}, edge_dc_project_d:{ja:'codename、PROJECT- など外部に出したくない内部名を止める。',en:'Blocks internal names such as codename and PROJECT-.'},
+  edge_dc_customer:{ja:'顧客・アカウント名',en:'customer / account names'}, edge_dc_customer_d:{ja:'customer:、account:、client: など顧客識別子を止める。',en:'Blocks customer identifiers such as customer:, account:, client:.'},
+  edge_dc_strategy:{ja:'戦略・価格・ロードマップ',en:'strategy / pricing / roadmap'}, edge_dc_strategy_d:{ja:'roadmap、pricing、confidential など事業機密を止める。',en:'Blocks business-sensitive terms such as roadmap, pricing, confidential.'},
+  edge_agent:{ja:'agent',en:'agent'}, edge_mcp:{ja:'MCP tool',en:'MCP tool'}, edge_component:{ja:'component',en:'component'}, edge_trigger:{ja:'trigger',en:'trigger'}, edge_unknown:{ja:'不明',en:'unknown'}, edge_mcp_gate:{ja:'MCP は外部副作用。上流 agent の external_send とこの node の approval/auto でゲートされます。',en:'MCP performs an external side-effect. It is gated by the upstream agent external_send cap plus this node approval/auto setting.'},
+  edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_check:{ja:'🔎 trust を確認',en:'🔎 Check trust'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
   edge_branch:{ja:'router の分岐',en:'router branch'}, edge_pred_true:{ja:'条件が真',en:'predicate true'}, edge_pred_false:{ja:'条件が偽',en:'predicate false'},
   f_event:{ja:'build-state event',en:'build-state event'}, trig_custom:{ja:'— カスタム（JSON）',en:'— custom (JSON)'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
@@ -473,7 +499,7 @@ function placeSafeHandoff(){
                {id:a.id,kind:'agent',agent:a.id,skill:a.skill,x:250,y:90},
                {id:b.id,kind:'agent',agent:b.id,skill:b.skill,x:470,y:90}];
   const edges=[{id:'fe_'+(++eidc),source:'in1',target:a.id},
-               {id:'fe_'+(++eidc),source:a.id,target:b.id,share:{never:['PROJECT-FALCON']}}];   // 🔒 cross-company wire
+               {id:'fe_'+(++eidc),source:a.id,target:b.id,share:{classes:['project'],never:['codename','PROJECT-','PROJECT-FALCON']}}];   // 🔒 cross-company wire
   if(send){ nodes.push({id:'send1',kind:'mcp',server:send.server,tool:send.tool,config:{},auto:false,x:690,y:90},{id:'out1',kind:'output',x:910,y:90});
     edges.push({id:'fe_'+(++eidc),source:b.id,target:'send1'},{id:'fe_'+(++eidc),source:'send1',target:'out1'}); }
   else { nodes.push({id:'out1',kind:'output',x:690,y:90}); edges.push({id:'fe_'+(++eidc),source:b.id,target:'out1'}); }
@@ -697,27 +723,99 @@ function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
 // secrets/PII are stripped on every edge regardless. Cross-company edges (source/target differ in company)
 // are deny-by-default (firewall mandatory). Lives client-side in the flow draft; saved with the flow.
 const companyClient = (id) => { const a=(state.agents||[]).find(x=>x.id===id); return a?(a.company||null):null; };
+const DATA_CLASSES = [
+  { id:'secrets',  locked:true,  label:'edge_dc_secrets',  desc:'edge_dc_secrets_d',  patterns:[] },
+  { id:'pii',      locked:true,  label:'edge_dc_pii',      desc:'edge_dc_pii_d',      patterns:[] },
+  { id:'project',  locked:false, label:'edge_dc_project',  desc:'edge_dc_project_d',  patterns:['codename','PROJECT-'] },
+  { id:'customer', locked:false, label:'edge_dc_customer', desc:'edge_dc_customer_d', patterns:['customer:','account:','client:'] },
+  { id:'strategy', locked:false, label:'edge_dc_strategy', desc:'edge_dc_strategy_d', patterns:['roadmap','pricing','confidential'] },
+];
+const listClean = (xs) => [...new Set((xs||[]).map(x=>String(x||'').trim()).filter(Boolean))];
+const dataClass = (id) => DATA_CLASSES.find(c=>c.id===id);
+function classPatterns(ids){ return listClean([].concat(...listClean(ids).map(id=>(dataClass(id)?.patterns)||[]))); }
+function selectedDataClasses(e){
+  const sel=new Set(listClean(e.share&&e.share.classes));
+  const never=new Set(listClean(e.share&&e.share.never));
+  DATA_CLASSES.filter(c=>!c.locked&&c.patterns.length).forEach(c=>{
+    if(c.patterns.every(p=>never.has(p))) sel.add(c.id);
+  });
+  return sel;
+}
+function edgeCustomNever(e){
+  const classSet=new Set(classPatterns([...selectedDataClasses(e)]));
+  return listClean(e.share&&e.share.never).filter(x=>!classSet.has(x));
+}
+function nodeRole(id){ return ag(id)?'agent':mcpn(id)?'mcp':comp(id)?'component':trig(id)?'trigger':'unknown'; }
+function nodeTitle(id){
+  const a=ag(id); if(a) return `${a.id}${a.skill?' · '+a.skill:''}`;
+  const m=mcpn(id); if(m) return `${m.server}.${m.tool}`;
+  const c=comp(id); if(c) return (COMP[c.kind]?.label)||c.kind;
+  const tr=trig(id); if(tr) return `${tr.type}${matchStr(tr)?' · '+matchStr(tr):''}`;
+  return id;
+}
+function nodeTypes(id,dir){ const n=nodeOf(id), xs=listClean(dir==='out'?(n&&n.emits):(n&&n.accepts)); return xs.length?xs:['*']; }
+function nodeContractCard(id,side){
+  const role=nodeRole(id), company=companyClient(id)||'—', types=nodeTypes(id, side==='source'?'out':'in');
+  return `<div class="trust-card"><b>${side==='source'?t('edge_source'):t('edge_target')} · ${t('edge_'+role)}</b>
+    <div class="meta">${esc(nodeTitle(id))}<br>${t('edge_company')}: ${esc(company)}<br>${side==='source'?t('edge_sends'):t('edge_receives')}: ${types.map(esc).join(', ')}</div></div>`;
+}
+function capsOf(a){ const c=(a&&a.passport&&a.passport.caps)||{}; return { net:c.net||'none', fs:c.fs||'diff-only', external_send:c.external_send||'approval', secrets:'deny' }; }
+function capTone(k,v){ return k==='secrets'||v==='deny'||v==='none'?'deny':v==='approval'||String(v).includes('diff')?'approval':'allow'; }
+function capMini(caps){ return `<div class="capmini">${Object.entries(caps).map(([k,v])=>`<span class="${capTone(k,v)}">${esc(k.replace('_',' '))}:${esc(v)}</span>`).join('')}</div>`; }
+function targetHandling(id){
+  const a=ag(id); if(a){ const caps=capsOf(a); return `<div class="trust-card"><b>${esc(a.id)} passport</b>${capMini(caps)}<div class="meta" style="margin-top:6px">${t('edge_sandbox_note')}</div></div>`; }
+  const m=mcpn(id); if(m) return `<div class="trust-card"><b>🔌 ${esc(m.server)}.${esc(m.tool)}</b><div class="meta">${m.auto?t('mcp_auto_on'):t('mcp_auto_off')}<br>${t('edge_mcp_gate')}</div></div>`;
+  const c=comp(id); if(c) return `<div class="trust-card"><b>${esc((COMP[c.kind]?.label)||c.kind)}</b><div class="meta">${t('edge_component')} · ${t('edge_receives')}: ${(c.accepts||['*']).map(esc).join(', ')}</div></div>`;
+  return `<div class="trust-card"><div class="meta">${t('edge_no_agent')}</div></div>`;
+}
+function dataClassRows(e){
+  const selected=selectedDataClasses(e);
+  return DATA_CLASSES.map(c=>`<label class="data-class ${c.locked?'locked':''}">
+    <input type="checkbox" data-dclass="${esc(c.id)}" ${c.locked||selected.has(c.id)?'checked':''} ${c.locked?'disabled':''}>
+    <span class="dc-body"><span class="dc-title">${esc(t(c.label))}<span class="dc-mode">${c.locked?t('edge_locked'):t('edge_optional')}</span></span>
+    <span class="dc-desc">${esc(t(c.desc))}</span></span></label>`).join('');
+}
+function edgeSandbox(id){
+  if(!ag(id)) return `<div class="mini">${t('edge_no_agent')}</div>`;
+  return `<div class="presetrow">
+      <button data-edge-preset="untrusted" title="net:none · fs:diff-only · send:approval">${t('edge_apply_untrusted')}</button>
+      <button data-edge-preset="internal" title="net:read · fs:repo · send:approval">${t('edge_apply_internal')}</button>
+      <button data-edge-preset="trusted" title="net:full · fs:repo · send:allow">${t('edge_apply_trusted')}</button>
+    </div><div class="mini">${t('edge_sandbox_note')}</div>`;
+}
 function inspEdge(e){
   const sc=companyClient(e.source), tc=companyClient(e.target), cross=!!sc&&!!tc&&sc!==tc;
-  const never=((e.share&&e.share.never)||[]).join('\n');
+  const never=edgeCustomNever(e).join('\n');
   const srcRouter=comp(e.source)?.kind==='router';   // Wave E2: edges out of a router carry a then/else branch label
   return `<div class="ins-h">${t('insp_edge')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('edge_help')}</b></div>
     <div class="field"><label>${t('edge_wire')}</label><div class="v">${esc(e.source)} <b>→</b> ${esc(e.target)}</div></div>
+    <div class="field"><label>${t('edge_contract')}</label><div class="trust-grid">${nodeContractCard(e.source,'source')}${nodeContractCard(e.target,'target')}</div></div>
     ${srcRouter?`<div class="field"><label>${t('edge_branch')}</label><select class="cin" id="edBranch">
       <option value="then" ${(e.branch||'then')==='then'?'selected':''}>then (${t('edge_pred_true')})</option>
       <option value="else" ${e.branch==='else'?'selected':''}>else (${t('edge_pred_false')})</option></select></div>`:''}
-    ${cross?`<div class="field"><div style="color:var(--amber);font-size:12px">⚠ ${t('edge_cross')}${sc?` · ${esc(sc)}→${esc(tc)}`:''}</div></div>`:''}
-    <div class="field"><label>${t('edge_never')}</label><textarea class="match" id="edNever" placeholder="${t('h_never_ph')}">${esc(never)}</textarea></div>
+    ${cross?`<div class="field"><div class="riskline">⚠ ${t('edge_cross')}${sc?` · ${esc(sc)}→${esc(tc)}`:''}</div></div>`:''}
+    <div class="field"><label>${t('edge_target_handles')}</label>${targetHandling(e.target)}</div>
+    <div class="field"><label>${t('edge_data_classes')}</label>${dataClassRows(e)}</div>
+    <div class="field"><label>${t('edge_custom_never')}</label><textarea class="match" id="edNever" placeholder="${t('h_never_ph')}">${esc(never)}</textarea><div class="mini">${t('edge_never')}</div></div>
+    <div class="field"><label>${t('edge_sandbox')}</label>${edgeSandbox(e.target)}</div>
     <button class="ibtn" id="edSave">${t('edge_apply')}</button>
+    <button class="ibtn" id="edCheck">${t('edge_check')}</button>
     <button class="ibtn danger" id="edDel">${t('edge_del')}</button>`;
 }
 function bindEdge(e){
-  const s=$('#edSave'); if(s) s.onclick=()=>{ const never=($('#edNever').value||'').split('\n').map(x=>x.trim()).filter(Boolean);
-    e.share = never.length ? { ...(e.share||{}), never } : undefined;
+  const s=$('#edSave'); if(s) s.onclick=()=>{ const classes=[...$('#inspector').querySelectorAll('input[data-dclass]')].filter(x=>x.checked&&!x.disabled).map(x=>x.dataset.dclass);
+    const custom=listClean(($('#edNever').value||'').split('\n'));
+    const never=listClean([...classPatterns(classes), ...custom]);
+    const share={...(e.share||{})}; delete share.never; delete share.classes;
+    if(never.length) share.never=never;
+    if(classes.length) share.classes=classes;
+    e.share = Object.keys(share).length ? share : undefined;
     const br=$('#edBranch'); if(br) e.branch=br.value;                 // Wave E2: router branch label
-    toast(t('edge_saved')); drawLinks(); };
-  const d=$('#edDel'); if(d) d.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==e.id); deselect(); };
+    toast(t('edge_saved')); clearTrust(); renderInspector(); };
+  const c=$('#edCheck'); if(c) c.onclick=()=>checkTrust();
+  $('#inspector').querySelectorAll('[data-edge-preset]').forEach(b=>b.onclick=()=>applyPreset(e.target,b.dataset.edgePreset));
+  const d=$('#edDel'); if(d) d.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==e.id); clearTrust(); deselect(); };
 }
 function inspTrigger(tr){
   return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
@@ -902,13 +1000,15 @@ function sendHandoff(to){ const a=ag(to);
     onSubmit:async v=>{ await api('/api/handoffs',{ from:v.from||'cockpit', to, skill:v.skill||'task', input:v.input||'' }); refresh(); } });
 }
 function flowName(){ const v=$('#flowName').value.trim(); if(v) return v; const f=buildFlow(); return f? f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→') : 'flow'; }
+function serialShare(share){ if(!share)return null; const s={}; const never=listClean(share.never), classes=listClean(share.classes);
+  if(never.length) s.never=never; if(classes.length) s.classes=classes; return Object.keys(s).length?s:null; }
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
   const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const cn=comp(id); if(cn) return { id, kind:cn.kind, config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
-  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target, ...(e.share&&(e.share.never||[]).length?{share:{never:e.share.never}}:{}), ...(e.branch?{branch:e.branch}:{}) })) }; }
+  return { nodes, edges:EDGES.map(e=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; }) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
