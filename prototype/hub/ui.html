@@ -100,6 +100,7 @@
   dialog .minfo { font-size:12px; color:var(--dim); }
   dialog input, dialog textarea { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:8px 10px; font:inherit; }
   dialog textarea { min-height:88px; resize:vertical; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  dialog textarea[readonly] { min-height:200px; }
   dialog .df { display:flex; gap:8px; justify-content:flex-end; padding:0 16px 14px; }
   ::backdrop { background:rgba(0,0,0,.55); }
   #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel2); border:1px solid var(--line); color:var(--txt); padding:9px 16px; border-radius:9px; font-size:12px; opacity:0; pointer-events:none; transition:.2s; box-shadow:0 10px 30px -10px #000; z-index:50; }
@@ -182,6 +183,10 @@ const I18N = {
   t_wire1:{ja:'先に配線してください: out ポートを in ポートへドラッグ。',en:'Wire a flow first: drag an out-port onto an in-port.'}, t_wire2:{ja:'先に flow を配線してください。',en:'Wire a flow first.'},
   t_need_trig:{ja:'パレットで ⚡ trigger を追加し chain に配線してください。',en:'Add a ⚡ trigger (palette) and wire it into the chain first.'}, t_need_agent:{ja:'trigger を最低 1 つの agent に配線してください。',en:'Wire the trigger into at least one agent.'},
   t_match_ok:{ja:'match を更新しました',en:'match updated'}, t_badjson:{ja:'不正な JSON',en:'invalid JSON'}, t_mcp_copied:{ja:'MCP 呼び出しをコピーしました',en:'MCP call copied'}, t_snip_copied:{ja:'MCP tool スニペットをコピーしました',en:'MCP tool snippet copied'}, t_running:{ja:'flow を実行中…',en:'running flow…'},
+  mcp_info:{ja:'BuildHUD を MCP server として繋げば、AI がこの agent に handoff を送れます。',en:'Connect BuildHUD as an MCP server, then an AI can hand off to this agent.'},
+  mcp_step1:{ja:'① MCP クライアントに BuildHUD server を追加（.mcp.json / claude mcp add）',en:'① Add the BuildHUD server to your MCP client (.mcp.json / claude mcp add)'},
+  mcp_step2:{ja:'② このツールを呼んで {a} に handoff（A2A_SHARED_TOKEN は不要）',en:'② Call this tool to hand off to {a} (no A2A_SHARED_TOKEN needed)'},
+  mcp_token_note:{ja:'<token — run_* 実行系のみ必要>',en:'<token — only for run_* (act) tools>'},
 };
 const t = (k) => (I18N[k]?.[LANG]) ?? (I18N[k]?.en) ?? k;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
@@ -198,7 +203,7 @@ function applyChrome(){   // static (non-state) chrome strings
 const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
-let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0;
+let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null;
 const HIDDEN = new Set(); let selected = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -393,7 +398,12 @@ function inspDefault(){
 
 /* ---------- actions ---------- */
 async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
-function copyMcp(id){ const a=ag(id); copyText(JSON.stringify({ tool:'send_handoff', args:{ to:id, skill:a?.skill||'task', input:'…' } }), t('t_mcp_copied')); }
+function copyMcp(id){ const a=ag(id);
+  const call=JSON.stringify({ tool:'send_handoff', args:{ to:id, skill:a?.skill||'task', input:'…' } }, null, 2);
+  const cfg = MCP ? JSON.stringify({ mcpServers:{ [MCP.name]:{ command:MCP.command, args:MCP.args, env:{ BUILDHUD_HUB:MCP.hub, [MCP.tokenEnv]:t('mcp_token_note') } } } }, null, 2)
+                  : '(hub /api/mcp not reachable)';
+  const text=`# ${t('mcp_step1')}\n${cfg}\n\n# ${t('mcp_step2').replace('{a}', id)}\n${call}`;
+  openModal({ title:`MCP · ${id}`, info:t('mcp_info'), submitLabel:t('m_copy'), fields:[{key:'x',label:t('m_mcp_call'),type:'readonly',value:text}], onSubmit:()=>copyText(text, t('t_mcp_copied')) }); }
 async function act(id,what){ await api(`/api/handoffs/${id}/${what}`,{}); refresh(); }
 function sendHandoff(to){ const a=ag(to);
   openModal({ title:`handoff → ${to}`, submitLabel:t('m_send_b'), fields:[
@@ -448,5 +458,5 @@ function toggleMenu(e){ e.stopPropagation(); $('#autoMenu').classList.toggle('op
 function closeMenu(){ $('#autoMenu').classList.remove('open'); }
 document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu(); });
 
-applyChrome(); refresh(); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); refresh(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
