@@ -340,6 +340,7 @@ const I18N = {
   f_args:{ja:'引数（JSON・任意）',en:'arguments (JSON, optional)'}, mcp_args_note:{ja:'上流の出力は input として渡されます。to / subject / channel 等はここで追加。',en:'Upstream output is passed as `input`. Add fields like to / subject / channel here.'}, mcp_apply_args:{ja:'引数を適用',en:'apply args'}, t_args_ok:{ja:'引数を更新しました',en:'arguments updated'},
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
+  comp_name:{ja:'名前（任意）',en:'name (optional)'}, comp_name_ph:{ja:'この部品の呼び名…',en:'a name for this node…'}, comp_desc:{ja:'説明（任意）',en:'description (optional)'}, comp_desc_ph:{ja:'この部品が何をするか…',en:'what this node does…'}, comp_save:{ja:'✓ 適用',en:'✓ Apply'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
@@ -669,7 +670,11 @@ function renderNodes(){
       :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
       :c.kind==='consensus'?(ch&&ch.consensus.picked?`⚖️ ${esc(ch.consensus.picked)} · agree ${ch.consensus.agreement}`:esc((c.config?.vendors)||'claude,codex,gemini').slice(0,40))
       :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
-    n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(meta.label||c.kind)}</div><div class="co">${sub}</div>`
+    const cname=(c.config?.name||'').trim()||meta.label||c.kind;          // Wave: per-component custom name (falls back to the kind label)
+    const cdesc=(c.config?.desc||'').trim();
+    n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(cname)}</div>`
+      +(cdesc?`<div class="co" style="color:#b8c7d8">${esc(cdesc).slice(0,72)}</div>`:'')
+      +`<div class="co">${sub}</div>`
       +(c.accepts.length?portHtml('in',c.id,c.accepts[0]):'')
       +(c.emits.length?portHtml('out',c.id,c.emits[0]):'');
   }
@@ -989,11 +994,14 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{};
         :f.type==='select'?`<select class="cin" data-ck="${esc(f.key)}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
         :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join('');
   const res=cn.kind==='output'?lastOutput(cn.id):null;
-  return `<div class="ins-h">${meta.icon||'▦'} ${esc(meta.label||cn.kind)} <span class="back" onclick="deselect()">${t('close')}</span></div>
+  const title=(cn.config?.name||'').trim()||meta.label||cn.kind;
+  return `<div class="ins-h">${meta.icon||'▦'} ${esc(title)} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('comp_help')}</b><div class="ports">${cn.accepts.length?`<div><i></i>${t('legend_in')}</div>`:''}${cn.emits.length?`<div><i class="out"></i>${t('legend_out')}</div>`:''}</div></div>
+    <div class="field"><label>${t('comp_name')}</label><input class="cin" data-ck="name" value="${esc(cn.config?.name||'')}" placeholder="${esc(t('comp_name_ph'))}"></div>
+    <div class="field"><label>${t('comp_desc')}</label><textarea class="match" data-ck="desc" placeholder="${esc(t('comp_desc_ph'))}">${esc(cn.config?.desc||'')}</textarea></div>
     <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(cn.accepts.length?cn.accepts:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(cn.emits.length?cn.emits:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    ${fields}${meta.fields&&meta.fields.length?`<button class="ibtn" id="compSave">${t('mcp_apply_args')}</button>`:''}
+    ${fields}<button class="ibtn" id="compSave">${t('comp_save')}</button>
     ${res!=null?`<div class="field"><label>${t('comp_result')}</label><div class="v" style="color:var(--green);white-space:pre-wrap;max-height:220px;overflow:auto">${esc(res).slice(0,2000)}</div></div>`:''}
     <button class="ibtn danger" onclick="removeComp('${esc(cn.id)}')">${t('btn_del_node')}</button>`;
 }
