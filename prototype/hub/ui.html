@@ -129,6 +129,7 @@
         <button id="miExport" onclick="exportFlow()"></button>
       </div>
     </div>
+    <button class="tb" id="btnGhost" onclick="ghostWrite()"></button>
     <button class="tb" id="btnSettings" onclick="openSettings()"></button>
   </div>
   <button class="tb" id="lang" onclick="toggleLang()"></button>
@@ -186,6 +187,9 @@ const I18N = {
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
+  ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
+  gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
+  gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -214,7 +218,7 @@ function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
-  $('#btnSettings').textContent=t('settings');
+  $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger');
   $('#hint').innerHTML=t('hint');
@@ -601,6 +605,38 @@ async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toa
   const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
   openModal({ title:`MCP tool: ${wf.id}`, info:t('m_export_info'), submitLabel:t('m_copy'), fields:[{key:'snip',label:t('m_mcp_call'),type:'readonly',value:snip}], onSubmit:()=>copyText(snip,t('t_snip_copied')) }); refresh(); }
 async function copyText(text,label){ try{ await navigator.clipboard.writeText(text); conn(label); toast(label); }catch{ openModal({title:label,fields:[{key:'x',label:t('m_mcp_call'),type:'readonly',value:text}]}); } }
+
+/* ---------- Ghost Writer (Wave L): NL → flow on the canvas. Generate, review, Run (fence intact). ---------- */
+function ghostWrite(){
+  openModal({ title:t('gw_title'), info:t('gw_info'), submitLabel:t('gw_btn'),
+    fields:[{key:'prompt',label:'',type:'textarea',placeholder:t('gw_ph')}],
+    onSubmit:async v=>{ const prompt=(v.prompt||'').trim(); if(!prompt) return;
+      let r; try{ r=await api('/api/ghostwrite',{prompt}); }catch(e){ return toast(e.message||t('gw_empty')); }
+      if(!r.nodes||!r.nodes.length) return toast(t('gw_empty'));
+      loadFlow(r);
+      const msg=`${t('gw_built')} (${r.source}, ${r.nodes.length} nodes)`+((r.warnings&&r.warnings.length)?` · ${t('gw_warn')}: ${r.warnings.length}`:'');
+      conn(msg); toast(msg);
+      if(r.agentDraft) showAgentDraft(r.agentDraft);
+    } });
+}
+function loadFlow(flow){                          // materialize a generated/saved flow onto the canvas (fresh draft)
+  TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; EDGES=[];
+  HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // hide all, then reveal the flow's agents
+  for(const n of flow.nodes){
+    POS[n.id]={ x:n.x||40, y:n.y||40 };
+    if(n.kind==='agent'){ HIDDEN.delete(n.agent||n.id); }
+    else if(n.kind==='trigger'){ TRIGGERS.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }
+    else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
+    else if(COMP[n.kind]){ const m=COMP[n.kind]; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config:n.config||{} }); }
+  }
+  EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target) }));
+  deselect(); render();
+}
+function showAgentDraft(d){
+  openModal({ title:t('gw_draft'), info:t('gw_addagent'), submitLabel:t('gw_addagent'),
+    fields:[ {key:'name',label:'name',value:d.name||''}, {key:'skill',label:'skill',value:d.skill||'task'}, {key:'systemPrompt',label:'systemPrompt',type:'textarea',value:d.systemPrompt||''} ],
+    onSubmit:async v=>{ if(!v.name) return; await api('/api/agents',{ name:v.name, skill:v.skill||'task', systemPrompt:v.systemPrompt||'', accepts:d.accepts||['*'], emits:d.emits||['*'] }); HIDDEN.delete(v.name); refresh(); toast('agent '+v.name); } });
+}
 
 /* ---------- modal + menu ---------- */
 function openModal({title, fields=[], submitLabel='OK', onSubmit, info}){
