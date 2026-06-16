@@ -24,6 +24,8 @@ import { runVendorAsync } from '../runner.mjs';
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
+let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
+const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (default on) AND-ed with the global master; off → broker-only (waits for a worker)
 const STATE_FILE = path.join(HERE, 'inbox.json');
 const UI_FILE = path.join(HERE, 'ui.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
@@ -41,7 +43,7 @@ const online = (a) => now() - (a.lastSeen || 0) < ONLINE_MS;
 const isAuto = (a, from) => a.policy === 'auto' || (a.autoFrom || []).includes(from);
 const find = (id) => { const h = state.handoffs.find((x) => x.id === id); if (!h) throw new Error(`no handoff "${id}"`); return h; };
 const touch = (h, status, by) => { h.status = status; h.updatedAt = now(); (h.history ||= []).push({ ts: now(), status, by }); };
-const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a) || !!a.local, lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'], local: !!a.local }));
+const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a) || (!!a.local && autorunOn(a)), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'], local: !!a.local, autorun: a.autorun !== false }));
 const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status, createdAt: h.createdAt, updatedAt: h.updatedAt });
 
 // pre-register known agents (prototype/agents/*.json) so the canvas has nodes to drag between
@@ -72,7 +74,7 @@ function create({ from, to, skill, input }) {
 // recipient comes online: heartbeat + advance its submitted handoffs by policy, return the ones to run now
 function poll(agentId) {
   const a = agent(agentId); a.lastSeen = now();
-  if (a.local) { save(); return []; }       // local agents are run by the hub itself — poll is heartbeat-only (no double-run)
+  if (a.local && autorunOn(a)) { save(); return []; }   // hub runs it in-process → poll is heartbeat-only. autorun off → fall through, let a worker claim it
   for (const h of state.handoffs)
     if (h.to === agentId && h.status === 'submitted') touch(h, isAuto(a, h.from) ? 'approved' : 'awaiting_approval', isAuto(a, h.from) ? 'auto' : 'policy');
   const runnable = state.handoffs.filter((h) => h.to === agentId && h.status === 'approved');
@@ -89,6 +91,9 @@ function postResult(id, { result, error }, by = 'worker') {
 function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); save(); schedule(h); return h; }
 function decline(id) { const h = find(id); touch(h, 'rejected', 'human'); save(); return h; }
 function setPolicy(id, { policy, autoFrom }) { const a = agent(id); if (policy) a.policy = policy === 'auto' ? 'auto' : 'approval'; if (Array.isArray(autoFrom)) a.autoFrom = autoFrom; save(); return { id: a.id, policy: a.policy, autoFrom: a.autoFrom, online: online(a) }; }
+function resumePending() { for (const h of state.handoffs) { const a = state.agents[h.to]; if (a && a.local && autorunOn(a) && (h.status === 'submitted' || h.status === 'approved')) schedule(h); } } // turning autorun back on → run what was waiting
+function setAutorun(id, on) { const a = agent(id); a.autorun = on !== false; save(); resumePending(); return { id: a.id, autorun: a.autorun }; }
+function setGlobalAutorun(on) { AUTORUN = on !== false; save(); resumePending(); return { autorun: AUTORUN }; }
 
 // ---------- in-process executor (LOCAL agents only: the hub runs the skill itself, no worker.mjs) ----------
 // This deliberately revises the "broker never runs skills" stance for LOCAL agents (config present in
@@ -97,7 +102,7 @@ function setPolicy(id, { policy, autoFrom }) { const a = agent(id); if (policy) 
 const running = new Set();                   // handoff ids executing in-process right now (de-dupe guard)
 function schedule(h) {
   const a = agent(h.to);
-  if (!a.local) return;                      // remote → durable inbox; their worker/server runs it
+  if (!a.local || !autorunOn(a)) return;     // remote, OR autorun off → durable inbox; a worker runs it (broker-only)
   if (h.status === 'submitted') { touch(h, isAuto(a, h.from) ? 'approved' : 'awaiting_approval', isAuto(a, h.from) ? 'auto' : 'policy'); save(); }
   if (h.status === 'approved') runLocal(h);
 }
@@ -115,7 +120,7 @@ function runLocal(h) {
 // crash recovery: on boot, resume local handoffs left mid-flight (running) or unprocessed (submitted/approved)
 (function sweep() {
   for (const h of state.handoffs) {
-    const a = state.agents[h.to]; if (!a || !a.local) continue;
+    const a = state.agents[h.to]; if (!a || !a.local || !autorunOn(a)) continue;
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
     else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
   }
@@ -231,7 +236,7 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null })), runs: Object.values(state.runs).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length })) });
+    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null })), runs: Object.values(state.runs).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length })) });
   if (req.method === 'GET' && p === '/api/workflows')
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   if (req.method === 'GET' && p === '/api/automations')
@@ -250,10 +255,12 @@ const server = http.createServer((req, res) => {
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
+      if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
       let m;
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : ref(postResult(m[1], j)));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/autorun$/))) return json(res, 200, setAutorun(m[1], j.on)); // per-agent autorun on/off
       return json(res, 404, { error: `unknown route ${p}` });
     } catch (e) { return json(res, 400, { error: e.message }); }
   });

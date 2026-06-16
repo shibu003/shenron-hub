@@ -126,6 +126,7 @@
         <button id="miExport" onclick="exportFlow()"></button>
       </div>
     </div>
+    <button class="tb" id="btnSettings" onclick="openSettings()"></button>
   </div>
   <button class="tb" id="lang" onclick="toggleLang()"></button>
   <span id="conn"></span>
@@ -169,6 +170,10 @@ const I18N = {
   online:{ja:'🟢 オンライン',en:'🟢 online'}, offline:{ja:'⚪ オフライン',en:'⚪ offline'}, runs_hub:{ja:' · hub で実行',en:' · runs in hub'},
   f_accepts:{ja:'accepts（受け取る型）',en:'accepts'}, f_emits:{ja:'emits（出す型）',en:'emits'}, f_policy:{ja:'policy（承認方針）',en:'policy'},
   pol_auto:{ja:'⚡ auto — 承認なしで実行',en:'⚡ auto — runs without approval'}, pol_appr:{ja:'✋ approval — 人間ゲート',en:'✋ approval — human gate'}, toggle_sfx:{ja:' · 切替',en:' · toggle'},
+  settings:{ja:'⚙ 設定',en:'⚙ Settings'}, f_autorun:{ja:'autorun（hub が代理実行）',en:'autorun (hub runs it in-process)'},
+  autorun_on:{ja:'⚡ autorun ON — hub が代理実行',en:'⚡ autorun ON — hub runs it'}, autorun_off:{ja:'⏸ autorun OFF — worker 待ち',en:'⏸ autorun OFF — waits for a worker'},
+  set_autorun_g:{ja:'autorun グローバル（全 local agent の hub 代理実行）',en:'autorun — global (hub runs all local agents)'},
+  autorun_info:{ja:'OFF にすると hub は local agent を代理実行せず、専用 worker 起動時のみ実行（broker-only）。',en:'OFF = the hub stops running local agents in-process; only a dedicated worker runs them (broker-only).'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -197,6 +202,7 @@ function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
+  $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger');
   $('#hint').innerHTML=t('hint');
@@ -364,6 +370,8 @@ function inspAgent(a){
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(a.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_policy')}</label>
       <button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
+    ${a.local?`<div class="field"><label>${t('f_autorun')}</label>
+      <button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button></div>`:''}
     <button class="ibtn" onclick="sendHandoff('${esc(a.id)}')">${t('btn_send')}</button>
     <button class="ibtn" onclick="copyMcp('${esc(a.id)}')">${t('btn_copy_mcp')}</button>
     <button class="ibtn danger" onclick="HIDDEN.add('${esc(a.id)}');deselect()">${t('btn_remove')}</button>`;
@@ -401,6 +409,16 @@ function inspDefault(){
 
 /* ---------- actions ---------- */
 async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
+async function toggleAutorun(id){ const a=ag(id); await api(`/api/agents/${id}/autorun`,{on:!(a?.autorun!==false)}); refresh(); }
+function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
+  dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
+    <label>${t('set_autorun_g')}</label>
+    <button class="ibtn toggle ${g?'auto':'approval'}" id="gAutorun">${g?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button>
+    <div class="minfo">${t('autorun_info')}</div></div>
+    <div class="df"><button class="act" id="setClose">${t('close')}</button></div>`;
+  if(!dlg.open) dlg.showModal();
+  $('#gAutorun').onclick=async()=>{ await api('/api/autorun',{on:!(state.autorun!==false)}); await refresh(); openSettings(); };
+  $('#setClose').onclick=()=>dlg.close(); }
 let mcpTool = 'send_handoff';
 function copyMcp(id){ openMcpModal(id); }
 function openMcpModal(id){
