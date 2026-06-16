@@ -80,6 +80,16 @@
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
   textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
   input.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  .capchip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:999px; padding:2px 9px; font-size:11px; cursor:pointer; }
+  .capchip input { accent-color:var(--green); margin:0; }
+  .redbadge { color:var(--amber); border:1px solid var(--amber); border-radius:999px; padding:0 6px; font-size:10px; margin-left:6px; }
+  .aud { font-size:11px; padding:5px 8px; border-left:2px solid var(--line); margin:3px 0; background:var(--panel2); border-radius:0 6px 6px 0; display:flex; gap:7px; }
+  .aud .atype { font-weight:600; text-transform:uppercase; letter-spacing:.03em; font-size:10px; }
+  .aud.redact { border-left-color:var(--amber); } .aud.redact .atype { color:var(--amber); }
+  .aud.deny { border-left-color:var(--red); } .aud.deny .atype { color:var(--red); }
+  .aud.send,.aud.approve { border-left-color:var(--green); } .aud.send .atype,.aud.approve .atype { color:var(--green); }
+  .aud .adet { color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .aud-v { margin-left:auto; font-size:10px; text-transform:none; letter-spacing:0; } .aud-v.ok { color:var(--green); } .aud-v.bad { color:var(--red); }
   #summary { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
   .cnt { font-size:11px; border:1px solid var(--line); background:#0d1117; border-radius:999px; padding:2px 9px; cursor:pointer; color:var(--dim); user-select:none; }
   .cnt b { color:var(--txt); } .cnt.on { box-shadow:0 0 0 1px currentColor inset; }
@@ -187,6 +197,8 @@ const I18N = {
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
+  h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
+  aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
@@ -230,6 +242,7 @@ const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null;
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
+let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
 const COMP = {                                       // minimal component library (per-field typed template). Agent stays our LLM unit.
   input:  { label:'Chat Input',  icon:'💬', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(empty → use the Run input)' }] },
@@ -248,7 +261,8 @@ async function api(path, body) {
   return r.json();
 }
 async function refresh() {
-  try { state = await api('/api/state'); $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
+  try { const [s,a] = await Promise.all([api('/api/state'), api('/api/audit').catch(()=>AUDIT)]); state=s; AUDIT=a||AUDIT;
+    $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
 function render(){ placeNodes(); renderNodes(); drawLinks(); renderPalette(); renderInspector(); }
@@ -424,7 +438,7 @@ function drawLinks(){
 /* ---------- inspector ---------- */
 function renderInspector(){
   const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected);
-  if(a) return void (ins.innerHTML = inspAgent(a));
+  if(a) return void (ins.innerHTML = inspAgent(a), bindAgent(a));
   if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
   if(mn) return void (ins.innerHTML = inspMcp(mn), bindMcp(mn));
   if(cn) return void (ins.innerHTML = inspComp(cn), bindComp(cn));
@@ -446,10 +460,19 @@ function inspAgent(a){
       <button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
     ${a.local?`<div class="field"><label>${t('f_autorun')}</label>
       <button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button></div>`:''}
+    <div class="field"><label>🔒 ${t('h_caps')}</label><div class="chips">
+      ${['read','write','external_send'].map(c=>`<label class="capchip"><input type="checkbox" data-cap="${c}" ${((a.passport&&a.passport.caps)||[]).includes(c)?'checked':''}>${c}</label>`).join('')}
+    </div></div>
+    <div class="field"><label>${t('h_never')}</label><textarea class="match" id="ppNever" placeholder="${t('h_never_ph')}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>
+    <button class="ibtn" id="ppSave">${t('h_pp_apply')}</button>
     <button class="ibtn" onclick="sendHandoff('${esc(a.id)}')">${t('btn_send')}</button>
     <button class="ibtn" onclick="copyMcp('${esc(a.id)}')">${t('btn_copy_mcp')}</button>
     <button class="ibtn danger" onclick="HIDDEN.add('${esc(a.id)}');deselect()">${t('btn_remove')}</button>`;
 }
+function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
+  b.onclick=async()=>{ const caps=[...$('#inspector').querySelectorAll('[data-cap]')].filter(x=>x.checked).map(x=>x.dataset.cap);
+    const never=($('#ppNever').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }; }
 function inspTrigger(tr){
   return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="field"><label>${t('f_type')}</label><div class="v">build_state</div></div>
@@ -503,7 +526,7 @@ function inspDefault(){
   const list = hs.map(h=>{ const open=expanded.has(h.id);
     return `<div class="h ${open?'open':''}" data-id="${h.id}">
       <div class="top"><span class="st ${h.status}">${h.status}</span>
-        <span class="who"><b>${esc(h.from)}</b> → <b>${esc(h.to)}</b> · ${esc(h.skill)}</span><span class="time">${rel(h.updatedAt)}</span></div>
+        <span class="who"><b>${esc(h.from)}</b> → <b>${esc(h.to)}</b> · ${esc(h.skill)}</span>${h.redacted?`<span class="redbadge" title="${t('redacted_t')}">🔒 ${h.redacted.reduce((n,r)=>n+r.count,0)}</span>`:''}<span class="time">${rel(h.updatedAt)}</span></div>
       ${h.result?`<div class="body" style="color:var(--green)">${esc(h.result).slice(0,open?4000:160)}</div>`:''}
       ${h.error?`<div class="body" style="color:var(--red)">${esc(h.error)}</div>`:''}
       ${open&&h.input?`<div class="body">in: ${esc(h.input).slice(0,1500)}</div>`:''}
@@ -511,7 +534,20 @@ function inspDefault(){
     </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
   return `<div class="ins-h">${t('insp_flow')}</div>
     <div id="summary"><span class="cnt online"><b>${onN}</b>/${state.agents.length} ${t('s_online')}</span>
-      ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}`;
+      ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}${auditPanel()}`;
+}
+function auditPanel(){
+  const ents=AUDIT.entries||[]; const ok=!(AUDIT.verify&&AUDIT.verify.ok===false);
+  const rows=ents.slice(-12).reverse().map(e=>`<div class="aud ${esc(e.type)}"><span class="atype">${esc(e.type)}</span><span class="adet">${esc(auditDetail(e))}</span></div>`).join('')||`<div class="empty">${t('aud_empty')}</div>`;
+  return `<div class="ins-h" style="margin-top:16px">🔒 ${t('aud_head')}<span class="aud-v ${ok?'ok':'bad'}">${ok?t('aud_ok'):t('aud_bad')} · ${ents.length}</span></div>${rows}`;
+}
+function auditDetail(e){
+  if(e.type==='redact') return `${e.egress?'→ ':''}${e.to||''}: ${(e.removed||[]).map(r=>r.label+'×'+r.count).join(', ')}`;
+  if(e.type==='deny') return `${e.from||''} → ${e.to||''} — ${e.why||''}`;
+  if(e.type==='send') return `${e.server||''}.${e.tool||''}${e.redacted?` (redacted ${e.redacted})`:''}`;
+  if(e.type==='approve') return `${e.to||''} · ${e.skill||''}`;
+  if(e.type==='passport') return `${e.agent||''} caps=${(e.caps||[]).join('/')}`;
+  return '';
 }
 
 /* ---------- actions ---------- */
