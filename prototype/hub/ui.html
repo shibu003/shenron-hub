@@ -127,6 +127,16 @@
   .aud.redact { border-left-color:var(--amber); } .aud.redact .atype { color:var(--amber); }
   .aud.route { border-left-color:var(--blue); } .aud.route .atype { color:var(--blue); }
   .node.skipped { opacity:.32; filter:grayscale(1); }
+  .tsum { border:1px solid var(--green); border-radius:9px; padding:9px 11px; margin-bottom:12px; background:rgba(63,185,80,.07); }
+  .tsum.bad { border-color:var(--red); background:rgba(248,81,73,.08); }
+  .tsum .ts-h { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:5px; }
+  .tsum .ts-run { font-family:ui-monospace,monospace; font-size:10px; color:var(--dim); }
+  .tsum .ts-verify { margin-left:auto; font-size:10px; padding:1px 7px; border-radius:999px; }
+  .tsum .ts-verify.ok { color:var(--green); border:1px solid var(--green); } .tsum .ts-verify.bad { color:var(--red); border:1px solid var(--red); }
+  .tsum .ts-line { font-size:12px; margin-bottom:6px; }
+  .tsum .ts-chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .tsum .ts-chip { font-size:10px; background:#1c2230; border:1px solid var(--amber); color:var(--amber); border-radius:4px; padding:0 6px; }
+  .tsum .ts-clean { font-size:11px; color:var(--green); } .tsum .ts-route { font-size:11px; color:var(--blue); margin-top:4px; }
   .aud.deny { border-left-color:var(--red); } .aud.deny .atype { color:var(--red); }
   .aud.send,.aud.approve { border-left-color:var(--green); } .aud.send .atype,.aud.approve .atype { color:var(--green); }
   .aud .adet { color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -279,6 +289,7 @@ const I18N = {
   safe_btn:{ja:'🔒 Safe Handoff 例',en:'🔒 Safe Handoff example'}, safe_desc:{ja:'会社をまたぐ handoff を trust 境界つきで配置（秘密除去＋承認制送信）。',en:'Lays out a cross-company handoff fenced by the trust bundle (secret-stripped + approval-gated send).'}, safe_placed:{ja:'Safe Handoff を配置。配線 🔒 と passport を確認して ▶ Run。',en:'Safe Handoff placed. Check the 🔒 wire + passports, then ▶ Run.'},
   check_trust:{ja:'🔒 Check trust',en:'🔒 Check trust'}, tp_title:{ja:'Trust プレビュー（実行前）',en:'Trust preview (before run)'}, tp_before:{ja:'実行前に',en:'Before you run:'}, tp_strips:{ja:'件の秘密/PII を除去',en:'secrets/PII stripped'}, tp_gates:{ja:'件の外部送信をゲート',en:'external send(s) gated'}, tp_denied:{ja:'件を拒否',en:'denied'},
   tp_wires:{ja:'配線（data firewall）',en:'wires (data firewall)'}, tp_caps:{ja:'capability ゲート',en:'capability gates'}, tp_runtime:{ja:'実行時に評価',en:'evaluated at runtime'}, tp_note:{ja:'実 enforcement コードで dry-run（agent は走らせず・送信なし）。net/fs は宣言、実 sandbox は runner 側。',en:'Dry-run with the real enforcement code (no agents run, nothing sent). net/fs are declared; real sandbox is runner-side.'},
+  ts_title:{ja:'Trust verdict（実行結果）',en:'Trust verdict (last run)'}, ts_stripped:{ja:'除去',en:'stripped'}, ts_sent:{ja:'送信',en:'sent'}, ts_held:{ja:'承認待ち',en:'held'}, ts_blocked:{ja:'遮断',en:'blocked'}, ts_skipped:{ja:'分岐スキップ',en:'skipped'}, ts_noleak:{ja:'秘密/PII の漏れなし',en:'no secrets/PII leaked'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
@@ -786,8 +797,32 @@ function inspDefault(){
     </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
   return `<div class="ins-h">${t('insp_flow')}</div>
     <div class="helpbox"><b>${t('default_help')}</b><div style="margin-top:9px"><button class="linkbtn" onclick="placeExampleFlow()">${t('demo_btn')}</button> · <button class="linkbtn" onclick="placeSafeHandoff()">${t('safe_btn')}</button></div></div>
+    ${trustSummary()}
     <div id="summary"><span class="cnt online"><b>${onN}</b>/${state.agents.length} ${t('s_online')}</span>
       ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}${auditPanel()}`;
+}
+// Wave E3 — run verdict: the after-run counterpart to E1's before-run dry-run. "Was this run safe, and why?"
+// in one glance, joining the tamper-evident audit + run state for the LATEST run. The raw audit trail below
+// becomes the evidence; this is the answer. All data already exists (/api/audit + /api/state).
+function trustSummary(){
+  const runs=state.runs||[]; if(!runs.length) return '';
+  const run=runs[runs.length-1], runId=run.id;
+  const hById={}; for(const h of state.handoffs) hById[h.id]=h;
+  const inRun=e=> e.runId===runId || (e.handoff && hById[e.handoff] && hById[e.handoff].runId===runId);
+  const ents=(AUDIT.entries||[]).filter(inRun);
+  const leaks={}; let leakN=0;
+  for(const e of ents.filter(x=>x.type==='redact')) for(const r of (e.removed||[])){ leaks[r.label]=(leaks[r.label]||0)+r.count; leakN+=r.count; }
+  const sends=state.handoffs.filter(h=>h.runId===runId && h.mcp);
+  const sent=sends.filter(h=>h.status==='completed').length, held=sends.filter(h=>h.status==='awaiting_approval').length;
+  const blocked=ents.filter(e=>e.type==='deny').length + sends.filter(h=>h.status==='failed'||h.status==='rejected').length;
+  const routes=ents.filter(e=>e.type==='route'), skipped=(run.skipped||[]).length;
+  const verify=AUDIT.verify||{ok:true};
+  const leakChips=Object.entries(leaks).map(([l,c])=>`<span class="ts-chip">${esc(l)}×${c}</span>`).join('')||`<span class="ts-clean">${t('ts_noleak')}</span>`;
+  const routeRows=routes.map(e=>`<div class="ts-route">🔀 ${esc(e.node)} · ${esc(e.predicate)}=${e.result} → <b>${esc(e.branch)}</b></div>`).join('');
+  return `<div class="tsum ${verify.ok?'ok':'bad'}">
+    <div class="ts-h"><b>🔒 ${t('ts_title')}</b><span class="ts-run">#${esc(runId)} · ${esc(run.status)}</span><span class="ts-verify ${verify.ok?'ok':'bad'}">${verify.ok?t('aud_ok'):t('aud_bad')}</span></div>
+    <div class="ts-line">${t('ts_stripped')} <b>${leakN}</b> · ${t('ts_sent')} <b>${sent}</b>${held?` · ${t('ts_held')} <b>${held}</b>`:''}${blocked?` · ${t('ts_blocked')} <b style="color:var(--red)">${blocked}</b>`:''}${skipped?` · ${t('ts_skipped')} <b>${skipped}</b>`:''}</div>
+    <div class="ts-chips">${leakChips}</div>${routeRows}</div>`;
 }
 function auditPanel(){
   const ents=AUDIT.entries||[]; const ok=!(AUDIT.verify&&AUDIT.verify.ok===false);
