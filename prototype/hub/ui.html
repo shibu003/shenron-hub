@@ -44,6 +44,19 @@
   .node.trigger { width:170px; border-color:var(--amber); background:#1b1407; }
   .node.trigger .name { color:var(--amber); } .node.trigger .badge { border-color:var(--amber); color:var(--amber); }
   .node.trigger .port.out { border-color:var(--amber); }
+  .nodebtn { cursor:pointer; color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:0 5px; font-size:11px; background:#0d1117; }
+  .nodebtn:hover { color:var(--txt); border-color:var(--blue); }
+  /* Wave D palette — agent/skill catalog; drag/＋ to the canvas, ⧉ to copy the MCP call */
+  #palette { position:fixed; left:10px; top:58px; width:236px; max-height:calc(100vh - 120px); overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; z-index:6; box-shadow:0 10px 34px -12px #000; }
+  #palette.hidden { display:none; }
+  #palette .ph { display:flex; align-items:center; padding:9px 11px; border-bottom:1px solid var(--line); font-weight:600; font-size:13px; }
+  #palette .ph .x { margin-left:auto; cursor:pointer; color:var(--dim); }
+  #palSearch { width:calc(100% - 18px); margin:9px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 8px; font:inherit; }
+  .palrow { display:flex; align-items:center; gap:6px; padding:6px 11px; border-top:1px solid #20262d; font-size:12px; }
+  .palrow .pm { flex:1; min-width:0; } .palrow .pm b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .palrow .pm span { color:var(--dim); font-size:11px; }
+  .palrow .pb { cursor:pointer; border:1px solid var(--line); border-radius:6px; padding:1px 7px; color:var(--txt); background:#0d1117; }
+  .palrow .pb:hover { border-color:var(--blue); } .palrow.on .add { opacity:.45; cursor:default; }
   body.wiring .node { cursor:crosshair; } body.wiring { cursor:crosshair; }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
@@ -86,6 +99,7 @@
 
 <header>
   <h1>BuildHUD <span>· handoff cockpit</span></h1>
+  <button class="btn" onclick="togglePalette()" title="Agent / skill palette">☰ palette</button>
   <div id="summary"></div>
   <div id="add">
     <input id="addName" placeholder="new agent id…" onkeydown="if(event.key==='Enter')addAgent()">
@@ -95,9 +109,15 @@
     <button class="btn" onclick="runFlow()" title="Run the wired graph topologically">▶ run</button>
     <button class="btn" onclick="saveAutomation()" title="Save trigger + chain as an automation">📋 auto</button>
     <button class="btn" onclick="fireEvent()" title="Fire a build_state event → runs matching automations">⚡ fire</button>
+    <button class="btn" onclick="exportFlow()" title="Export the wired flow as an MCP tool call">⇪ export</button>
     <span id="conn">connecting…</span>
   </div>
 </header>
+<div id="palette" class="hidden">
+  <div class="ph">Palette <span class="x" onclick="togglePalette()">✕</span></div>
+  <input id="palSearch" placeholder="search agents / skills…" oninput="renderPalette()">
+  <div id="palList"></div>
+</div>
 <div class="wrap">
   <div id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div class="hint" id="hint">No agents yet — add one, or start the hub with prototype/agents/*.json.</div></div>
   <div id="panel"><h2>Handoffs <span class="clear" id="clear" style="display:none" onclick="setFilter(null)">clear filter ✕</span></h2><div id="list"></div></div>
@@ -120,6 +140,8 @@ let state = { agents: [], handoffs: [] }; let nodeDrag = null;
 let EDGES = []; let wiring = null; let eidc = 0;
 // Wave C trigger nodes (client-side; saved into an automation on "save auto").
 let TRIGGERS = []; let tidc = 0;
+// Wave D: canvas membership filter (palette = catalog; ✕ hides a node, palette ＋ re-adds it).
+const HIDDEN = new Set();
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STC = { submitted:'var(--grey)', awaiting_approval:'var(--amber)', approved:'var(--blue)', running:'var(--blue)', completed:'var(--green)', failed:'var(--red)', rejected:'var(--red)' };
@@ -164,9 +186,30 @@ async function saveAutomation(){ const f=buildFlow();
 async function fireEvent(){ const s=prompt('Fire a build_state event (JSON) — runs every enabled automation it matches', '{"event":"review_completed","status":"green"}'); if(s===null) return;
   let ev; try{ ev=JSON.parse(s); }catch{ return alert('invalid JSON'); }
   const r=await api('/api/fire',{ event:ev }); $('#conn').textContent='fired '+(r.fired?.length||0)+' automation(s)'; refresh(); }
+// --- Wave D: agent/skill palette (catalog = the hub's shared agent index) + MCP export ---
+function togglePalette(){ $('#palette').classList.toggle('hidden'); renderPalette(); }
+function renderPalette(){ const pal=$('#palette'); if(pal.classList.contains('hidden')) return;
+  const q=($('#palSearch').value||'').toLowerCase();
+  const list=state.agents.filter(a=>!q||(a.id+' '+(a.skill||'')+' '+(a.company||'')).toLowerCase().includes(q));
+  $('#palList').innerHTML = list.map(a=>{ const on=!HIDDEN.has(a.id);
+    return `<div class="palrow ${on?'on':''}">
+      <div class="pm"><b>${esc(a.id)}</b><span>${esc(a.skill||'—')}${a.company?' · '+esc(a.company):''}</span></div>
+      <span class="pb add" data-padd="${esc(a.id)}" title="${on?'already on canvas':'add to canvas'}">${on?'on':'＋'}</span>
+      <span class="pb" data-pmcp="${esc(a.id)}" title="copy MCP call">⧉</span></div>`;
+  }).join('') || '<div class="palrow"><span style="color:var(--dim)">no match</span></div>';
+  $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
+  $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
+}
+async function copyText(t,label){ try{ await navigator.clipboard.writeText(t); $('#conn').textContent=label||'copied'; }catch{ prompt(label||'copy:', t); } }
+function copyMcp(id){ const a=ag(id); copyText(JSON.stringify({ tool:'send_handoff', args:{ to:id, skill:a?.skill||'task', input:'…' } }), 'MCP call copied'); }
+async function exportFlow(){ const f=buildFlow(); if(!f) return alert('Wire a flow first (drag out→in ports).');
+  const name=prompt('Export as MCP tool — workflow name', f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
+  const wf=await api('/api/workflows',{ name, nodes:f.nodes, edges:f.edges });
+  const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } });
+  await copyText(snip,'MCP tool snippet copied'); alert('Saved workflow "'+wf.id+'".\nCall it as an MCP tool:\n\n'+snip); refresh(); }
 
 function render(){
-  renderSummary(); placeNodes(); renderNodes(); drawLinks(); renderList();
+  renderSummary(); placeNodes(); renderNodes(); drawLinks(); renderList(); renderPalette();
 }
 function renderSummary(){
   const c = {}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
@@ -186,6 +229,7 @@ function renderNodes(){
   const canvas=$('#canvas'); $('#hint').style.display=state.agents.length?'none':'block';
   const seen=new Set();
   for(const a of state.agents){
+    if(HIDDEN.has(a.id)) continue;            // Wave D: ✕-removed from canvas (still in the palette)
     const nid='n_'+cssid(a.id); seen.add(nid);
     let n=document.getElementById(nid);
     if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNodeDrag(n,a.id); }
@@ -194,7 +238,9 @@ function renderNodes(){
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy);
-    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}<span class="badge">${pending}</span></div>
+    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}<span class="badge">${pending}</span>
+      <span class="nodebtn" data-mcp="${esc(a.id)}" title="copy MCP call">⧉</span>
+      <span class="nodebtn" data-hide="${esc(a.id)}" title="remove from canvas (keeps it in the palette)">✕</span></div>
       <div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}</div>
       <div class="row"><span class="pill ${a.policy}" data-pol="${esc(a.id)}">${a.policy==='auto'?'⚡ auto':'✋ approval'}</span>
       <span>${a.online?'online':'offline'}</span>${busy?'<span style="color:var(--blue)">▶ running</span>':''}</div>
@@ -216,6 +262,8 @@ function renderNodes(){
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-pol]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();togglePolicy(el.getAttribute('data-pol'));});
   canvas.querySelectorAll('[data-edit]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();editTrigger(el.getAttribute('data-edit'));});
+  canvas.querySelectorAll('[data-mcp]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();copyMcp(el.getAttribute('data-mcp'));});
+  canvas.querySelectorAll('[data-hide]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();HIDDEN.add(el.getAttribute('data-hide'));render();});
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
@@ -225,7 +273,7 @@ const trig = (id) => TRIGGERS.find(t=>t.id===id);
 const nodeOf = (id) => ag(id) || trig(id);
 function attachNodeDrag(n, id){    // node-body drag = live reposition; release on a node = send; release on empty = move
   n.addEventListener('pointerdown',e=>{
-    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('[data-pol]')||e.target.closest('[data-edit]'))return;
+    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('[data-pol]')||e.target.closest('[data-edit]')||e.target.closest('[data-mcp]')||e.target.closest('[data-hide]'))return;
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, startX:o.x, startY:o.y, moved:false };
     n.classList.add('dragging'); n.style.pointerEvents='none';
