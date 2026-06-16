@@ -42,13 +42,6 @@ let AGENTS = loadAgents();
 let WORKFLOWS = loadJson('workflows.json', []);
 let AUTOMATIONS = loadJson('automations.json', []);
 log(`indexed ${Object.keys(AGENTS).length} agents, ${WORKFLOWS.length} workflows, ${AUTOMATIONS.length} automations${UNATTENDED ? ' [UNATTENDED]' : ''}`);
-// fire_event does FLAT primitive equality on trigger.match — warn loudly if an author wrote a non-primitive
-// value (object/array), which would silently never fire instead of erroring (Claude #9 / Codex #3).
-for (const m of AUTOMATIONS) {
-  const match = m.trigger?.type === 'build_state' ? m.trigger.match || {} : null;
-  if (match) for (const [k, v] of Object.entries(match))
-    if (v !== null && typeof v === 'object') log(`⚠ automation "${m.id}": trigger.match.${k} is non-primitive — fire_event only flat-=== matches, so this will NEVER fire`);
-}
 
 // keyword scorer (MVP; swap for embeddings later) + one generic searcher over any index
 function score(text, query) {
@@ -72,10 +65,17 @@ const searchAutomations = (q, limit) => searchIndex(AUTOMATIONS,
   (m) => `${m.name} ${m.summary} ${(m.tags || []).join(' ')} ${m.trigger?.type || ''} ${m.workflow}`,
   (m) => ({ id: m.id, name: m.name, summary: m.summary, trigger: m.trigger?.type, workflow: m.workflow, enabled: m.enabled !== false, tags: m.tags }), q, limit);
 
-// build_state trigger fires when every key in trigger.match flat-=== the event's value (no eval, subset-match).
-// MVP limitation (warned at load): primitive values only — nested object/array match values never fire.
+// build_state trigger fires when trig.match is a DEEP SUBSET of the event (no eval): nested objects match
+// recursively, arrays match positionally, primitives match by ===. Keys absent from the event don't match.
+const deepMatch = (pat, val) => {
+  if (pat !== null && typeof pat === 'object') {
+    if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
+    return val !== null && typeof val === 'object' && Object.entries(pat).every(([k, v]) => deepMatch(v, val[k]));
+  }
+  return pat === val;   // primitive leaf
+};
 const triggerMatches = (trig, event) =>
-  !!trig && trig.type === 'build_state' && !!trig.match && Object.entries(trig.match).every(([k, v]) => event?.[k] === v);
+  !!trig && trig.type === 'build_state' && !!trig.match && deepMatch(trig.match, event);
 
 // ---------- A2A act helpers (run_*) ----------
 // Ad-hoc dispatch (run_handoff/run_workflow) is ALWAYS attended — `--unattended` does NOT loosen it.

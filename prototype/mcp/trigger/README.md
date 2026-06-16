@@ -27,12 +27,12 @@ automations.json ──gen-trigger.mjs──▶ buildhud.schedules.ts ──trig
 4. Ensure `A2A_SHARED_TOKEN` is in the worker env and the BuildHUD **agents are running and reachable** from the worker.
 
 ## Caveats (honest)
-- ⚠️ **Trigger.dev Cloud cannot reach `localhost` agents.** Run a **self-hosted** Trigger.dev / `dev` worker on the machine where the agents (and `fire.mjs`) live, or expose the agents. The generated `FIRE` path is **absolute and machine-specific** (baked at gen time) — regenerate per host.
+- ⚠️ **Trigger.dev Cloud cannot reach `localhost` agents.** Run a **self-hosted** Trigger.dev / `dev` worker on the machine where the agents (and `fire.mjs`) live, or expose the agents.
 - Cron is **UTC** by default. For a timezone, change the emitted `cron` to `{ pattern, timezone }` (e.g. `"Asia/Tokyo"`) — or extend `gen-trigger.mjs` to read a `tz` field off the automation's trigger.
 - The fence still holds: `fire.mjs` calls `run_automation(confirm:true)`, and execution requires `A2A_SHARED_TOKEN` (no token → refuses without touching the network). Disabled automations are not emitted.
 - ⚠️ **`enabled:false` is not a live kill-switch for already-synced schedules.** Declarative schedules only change on `trigger.dev dev|deploy`. Setting `enabled:false` in `automations.json` stops *future* generated output, but a previously-synced cron keeps firing until you **regenerate and redeploy** (or delete the schedule in Trigger.dev). The "single source of truth" holds only after a sync.
-- `buildhud.schedules.ts` is **gitignored** (machine-specific baked path). Regenerate per host; override the path at runtime with `BUILDHUD_FIRE=/abs/path/to/fire.mjs`.
-- If `FIRE` is missing or `fire.mjs` exits non-zero, the generated task **throws an actionable error into the Trigger.dev run log** (the missing path + the fix, or the child's exit code + stderr) — not an opaque ENOENT. `gen-trigger.mjs` also warns at generation if the baked path doesn't exist.
+- **`fire.mjs` is resolved per host** (no single hard-coded path): `BUILDHUD_FIRE` → `BUILDHUD_HOME/prototype/mcp/fire.mjs` → the gen-time baked path → **walking up from the generated file** for `prototype/mcp/fire.mjs`. So if the Trigger.dev project lives in/under the BuildHUD repo, it just works with **no env at all**; set `BUILDHUD_FIRE` only when the worker is elsewhere. `buildhud.schedules.ts` is **gitignored** (host-specific baked default), regenerate per host.
+- If no candidate resolves, or `fire.mjs` exits non-zero, the task **throws an actionable error into the Trigger.dev run log** (every path it tried + the fix, or the child's exit code + stderr) — never an opaque ENOENT. `gen-trigger.mjs` also warns at generation if the baked path is absent.
 
 ## Why this shape
 - **Single source of truth**: schedules are derived from `automations.json`, not hand-maintained in two places.
