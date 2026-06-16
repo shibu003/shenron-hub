@@ -18,6 +18,8 @@ tunnel.txt
 prototype/config.json
 # generated, machine-specific (baked absolute fire.mjs path) — regenerate with gen-trigger.mjs
 prototype/mcp/trigger/buildhud.schedules.ts
+# hub runtime state (durable inbox) — local, not committed
+prototype/hub/inbox.json
 
 # Node
 node_modules/
