@@ -78,16 +78,17 @@ function runReviewer(payload) {
     `--- DIFF ---\n${diff}\n--- END DIFF ---`;
 
   if (REVIEWER === 'codex') {
-    // docs/08 §5: codex exec final msg → stdout; --json is NDJSON; gate lives OUTSIDE codex (above).
-    const r = spawnSync('codex', ['exec', '--ask-for-approval', 'never', '--sandbox', 'read-only', prompt],
-      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    // codex exec is non-interactive by default — there is NO --ask-for-approval flag in codex-cli 0.137.x
+    // (sandbox controls writes; our attended gate already ran above). final msg → stdout.
+    const r = spawnSync('codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', prompt],
+      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000 });
     if (r.status === 0 && r.stdout) return r.stdout.trim();
-    return `[codex unavailable: ${r.error?.message || r.stderr || 'exit ' + r.status}]\n` + stubReview(payload);
+    return `[codex unavailable: ${r.error?.message || (r.stderr || '').trim() || 'exit ' + r.status}]\n` + stubReview(payload);
   }
   if (REVIEWER === 'claude') {
-    const r = spawnSync('claude', ['-p', prompt], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    const r = spawnSync('claude', ['-p', prompt], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000 });
     if (r.status === 0 && r.stdout) return r.stdout.trim();
-    return `[claude unavailable: ${r.error?.message || r.stderr || 'exit ' + r.status}]\n` + stubReview(payload);
+    return `[claude unavailable: ${r.error?.message || (r.stderr || '').trim() || 'exit ' + r.status}]\n` + stubReview(payload);
   }
   return stubReview(payload);
 }
