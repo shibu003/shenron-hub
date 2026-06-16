@@ -30,6 +30,8 @@ automations.json ──gen-trigger.mjs──▶ buildhud.schedules.ts ──trig
 - ⚠️ **Trigger.dev Cloud cannot reach `localhost` agents.** Run a **self-hosted** Trigger.dev / `dev` worker on the machine where the agents (and `fire.mjs`) live, or expose the agents. The generated `FIRE` path is **absolute and machine-specific** (baked at gen time) — regenerate per host.
 - Cron is **UTC** by default. For a timezone, change the emitted `cron` to `{ pattern, timezone }` (e.g. `"Asia/Tokyo"`) — or extend `gen-trigger.mjs` to read a `tz` field off the automation's trigger.
 - The fence still holds: `fire.mjs` calls `run_automation(confirm:true)`, and execution requires `A2A_SHARED_TOKEN` (no token → refuses without touching the network). Disabled automations are not emitted.
+- ⚠️ **`enabled:false` is not a live kill-switch for already-synced schedules.** Declarative schedules only change on `trigger.dev dev|deploy`. Setting `enabled:false` in `automations.json` stops *future* generated output, but a previously-synced cron keeps firing until you **regenerate and redeploy** (or delete the schedule in Trigger.dev). The "single source of truth" holds only after a sync.
+- `buildhud.schedules.ts` is **gitignored** (machine-specific baked path). Regenerate per host; override the path at runtime with `BUILDHUD_FIRE=/abs/path/to/fire.mjs`.
 
 ## Why this shape
 - **Single source of truth**: schedules are derived from `automations.json`, not hand-maintained in two places.

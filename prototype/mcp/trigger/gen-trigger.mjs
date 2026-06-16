@@ -19,7 +19,14 @@ const FIRE = path.join(MCP_DIR, 'fire.mjs');                          // absolut
 const automations = JSON.parse(fs.readFileSync(path.join(MCP_DIR, 'automations.json'), 'utf8'));
 const scheduled = automations.filter((a) => a.trigger?.type === 'schedule' && a.enabled !== false);
 
-const ident = (id) => id.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^(\d)/, '_$1');
+const baseIdent = (id) => id.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^(\d)/, '_$1');
+const usedIdents = new Map();
+const ident = (id) => {                                              // dedup: a-b and a.b must not collide into one export
+  let name = baseIdent(id);
+  for (let i = 2; usedIdents.has(name); i++) name = `${baseIdent(id)}_${i}`;
+  usedIdents.set(name, id);
+  return name;
+};
 const cronOf = (t) => (typeof t.when === 'string' ? JSON.stringify(t.when) : JSON.stringify(t.when ?? '0 2 * * *'));
 
 const tasks = scheduled.map((a) => `
@@ -45,7 +52,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const FIRE = ${JSON.stringify(FIRE)};
+const FIRE = process.env.BUILDHUD_FIRE ?? ${JSON.stringify(FIRE)};  // override per host; baked path is the dev default
 
 // one-shot fire of a BuildHUD automation through the MCP server (MCP-first); needs A2A_SHARED_TOKEN in env.
 async function fireAutomation(id) {

@@ -16,6 +16,8 @@ handoff.log
 *.log
 tunnel.txt
 prototype/config.json
+# generated, machine-specific (baked absolute fire.mjs path) — regenerate with gen-trigger.mjs
+prototype/mcp/trigger/buildhud.schedules.ts
 
 # Node
 node_modules/

@@ -119,7 +119,8 @@ node prototype/mcp/trigger/gen-trigger.mjs                                   # a
 - いずれも search index に自動で載る（token-light のまま）。
 
 ## Fence / 注意（docs/09・10）
-- `run_*` / `fire_event` は既定 **attended**（`confirm:true` 必須）。autonomous は **`--unattended`（or `BUILDHUD_UNATTENDED=1`）で明示 opt-in**。どちらでも実行は `A2A_SHARED_TOKEN` 必須＝二段 fence。
+- 既定は全 act **attended**（`confirm:true` 必須）。**`--unattended` は automation 限定**：`run_automation`/`fire_event` の `enabled` automation だけが confirm 無しで走る。**ad-hoc な `run_handoff`/`run_workflow` は `--unattended` でも attended のまま**（恣意的 dispatch を無人化しない）。
+- ⚠️ `A2A_SHARED_TOKEN` は **server→agent の到達 credential** であって「MCP を叩く側の認可」ではない。本物の cross-party 認可（OBO/DPoP・M5）は未実装。よって `--unattended` server は AI client に対して実質ノーゲート → **信頼できる client からのみ起動**。
 - trust は **fake**（共有 token + allowlist）。本物の cross-party 認可(OBO/DPoP・M5)は未実装＝ship 不可。
 - MCP の version 文字列/schema は最小・概形 → 本番は `@modelcontextprotocol/sdk` 採用も検討。
 - **full dump tool を作らない**（`get_*` で 1 件ずつ＝token 節約の核）。

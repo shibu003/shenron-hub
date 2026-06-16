@@ -26,8 +26,9 @@ const reqs = [
 server.stdin.write(reqs.map((r) => JSON.stringify(r)).join('\n') + '\n');
 
 let buf = '';
-let done = false;
-const finish = (code) => { if (done) return; done = true; server.kill(); process.exit(code); };
+let done = false, replied = false;
+const finish = (code) => { if (done) return; done = true; clearTimeout(timer); server.kill(); process.exit(code); };
+const timer = setTimeout(() => { console.error('fire: timed out waiting for automation result'); finish(1); }, 240000);
 server.stdout.on('data', (c) => {
   buf += c;
   let nl;
@@ -36,9 +37,11 @@ server.stdout.on('data', (c) => {
     if (!line.trim()) continue;
     let m; try { m = JSON.parse(line); } catch { continue; }
     if (m.id !== 2) continue;                                  // wait for the run_automation reply
+    replied = true;
     process.stdout.write((m.result?.content?.[0]?.text ?? '') + '\n');
     finish(m.result?.isError ? 1 : 0);
   }
 });
-server.on('exit', (code) => finish(code ?? 0));
+// exit BEFORE the id:2 reply = failure, not a silent success (else a crash reads as "fired OK")
+server.on('exit', (code) => { if (!replied) { console.error('fire: server exited before replying'); finish(1); } else finish(code ?? 0); });
 server.on('error', (e) => { console.error('fire: failed to spawn server —', e.message); finish(1); });

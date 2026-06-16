@@ -70,7 +70,9 @@ const triggerMatches = (trig, event) =>
   !!trig && trig.type === 'build_state' && !!trig.match && Object.entries(trig.match).every(([k, v]) => event?.[k] === v);
 
 // ---------- A2A act helpers (run_*) ----------
-const shouldExec = (confirm) => confirm === true || UNATTENDED;
+// Ad-hoc dispatch (run_handoff/run_workflow) is ALWAYS attended — `--unattended` does NOT loosen it.
+// Only pre-declared, enabled automations (run_automation/fire_event) honor --unattended.
+const shouldExec = (confirm, allowUnattended = false) => confirm === true || (allowUnattended && UNATTENDED);
 const assertToken = () => { if (!TOKEN) throw new Error('A2A_SHARED_TOKEN required to execute'); };
 
 async function a2aSend(agentUrl, skill, inputText) {
@@ -146,10 +148,10 @@ async function callTool(name, args = {}) {
     }
     case 'run_automation': {
       const m = AUTOMATIONS.find((x) => x.id === args.id); if (!m) throw new Error(`no automation "${args.id}"`);
+      if (m.enabled === false) throw new Error(`automation "${m.id}" is disabled`);   // before dry-run: don't promise a run we'd refuse
       const w = WORKFLOWS.find((x) => x.id === m.workflow); if (!w) throw new Error(`automation refs unknown workflow "${m.workflow}"`);
       const input = args.input ?? m.input ?? '';
-      if (!shouldExec(args.confirm)) return { dryRun: true, automation: m.id, trigger: m.trigger, workflow: w.id, plan: planOf(w), note: 'call again with confirm:true (or run server --unattended) to fire' };
-      if (m.enabled === false) throw new Error(`automation "${m.id}" is disabled`);
+      if (!shouldExec(args.confirm, true)) return { dryRun: true, automation: m.id, trigger: m.trigger, workflow: w.id, plan: planOf(w), input, note: 'call again with confirm:true (or run server --unattended) to fire' };
       assertToken();
       return { automation: m.id, ...(await execWorkflow(w, input)) };
     }
@@ -157,14 +159,15 @@ async function callTool(name, args = {}) {
       const event = args.event || {};
       const matched = AUTOMATIONS.filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
       const refs = matched.map((m) => ({ id: m.id, name: m.name, workflow: m.workflow }));
-      if (!shouldExec(args.confirm)) return { event, matched: refs,
+      if (!shouldExec(args.confirm, true)) return { event, matched: refs,
         note: matched.length ? 'call again with confirm:true (or run server --unattended) to fire matched automations' : 'no enabled automation matched this event' };
       assertToken();
       const fired = [];
-      for (const m of matched) {
+      for (const m of matched) {                                  // one bad agent must not abort the other matched automations
         const w = WORKFLOWS.find((x) => x.id === m.workflow);
         if (!w) { fired.push({ automation: m.id, error: `unknown workflow "${m.workflow}"` }); continue; }
-        fired.push({ automation: m.id, ...(await execWorkflow(w, args.input ?? m.input ?? '')) });
+        try { fired.push({ automation: m.id, ...(await execWorkflow(w, args.input ?? m.input ?? '')) }); }
+        catch (e) { fired.push({ automation: m.id, error: e.message }); }
       }
       return { event, fired };
     }
