@@ -25,6 +25,11 @@
   .menu-pop button:hover { background:#0d1117; } .menu-pop .mh { color:var(--dim); font-size:11px; padding:6px 10px 2px; }
   #lang { margin-left:auto; } #conn { font-size:12px; color:var(--dim); min-width:70px; text-align:right; }
   #app { display:grid; grid-template-columns:212px 1fr 326px; height:calc(100vh - 49px); }
+  #app.pcol { grid-template-columns:0 1fr 326px; } #app.icol { grid-template-columns:212px 1fr 0; } #app.pcol.icol { grid-template-columns:0 1fr 0; }
+  #app.pcol > #palette, #app.icol > #inspector { display:none; }
+  .pancol { position:absolute; top:50%; transform:translateY(-50%); z-index:25; width:22px; height:30px; display:grid; place-items:center;
+            background:var(--panel2); border:1px solid var(--line); color:var(--dim); border-radius:7px; cursor:pointer; font-size:13px; box-shadow:0 4px 14px -6px #000; }
+  .pancol.left { left:8px; } .pancol.right { right:8px; } .pancol:hover { border-color:var(--blue); color:var(--blue); }
   #palette { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
   .pal-head { padding:11px 13px 7px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   #palSearch { margin:0 11px 8px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 9px; font:inherit; }
@@ -83,10 +88,10 @@
   .node.trigger { width:172px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); }
   .node.mcp { width:184px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; } .node.mcp .port { border-color:#2ea043; }
   .node.comp { width:176px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; } .node.comp .port { border-color:#8957e5; }
-  .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#08090c; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; transition:box-shadow .12s; }
-  .port.in { left:-7px; } .port.out { right:-7px; } .port:hover { box-shadow:0 0 0 3px rgba(230,237,243,.24); }
-  .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#b8c7d8; font-size:9px; line-height:1; letter-spacing:.06em; background:#0d1117; border:1px solid #2f3d4c; border-radius:999px; padding:2px 5px; pointer-events:none; }
-  .portlabel.in { left:9px; } .portlabel.out { right:9px; }
+  .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
+  .port.in { left:-11px; } .port.out { right:-11px; } .port:hover { transform:translateY(-50%) scale(1.2); box-shadow:0 0 0 4px rgba(230,237,243,.24); }
+  .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#b8c7d8; font-size:9px; line-height:1; letter-spacing:.06em; background:#0d1117; border:1px solid #2f3d4c; border-radius:999px; padding:2px 5px; pointer-events:none; z-index:4; }
+  .portlabel.in { right:calc(100% + 7px); left:auto; } .portlabel.out { left:calc(100% + 7px); right:auto; }
   .node.trigger .port.out { border-color:var(--amber); }
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
@@ -246,7 +251,10 @@
       <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button></div>
     </div>
   </aside>
-  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div><section id="coach"></section><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside></main>
+  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div><section id="coach"></section><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
+    <button id="palToggle" class="pancol left" title="palette" onclick="togglePanel('pal')">‹</button>
+    <button id="inspToggle" class="pancol right" title="inspector" onclick="togglePanel('insp')">›</button>
+  </main>
   <aside id="inspector"></aside>
 </div>
 
@@ -379,6 +387,14 @@ const RESULT_LABEL = { green:{ja:'OK（成功）',en:'OK (success)'}, red:{ja:'N
 const evLabel = (id) => EV_LABEL[id]?.[LANG] || EV_LABEL[id]?.en || id;
 const resultLabel = (s) => RESULT_LABEL[s]?.[LANG] || RESULT_LABEL[s]?.en || s;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
+function setPanel(which, collapsed){            // collapse/expand the palette ('pal') or inspector ('insp') column; remembered across sessions
+  const app=$('#app'), cls=which==='pal'?'pcol':'icol';
+  app.classList.toggle(cls, collapsed); localStorage.setItem('bh_'+cls, collapsed?'1':'0');
+  const btn=$(which==='pal'?'#palToggle':'#inspToggle'); if(btn) btn.textContent = which==='pal' ? (collapsed?'›':'‹') : (collapsed?'‹':'›');
+  drawLinks();
+}
+function togglePanel(which){ const cls=which==='pal'?'pcol':'icol'; setPanel(which, !$('#app').classList.contains(cls)); }
+function restorePanels(){ setPanel('pal', localStorage.getItem('bh_pcol')==='1'); setPanel('insp', localStorage.getItem('bh_icol')==='1'); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
@@ -1211,5 +1227,5 @@ document.addEventListener('keydown', e=>{
 function deleteSelected(){ const id=selected; if(!id)return;
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
-applyChrome(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); restorePanels(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
