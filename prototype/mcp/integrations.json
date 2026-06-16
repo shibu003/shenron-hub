@@ -1,0 +1,25 @@
+[
+  {
+    "id": "gmail",
+    "label": "Gmail",
+    "kind": "mcp",
+    "command": "npx -y @modelcontextprotocol/server-gmail",
+    "url": "",
+    "enabled": false,
+    "tools": [
+      { "name": "send_email", "accepts": ["outreach", "*"], "emits": ["sent"] },
+      { "name": "create_draft", "accepts": ["outreach", "*"], "emits": ["draft"] }
+    ]
+  },
+  {
+    "id": "slack",
+    "label": "Slack",
+    "kind": "mcp",
+    "command": "",
+    "url": "http://localhost:9100",
+    "enabled": false,
+    "tools": [
+      { "name": "post_message", "accepts": ["*"], "emits": ["posted"] }
+    ]
+  }
+]

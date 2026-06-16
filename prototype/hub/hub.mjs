@@ -194,6 +194,18 @@ function advanceFrom(run, nodeId) {
 // "save as automation" splits the canvas: the trigger node's config + the agent chain saved as a workflow it refs.
 const AUTO_FILE = path.join(HERE, '..', 'mcp', 'automations.json');
 const readAutomations = () => { try { return JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')); } catch { return []; } };
+// ---------- integrations (Wave F.2): connected MCP servers, on/off. Only enabled servers' tools reach palette/executor ----------
+const INTEG_FILE = path.join(HERE, '..', 'mcp', 'integrations.json');
+const readIntegrations = () => { try { return JSON.parse(fs.readFileSync(INTEG_FILE, 'utf8')); } catch { return []; } };
+const writeIntegrations = (arr) => fs.writeFileSync(INTEG_FILE, JSON.stringify(arr, null, 2));
+function saveIntegration({ id, label, kind, command, url, enabled, tools }) {
+  id = id || (label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mcp-' + randomUUID().slice(0, 4);
+  const it = { id, label: label || id, kind: kind || 'mcp', command: command || '', url: url || '', enabled: enabled !== false, tools: Array.isArray(tools) ? tools : [] };
+  const arr = readIntegrations(); const i = arr.findIndex((x) => x.id === id);
+  if (i >= 0) arr[i] = { ...arr[i], ...it }; else arr.push(it);
+  writeIntegrations(arr); return it;
+}
+function toggleIntegration(id, on) { const arr = readIntegrations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no integration "${id}"`); it.enabled = on !== false; writeIntegrations(arr); return it; }
 const deepMatch = (pat, val) => {                          // same semantics as mcp/server.mjs (shared trigger matching)
   if (pat === null || typeof pat !== 'object') return pat === val;
   if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
@@ -241,6 +253,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   if (req.method === 'GET' && p === '/api/automations')
     return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false })));
+  if (req.method === 'GET' && p === '/api/integrations')         // connected MCP servers (Wave F.2)
+    return json(res, 200, readIntegrations());
   if (req.method === 'GET' && p === '/api/mcp')                  // how to connect BuildHUD's MCP server (for "copy MCP call")
     return json(res, 200, { name: 'buildhud-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
   if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }
@@ -256,7 +270,9 @@ const server = http.createServer((req, res) => {
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
+      if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       let m;
+      if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : ref(postResult(m[1], j)));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));

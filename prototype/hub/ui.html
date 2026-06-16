@@ -61,6 +61,7 @@
   .node .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { width:172px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); }
+  .node.mcp { width:184px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; } .node.mcp .port { border-color:#2ea043; }
   .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; }
   .port.in { left:-7px; } .port.out { right:-7px; } .port:hover { background:var(--blue); }
   .node.trigger .port.out { border-color:var(--amber); }
@@ -174,6 +175,11 @@ const I18N = {
   autorun_on:{ja:'⚡ autorun ON — hub が代理実行',en:'⚡ autorun ON — hub runs it'}, autorun_off:{ja:'⏸ autorun OFF — worker 待ち',en:'⏸ autorun OFF — waits for a worker'},
   set_autorun_g:{ja:'autorun グローバル（全 local agent の hub 代理実行）',en:'autorun — global (hub runs all local agents)'},
   autorun_info:{ja:'OFF にすると hub は local agent を代理実行せず、専用 worker 起動時のみ実行（broker-only）。',en:'OFF = the hub stops running local agents in-process; only a dedicated worker runs them (broker-only).'},
+  integrations:{ja:'連携（MCP servers）',en:'Integrations (MCP servers)'}, add_mcp:{ja:'＋ MCP server を追加',en:'＋ add MCP server'},
+  it_label:{ja:'ラベル',en:'label'}, it_conn:{ja:'command または url',en:'command or url'}, it_tools:{ja:'tools（カンマ区切り）',en:'tools (comma-separated)'},
+  mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（⚙設定で on）',en:'no enabled MCP server (turn on in ⚙ Settings)'},
+  insp_mcp:{ja:'MCP tool node',en:'MCP tool node'}, f_server:{ja:'server',en:'server'}, f_tool:{ja:'tool',en:'tool'},
+  mcp_node_note:{ja:'⚠️ 実呼び出しは Wave G（今は stub）。配線して flow に組み込める。',en:'⚠️ real call is Wave G (stub for now). Wire it into a flow.'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -213,6 +219,7 @@ const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null;
+let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
 const HIDDEN = new Set(); let selected = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -234,7 +241,8 @@ function conn(m){ const c=$('#conn'); c.textContent=m; c.style.color='var(--blue
 
 const ag = (id) => state.agents.find(a=>a.id===id);
 const trig = (id) => TRIGGERS.find(t=>t.id===id);
-const nodeOf = (id) => ag(id) || trig(id);
+const mcpn = (id) => MCP_NODES.find(m=>m.id===id);
+const nodeOf = (id) => ag(id) || trig(id) || mcpn(id);
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ---------- palette ---------- */
@@ -250,10 +258,19 @@ function renderPalette(){
     + TRIGGERS.map(tr=>`<div class="palrow trig"><div class="pm"><b>⚡ ${esc(tr.id)}</b><span>${esc(tr.type)} ${esc(matchStr(tr))}</span></div>
         <span class="pb" data-psel="${esc(tr.id)}" title="${t('select_t')}">→</span></div>`).join('')
     || `<div class="empty" style="padding:10px 12px">${t('pal_empty')}</div>`;
+  // MCP tools section (enabled integrations)
+  const tools=INTEGRATIONS.filter(it=>it.enabled).flatMap(it=>(it.tools||[]).map(tl=>({...tl, server:it.id})));
+  $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('mcp_tools_head')}</div>`
+    + (tools.length ? tools.map(tl=>`<div class="palrow"><div class="pm"><b>🔌 ${esc(tl.name)}</b><span>${esc(tl.server)}</span></div>
+        <span class="pb" data-pmcpadd='${esc(JSON.stringify(tl))}' title="${t('add_canvas')}">＋</span></div>`).join('')
+       : `<div class="empty" style="padding:6px 12px">${t('pal_no_mcp')}</div>`);
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
   $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
+  $('#palList').querySelectorAll('[data-pmcpadd]').forEach(el=>el.onclick=()=>{ try{ addMcpNode(JSON.parse(el.getAttribute('data-pmcpadd'))); }catch{} });
 }
+function addMcpNode(tl){ const id='mcp-'+(++mnidc); MCP_NODES.push({ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], x:360, y:40+MCP_NODES.length*26 }); selectNode(id); render(); }
+function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
 
@@ -289,6 +306,15 @@ function renderNodes(){
     n.style.left=POS[tr.id].x+'px'; n.style.top=POS[tr.id].y+'px'; n.classList.toggle('selected',selected===tr.id);
     n.innerHTML=`<div class="name">⚡ trigger</div><div class="co">${esc(tr.type)}</div>
       <div class="pol">${esc(matchStr(tr)||t('trig_set'))}</div><span class="port out" data-out="${esc(tr.id)}"></span>`;
+  }
+  for(const mn of MCP_NODES){
+    const nid='n_'+cssid(mn.id); seen.add(nid);
+    let n=document.getElementById(nid);
+    if(!n){ n=document.createElement('div'); n.className='node mcp'; n.id=nid; n.dataset.id=mn.id; canvas.appendChild(n); attachNode(n,mn.id); }
+    if(!POS[mn.id]) POS[mn.id]={x:mn.x||320,y:mn.y||40};
+    n.style.left=POS[mn.id].x+'px'; n.style.top=POS[mn.id].y+'px'; n.classList.toggle('selected',selected===mn.id);
+    n.innerHTML=`<div class="name">🔌 ${esc(mn.tool)}</div><div class="co">${esc(mn.server)} · MCP</div>
+      <span class="port in" data-in="${esc(mn.id)}"></span><span class="port out" data-out="${esc(mn.id)}"></span>`;
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
@@ -351,9 +377,10 @@ function drawLinks(){
 
 /* ---------- inspector ---------- */
 function renderInspector(){
-  const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected);
+  const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected);
   if(a) return void (ins.innerHTML = inspAgent(a));
   if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
+  if(mn) return void (ins.innerHTML = inspMcp(mn));
   ins.innerHTML = inspDefault();
   ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
   ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
@@ -387,6 +414,15 @@ function inspTrigger(tr){
 function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave'); if(!btn)return;
   btn.onclick=()=>{ try{ tr.match=JSON.parse(ta.value); toast(t('t_match_ok')); render(); }catch{ toast(t('t_badjson')); } }; }
 function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
+function inspMcp(mn){
+  return `<div class="ins-h">${t('insp_mcp')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="field"><label>${t('f_server')}</label><div class="v">${esc(mn.server)}</div></div>
+    <div class="field"><label>${t('f_tool')}</label><div class="v">🔌 ${esc(mn.tool)}</div></div>
+    <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(mn.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="empty">${t('mcp_node_note')}</div>
+    <button class="ibtn danger" onclick="removeMcpNode('${esc(mn.id)}')">${t('btn_del_mcp')}</button>`;
+}
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
   const onN=state.agents.filter(a=>a.online).length;
@@ -410,14 +446,27 @@ function inspDefault(){
 /* ---------- actions ---------- */
 async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
 async function toggleAutorun(id){ const a=ag(id); await api(`/api/agents/${id}/autorun`,{on:!(a?.autorun!==false)}); refresh(); }
+async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integrations'); }catch{ INTEGRATIONS=[]; } }
 function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
     <label>${t('set_autorun_g')}</label>
     <button class="ibtn toggle ${g?'auto':'approval'}" id="gAutorun">${g?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button>
-    <div class="minfo">${t('autorun_info')}</div></div>
+    <div class="minfo">${t('autorun_info')}</div>
+    <label style="margin-top:6px">${t('integrations')}</label>
+    ${INTEGRATIONS.map(it=>`<div class="palrow" style="border:1px solid var(--line);border-radius:7px">
+      <div class="pm"><b>${esc(it.label)}</b><span>${esc(it.command||it.url||'')} · ${(it.tools||[]).map(x=>esc(x.name)).join(', ')||'—'}</span></div>
+      <span class="pb" data-ittoggle="${esc(it.id)}">${it.enabled?'⚡ ON':'⏸ OFF'}</span></div>`).join('')||`<div class="minfo">—</div>`}
+    <div class="row2" style="display:flex;gap:6px;margin-top:4px">
+      <input id="itLabel" placeholder="${t('it_label')}" style="flex:1"><input id="itConn" placeholder="${t('it_conn')}" style="flex:1"></div>
+    <input id="itTools" placeholder="${t('it_tools')}">
+    <button class="ibtn" id="itAdd">${t('add_mcp')}</button></div>
     <div class="df"><button class="act" id="setClose">${t('close')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#gAutorun').onclick=async()=>{ await api('/api/autorun',{on:!(state.autorun!==false)}); await refresh(); openSettings(); };
+  dlg.querySelectorAll('[data-ittoggle]').forEach(el=>el.onclick=async()=>{ const it=INTEGRATIONS.find(x=>x.id===el.getAttribute('data-ittoggle')); await api(`/api/integrations/${it.id}/toggle`,{on:!it.enabled}); await fetchIntegrations(); openSettings(); render(); });
+  $('#itAdd').onclick=async()=>{ const label=$('#itLabel').value.trim(); if(!label)return; const conn=$('#itConn').value.trim();
+    const tools=($('#itTools').value||'').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,accepts:['*'],emits:['*']}));
+    await api('/api/integrations',{ label, command: conn.startsWith('http')?'':conn, url: conn.startsWith('http')?conn:'', enabled:true, tools }); await fetchIntegrations(); openSettings(); render(); };
   $('#setClose').onclick=()=>dlg.close(); }
 let mcpTool = 'send_handoff';
 function copyMcp(id){ openMcpModal(id); }
@@ -460,6 +509,7 @@ function flowName(){ const v=$('#flowName').value.trim(); if(v) return v; const 
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
   const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
+    const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
@@ -503,5 +553,5 @@ function toggleMenu(e){ e.stopPropagation(); $('#autoMenu').classList.toggle('op
 function closeMenu(){ $('#autoMenu').classList.remove('open'); }
 document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu(); });
 
-applyChrome(); refresh(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
