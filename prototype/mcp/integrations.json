@@ -1,5 +1,17 @@
 [
   {
+    "id": "echo",
+    "label": "Echo (dev MCP)",
+    "kind": "mcp",
+    "command": "node prototype/mcp/echo-mcp-server.mjs",
+    "url": "",
+    "enabled": true,
+    "tools": [
+      { "name": "send_email", "accepts": ["outreach", "*"], "emits": ["sent"] },
+      { "name": "post_message", "accepts": ["*"], "emits": ["posted"] }
+    ]
+  },
+  {
     "id": "gmail",
     "label": "Gmail",
     "kind": "mcp",

@@ -179,7 +179,9 @@ const I18N = {
   it_label:{ja:'ラベル',en:'label'}, it_conn:{ja:'command または url',en:'command or url'}, it_tools:{ja:'tools（カンマ区切り）',en:'tools (comma-separated)'},
   mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（⚙設定で on）',en:'no enabled MCP server (turn on in ⚙ Settings)'},
   insp_mcp:{ja:'MCP tool node',en:'MCP tool node'}, f_server:{ja:'server',en:'server'}, f_tool:{ja:'tool',en:'tool'},
-  mcp_node_note:{ja:'⚠️ 実呼び出しは Wave G（今は stub）。配線して flow に組み込める。',en:'⚠️ real call is Wave G (stub for now). Wire it into a flow.'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
+  mcp_node_note:{ja:'実呼び出し：接続済み MCP server の tool を承認フェンス越しに実行（外部副作用）。',en:'Real call: runs the connected MCP server\'s tool behind the approval fence (external side-effect).'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
+  f_args:{ja:'引数（JSON・任意）',en:'arguments (JSON, optional)'}, mcp_args_note:{ja:'上流の出力は input として渡されます。to / subject / channel 等はここで追加。',en:'Upstream output is passed as `input`. Add fields like to / subject / channel here.'}, mcp_apply_args:{ja:'引数を適用',en:'apply args'}, t_args_ok:{ja:'引数を更新しました',en:'arguments updated'},
+  f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -269,7 +271,7 @@ function renderPalette(){
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
   $('#palList').querySelectorAll('[data-pmcpadd]').forEach(el=>el.onclick=()=>{ try{ addMcpNode(JSON.parse(el.getAttribute('data-pmcpadd'))); }catch{} });
 }
-function addMcpNode(tl){ const id='mcp-'+(++mnidc); MCP_NODES.push({ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], x:360, y:40+MCP_NODES.length*26 }); selectNode(id); render(); }
+function addMcpNode(tl){ const id='mcp-'+(++mnidc); MCP_NODES.push({ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x:360, y:40+MCP_NODES.length*26 }); selectNode(id); render(); }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
@@ -313,7 +315,12 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node mcp'; n.id=nid; n.dataset.id=mn.id; canvas.appendChild(n); attachNode(n,mn.id); }
     if(!POS[mn.id]) POS[mn.id]={x:mn.x||320,y:mn.y||40};
     n.style.left=POS[mn.id].x+'px'; n.style.top=POS[mn.id].y+'px'; n.classList.toggle('selected',selected===mn.id);
-    n.innerHTML=`<div class="name">🔌 ${esc(mn.tool)}</div><div class="co">${esc(mn.server)} · MCP</div>
+    const mine=state.handoffs.filter(h=>h.mcp&&h.node===mn.id);
+    const pending=mine.filter(h=>FLOW.has(h.status)).length;
+    const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
+    n.classList.toggle('busy',busy);
+    n.innerHTML=`<div class="name">🔌 ${esc(mn.tool)}${pending?`<span class="badge">${pending}</span>`:''}</div><div class="co">${esc(mn.server)} · MCP</div>
+      <div class="pol ${mn.auto?'auto':''}">${mn.auto?'⚡ auto':'✋ approval'}${awaiting?' · ⏳ awaiting':busy?' · ▶ running':''}</div>
       <span class="port in" data-in="${esc(mn.id)}"></span><span class="port out" data-out="${esc(mn.id)}"></span>`;
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
@@ -367,7 +374,7 @@ function drawLinks(){
     return `<path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2" opacity=".85"/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="var(--line)"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="var(--blue)">${esc(e.type)}</text>`;
   }).join('');
-  const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.to); if(!a||!b)return '';
+  const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
     const c=STC[h.status]||'var(--grey)'; const mx=(a.x+b.x)/2; const flow=FLOW.has(h.status);
     return `<path class="${flow?'flow':''}" d="M${a.x},${a.y} Q${mx},${a.y} ${mx},${(a.y+b.y)/2} T${b.x},${b.y}" fill="none" stroke="${c}" stroke-width="2" opacity="${h.status==='completed'?0.4:0.9}"/><circle cx="${b.x}" cy="${b.y}" r="3.5" fill="${c}"/>`;
   }).join('');
@@ -380,7 +387,7 @@ function renderInspector(){
   const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected);
   if(a) return void (ins.innerHTML = inspAgent(a));
   if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
-  if(mn) return void (ins.innerHTML = inspMcp(mn));
+  if(mn) return void (ins.innerHTML = inspMcp(mn), bindMcp(mn));
   ins.innerHTML = inspDefault();
   ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
   ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
@@ -420,9 +427,17 @@ function inspMcp(mn){
     <div class="field"><label>${t('f_tool')}</label><div class="v">🔌 ${esc(mn.tool)}</div></div>
     <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(mn.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="field"><label>${t('f_mcp_auto')}</label>
+      <button class="ibtn toggle ${mn.auto?'auto':'approval'}" onclick="toggleMcpAuto('${esc(mn.id)}')">${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}${t('toggle_sfx')}</button></div>
+    <div class="field"><label>${t('f_args')}</label><textarea class="match" id="mcpArgs">${esc(JSON.stringify(mn.config||{}, null, 2))}</textarea></div>
+    <button class="ibtn" id="mcpArgsSave">${t('mcp_apply_args')}</button>
+    <div class="empty">${t('mcp_args_note')}</div>
     <div class="empty">${t('mcp_node_note')}</div>
     <button class="ibtn danger" onclick="removeMcpNode('${esc(mn.id)}')">${t('btn_del_mcp')}</button>`;
 }
+function bindMcp(mn){ const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(!btn)return;
+  btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
+function toggleMcpAuto(id){ const m=mcpn(id); if(m){ m.auto=!m.auto; render(); } }
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
   const onN=state.agents.filter(a=>a.online).length;
@@ -509,7 +524,7 @@ function flowName(){ const v=$('#flowName').value.trim(); if(v) return v; const 
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
   const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
-    const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
+    const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));

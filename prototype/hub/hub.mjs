@@ -20,8 +20,10 @@ import path from 'node:path';
 import url from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
+import { callMcpTool } from '../mcp/mcp-client.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
@@ -88,7 +90,7 @@ function postResult(id, { result, error }, by = 'worker') {
   if (h.runId) advanceRun(h);               // this node is part of a DAG run → fire ready downstream nodes
   return h;
 }
-function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); save(); schedule(h); return h; }
+function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); save(); if (h.mcp) runMcp(h); else schedule(h); return h; }
 function decline(id) { const h = find(id); touch(h, 'rejected', 'human'); save(); return h; }
 function setPolicy(id, { policy, autoFrom }) { const a = agent(id); if (policy) a.policy = policy === 'auto' ? 'auto' : 'approval'; if (Array.isArray(autoFrom)) a.autoFrom = autoFrom; save(); return { id: a.id, policy: a.policy, autoFrom: a.autoFrom, online: online(a) }; }
 function resumePending() { for (const h of state.handoffs) { const a = state.agents[h.to]; if (a && a.local && autorunOn(a) && (h.status === 'submitted' || h.status === 'approved')) schedule(h); } } // turning autorun back on → run what was waiting
@@ -118,13 +120,20 @@ function runLocal(h) {
     .finally(() => { running.delete(h.id); console.log(`✓ [hub] ${h.id} done`); });
 }
 // crash recovery: on boot, resume local handoffs left mid-flight (running) or unprocessed (submitted/approved)
-(function sweep() {
+setImmediate(sweep);                                       // defer to after module init (sweep → runMcp → readIntegrations const)
+function sweep() {
   for (const h of state.handoffs) {
+    if (h.mcp) {                                            // external side-effect node (Wave G)
+      if (h.status === 'approved') runMcp(h);               // approved but never sent → safe to run
+      else if (h.status === 'running')                      // sent-or-sending when we died → do NOT auto-resend (not idempotent)
+        postResult(h.id, { error: 'interrupted on restart — external side-effect not auto-resent; re-run the flow' }, 'hub');
+      continue;                                             // awaiting_approval → leave for the human
+    }
     const a = state.agents[h.to]; if (!a || !a.local || !autorunOn(a)) continue;
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
     else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
   }
-})();
+}
 
 // ---------- flow engine (Wave B2): save a wired DAG, run it topologically via the executor above ----------
 // Save shape = nodes/edges CANONICAL (Langflow-style); steps[] is a derived linear shim so the existing
@@ -166,11 +175,40 @@ function runFlow({ id, nodes, edges, input }) {
   return { runId: run.id, status: run.status, entries: entries.map((n) => n.id) };
 }
 function fireNode(run, node, input) {
-  if (node.kind === 'mcp') { run.outputs[node.id] = `[mcp "${node.tool || '?'}" — executed in Wave G]`; save(); return advanceFrom(run, node.id); } // placeholder until Wave G
   const inc = run.edges.filter((e) => e.target === node.id);
   const from = inc[0] ? (nodeById(run, inc[0].source)?.agent || inc[0].source) : (run.flowId || 'flow');
+  if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id; save();
+}
+// Wave G — an mcp node is an external SIDE-EFFECT (Gmail/Slack…). Reuse the durable-inbox handoff so it
+// shows in the cockpit, has history, and rides the SAME approval fence as agents: blast-radius gate →
+// human approval by DEFAULT; node.auto opts in (still killed by the global autorun master).
+function fireMcpNode(run, node, input, from) {
+  const integ = readIntegrations().find((x) => x.id === node.server);
+  const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: node.server || 'mcp', skill: node.tool || '?',
+    input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
+    history: [], mcp: { server: node.server, tool: node.tool, config: node.config || {} }, runId: run.id, node: node.id };
+  touch(h, 'submitted', h.from); state.handoffs.push(h);
+  if (!integ) return void postResult(h.id, { error: `no integration "${node.server}" (connect it in ⚙ Settings)` }, 'hub');
+  if (integ.enabled === false) return void postResult(h.id, { error: `integration "${node.server}" is disabled` }, 'hub');
+  const auto = node.auto === true && AUTORUN;
+  touch(h, auto ? 'approved' : 'awaiting_approval', auto ? 'auto' : 'policy'); save();
+  if (auto) runMcp(h);
+}
+async function runMcp(h) {
+  if (running.has(h.id)) return; running.add(h.id);
+  const { server, tool, config } = h.mcp;
+  touch(h, 'running', 'hub'); save();
+  console.log(`▶ [hub] MCP ${h.id} → ${server}.${tool}`);
+  try {
+    const integ = readIntegrations().find((x) => x.id === server);
+    if (!integ) throw new Error(`no integration "${server}"`);
+    if (integ.enabled === false) throw new Error(`integration "${server}" is disabled`);
+    const out = await callMcpTool(integ, tool, { ...(config || {}), input: h.input }, { cwd: REPO_ROOT });
+    postResult(h.id, { result: out }, 'hub');
+  } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
+  finally { running.delete(h.id); console.log(`✓ [hub] MCP ${h.id} done`); }
 }
 function advanceRun(h) {
   const run = state.runs[h.runId]; if (!run) return;
