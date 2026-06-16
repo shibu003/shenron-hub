@@ -68,7 +68,15 @@ const searchAutomations = (q, limit) => searchIndex(AUTOMATIONS,
 
 // build_state trigger fires when trig.match is a DEEP SUBSET of the event (no eval): nested objects match
 // recursively, arrays match positionally, primitives match by ===. Keys absent from the event don't match.
+// Wave J: a match leaf may also be an operator object (all keys start with "$"): $in/$nin/$ne/$gt/$gte/$lt/$lte/$exists.
+const MATCH_OPS = {
+  $in: (v, a) => Array.isArray(a) && a.includes(v), $nin: (v, a) => Array.isArray(a) && !a.includes(v),
+  $ne: (v, x) => v !== x, $gt: (v, x) => v > x, $gte: (v, x) => v >= x, $lt: (v, x) => v < x, $lte: (v, x) => v <= x,
+  $exists: (v, b) => (v !== undefined) === !!b,
+};
+const isOps = (o) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length > 0 && Object.keys(o).every((k) => k[0] === '$');
 const deepMatch = (pat, val) => {
+  if (isOps(pat)) return Object.entries(pat).every(([op, arg]) => !!MATCH_OPS[op] && MATCH_OPS[op](val, arg));
   if (pat !== null && typeof pat === 'object') {
     if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
     return val !== null && typeof val === 'object' && Object.entries(pat).every(([k, v]) => deepMatch(v, val[k]));

@@ -322,7 +322,28 @@ function saveIntegration({ id, label, kind, command, url, enabled, tools }) {
   writeIntegrations(arr); return it;
 }
 function toggleIntegration(id, on) { const arr = readIntegrations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no integration "${id}"`); it.enabled = on !== false; writeIntegrations(arr); return it; }
+// Wave J — build-state IR: a first-class, named event vocabulary (vs n8n's generic webhook) + a small,
+// no-eval match DSL. The deeper this IR, the harder it is for a generic iPaaS to copy ("IR depth = moat").
+const BUILD_EVENTS = [
+  { event: 'pr_opened', fields: ['repo', 'pr', 'author', 'branch'] },
+  { event: 'pr_merged', fields: ['repo', 'pr', 'branch', 'base'] },
+  { event: 'review_completed', fields: ['repo', 'pr', 'status'] },   // status: green | red | changes_requested
+  { event: 'ci_passed', fields: ['repo', 'sha', 'suite'] },
+  { event: 'test_red', fields: ['repo', 'suite', 'failures'] },
+  { event: 'rc_built', fields: ['repo', 'version', 'artifact'] },
+  { event: 'deploy_green', fields: ['env', 'version', 'service'] },
+  { event: 'deploy_failed', fields: ['env', 'version', 'reason'] },
+  { event: 'issue_filed', fields: ['repo', 'issue', 'severity'] },
+  { event: 'release_tagged', fields: ['repo', 'tag', 'version'] },
+];
+const MATCH_OPS = {                                        // operators usable in a trigger.match leaf, e.g. {status:{$in:["green"]}}
+  $in: (v, a) => Array.isArray(a) && a.includes(v), $nin: (v, a) => Array.isArray(a) && !a.includes(v),
+  $ne: (v, x) => v !== x, $gt: (v, x) => v > x, $gte: (v, x) => v >= x, $lt: (v, x) => v < x, $lte: (v, x) => v <= x,
+  $exists: (v, b) => (v !== undefined) === !!b,
+};
+const isOps = (o) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length > 0 && Object.keys(o).every((k) => k[0] === '$');
 const deepMatch = (pat, val) => {                          // same semantics as mcp/server.mjs (shared trigger matching)
+  if (isOps(pat)) return Object.entries(pat).every(([op, arg]) => !!MATCH_OPS[op] && MATCH_OPS[op](val, arg));   // operator leaf
   if (pat === null || typeof pat !== 'object') return pat === val;
   if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
   return val !== null && typeof val === 'object' && Object.entries(pat).every(([k, v]) => deepMatch(v, val[k]));
@@ -468,6 +489,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, readIntegrations());
   if (req.method === 'GET' && p === '/api/audit')                // Wave H: tamper-evident trust trail + chain verification
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
+  if (req.method === 'GET' && p === '/api/buildstate')           // Wave J: the build-state IR vocabulary + match operators
+    return json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) });
   if (req.method === 'GET' && p === '/api/mcp')                  // how to connect BuildHUD's MCP server (for "copy MCP call")
     return json(res, 200, { name: 'buildhud-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
   if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }

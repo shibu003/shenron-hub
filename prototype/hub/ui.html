@@ -79,7 +79,7 @@
   .ibtn:hover { border-color:var(--blue); } .ibtn.danger:hover { border-color:var(--red); color:var(--red); }
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
   textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
-  input.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  input.cin, select.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
   .capchip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:999px; padding:2px 9px; font-size:11px; cursor:pointer; }
   .capchip input { accent-color:var(--green); margin:0; }
   .redbadge { color:var(--amber); border:1px solid var(--amber); border-radius:999px; padding:0 6px; font-size:10px; margin-left:6px; }
@@ -199,6 +199,7 @@ const I18N = {
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
+  f_event:{ja:'build-state event',en:'build-state event'}, trig_custom:{ja:'— カスタム（JSON）',en:'— custom (JSON)'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
@@ -240,7 +241,7 @@ function applyChrome(){   // static (non-state) chrome strings
 const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
-let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null;
+let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
@@ -483,13 +484,18 @@ function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
 function inspTrigger(tr){
   return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="field"><label>${t('f_type')}</label><div class="v">build_state</div></div>
+    <div class="field"><label>${t('f_event')}</label><select class="cin" id="trigEvent">
+      <option value="">${t('trig_custom')}</option>
+      ${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(e.event)} (${(e.fields||[]).join(', ')})</option>`).join('')}
+    </select></div>
     <div class="field"><label>${t('f_match')}</label><textarea class="match" id="matchEdit">${esc(JSON.stringify(tr.match||{}, null, 2))}</textarea></div>
     <button class="ibtn" id="matchSave">${t('btn_apply')}</button>
     <button class="ibtn danger" onclick="removeTrigger('${esc(tr.id)}')">${t('btn_del_trig')}</button>
     <div class="empty">${t('trig_hint')}</div>`;
 }
 function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave'); if(!btn)return;
-  btn.onclick=()=>{ try{ tr.match=JSON.parse(ta.value); toast(t('t_match_ok')); render(); }catch{ toast(t('t_badjson')); } }; }
+  btn.onclick=()=>{ try{ tr.match=JSON.parse(ta.value); toast(t('t_match_ok')); render(); }catch{ toast(t('t_badjson')); } };
+  const sel=$('#trigEvent'); if(sel) sel.onchange=()=>{ if(sel.value){ tr.match={ ...(tr.match||{}), event:sel.value }; render(); } }; }
 function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 function inspMcp(mn){
   return `<div class="ins-h">${t('insp_mcp')} <span class="back" onclick="deselect()">${t('close')}</span></div>
@@ -710,5 +716,5 @@ document.addEventListener('keydown', e=>{
 function deleteSelected(){ const id=selected; if(!id)return;
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
-applyChrome(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
