@@ -129,6 +129,7 @@ function sweep() {
         postResult(h.id, { error: 'interrupted on restart — external side-effect not auto-resent; re-run the flow' }, 'hub');
       continue;                                             // awaiting_approval → leave for the human
     }
+    if (h.prompt) { if (h.status === 'running' || h.status === 'approved') runPrompt(h); continue; }   // Wave K prompt = internal compute → safe to re-run
     const a = state.agents[h.to]; if (!a || !a.local || !autorunOn(a)) continue;
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
     else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
@@ -177,9 +178,33 @@ function runFlow({ id, nodes, edges, input }) {
 function fireNode(run, node, input) {
   const inc = run.edges.filter((e) => e.target === node.id);
   const from = inc[0] ? (nodeById(run, inc[0].source)?.agent || inc[0].source) : (run.flowId || 'flow');
+  if (node.kind === 'input')  { run.outputs[node.id] = (node.config && node.config.text) || input || ''; save(); return advanceFrom(run, node.id); }  // Wave K Chat Input: emit baked text or the run input
+  if (node.kind === 'output') { run.outputs[node.id] = input || ''; save(); return advanceFrom(run, node.id); }                                       // Wave K Chat Output: terminal display
+  if (node.kind === 'prompt') return firePromptNode(run, node, input, from);   // Wave K: inline LLM template (in-process vendor, no approval)
   if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id; save();
+}
+// Wave K — a prompt component is INTERNAL compute (an inline LLM template), not an external side-effect:
+// it runs in-process via the vendor with NO approval fence (mirrors an auto agent). Reuses the run-handoff
+// for cockpit visibility + crash-resume. `{input}` in the template is substituted with the upstream text.
+function firePromptNode(run, node, input, from) {
+  const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'prompt', skill: 'prompt',
+    input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
+    history: [], prompt: { template: (node.config && node.config.template) || '{input}' }, runId: run.id, node: node.id };
+  touch(h, 'approved', 'auto'); state.handoffs.push(h); save();
+  runPrompt(h);
+}
+function runPrompt(h) {
+  if (running.has(h.id)) return; running.add(h.id);
+  const vendor = EXEC_VENDOR || 'stub';
+  const tmpl = String(h.prompt.template || '{input}').split('{input}').join(h.input || '');
+  touch(h, 'running', 'hub'); save();
+  console.log(`▶ [hub] prompt ${h.id}`);
+  runVendorAsync(vendor, tmpl, `[prompt:stub] ${tmpl.slice(0, 120)}`)
+    .then((result) => postResult(h.id, { result }, 'hub'))
+    .catch((e) => postResult(h.id, { error: e.message }, 'hub'))
+    .finally(() => { running.delete(h.id); console.log(`✓ [hub] prompt ${h.id} done`); });
 }
 // Wave G — an mcp node is an external SIDE-EFFECT (Gmail/Slack…). Reuse the durable-inbox handoff so it
 // shows in the cockpit, has history, and rides the SAME approval fence as agents: blast-radius gate →
@@ -286,7 +311,7 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null })), runs: Object.values(state.runs).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length })) });
+    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })) });
   if (req.method === 'GET' && p === '/api/workflows')
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   if (req.method === 'GET' && p === '/api/automations')

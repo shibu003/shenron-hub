@@ -62,6 +62,7 @@
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { width:172px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); }
   .node.mcp { width:184px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; } .node.mcp .port { border-color:#2ea043; }
+  .node.comp { width:176px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; } .node.comp .port { border-color:#8957e5; }
   .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; }
   .port.in { left:-7px; } .port.out { right:-7px; } .port:hover { background:var(--blue); }
   .node.trigger .port.out { border-color:var(--amber); }
@@ -78,6 +79,7 @@
   .ibtn:hover { border-color:var(--blue); } .ibtn.danger:hover { border-color:var(--red); color:var(--red); }
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
   textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
+  input.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
   #summary { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
   .cnt { font-size:11px; border:1px solid var(--line); background:#0d1117; border-radius:999px; padding:2px 9px; cursor:pointer; color:var(--dim); user-select:none; }
   .cnt b { color:var(--txt); } .cnt.on { box-shadow:0 0 0 1px currentColor inset; }
@@ -182,6 +184,8 @@ const I18N = {
   mcp_node_note:{ja:'実呼び出し：接続済み MCP server の tool を承認フェンス越しに実行（外部副作用）。',en:'Real call: runs the connected MCP server\'s tool behind the approval fence (external side-effect).'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
   f_args:{ja:'引数（JSON・任意）',en:'arguments (JSON, optional)'}, mcp_args_note:{ja:'上流の出力は input として渡されます。to / subject / channel 等はここで追加。',en:'Upstream output is passed as `input`. Add fields like to / subject / channel here.'}, mcp_apply_args:{ja:'引数を適用',en:'apply args'}, t_args_ok:{ja:'引数を更新しました',en:'arguments updated'},
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
+  comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
+  comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_type:{ja:'type',en:'type'}, f_match:{ja:'match — この trigger を発火させる build-state イベントの形（JSON）',en:'match — the build-state event shape that fires this trigger (JSON)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -222,6 +226,12 @@ const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null;
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
+let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
+const COMP = {                                       // minimal component library (per-field typed template). Agent stays our LLM unit.
+  input:  { label:'Chat Input',  icon:'💬', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(empty → use the Run input)' }] },
+  prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
+  output: { label:'Chat Output', icon:'📤', accepts:['*'], emits:[],           fields:[] },
+};
 const HIDDEN = new Set(); let selected = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -244,7 +254,9 @@ function conn(m){ const c=$('#conn'); c.textContent=m; c.style.color='var(--blue
 const ag = (id) => state.agents.find(a=>a.id===id);
 const trig = (id) => TRIGGERS.find(t=>t.id===id);
 const mcpn = (id) => MCP_NODES.find(m=>m.id===id);
-const nodeOf = (id) => ag(id) || trig(id) || mcpn(id);
+const comp = (id) => COMPONENTS.find(c=>c.id===id);
+const nodeOf = (id) => ag(id) || trig(id) || mcpn(id) || comp(id);
+function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--){ const o=rs[i].outputs; if(o && id in o) return o[id]; } return null; }
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ---------- palette ---------- */
@@ -266,11 +278,20 @@ function renderPalette(){
     + (tools.length ? tools.map(tl=>`<div class="palrow"><div class="pm"><b>🔌 ${esc(tl.name)}</b><span>${esc(tl.server)}</span></div>
         <span class="pb" data-pmcpadd='${esc(JSON.stringify(tl))}' title="${t('add_canvas')}">＋</span></div>`).join('')
        : `<div class="empty" style="padding:6px 12px">${t('pal_no_mcp')}</div>`);
+  // Components section (Wave K — Langflow-style library)
+  $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('comp_head')}</div>`
+    + Object.entries(COMP).map(([k,c])=>`<div class="palrow"><div class="pm"><b>${c.icon} ${esc(c.label)}</b><span>${t('comp_'+k)||''}</span></div>
+        <span class="pb" data-pcompadd="${k}" title="${t('add_canvas')}">＋</span></div>`).join('');
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
   $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
   $('#palList').querySelectorAll('[data-pmcpadd]').forEach(el=>el.onclick=()=>{ try{ addMcpNode(JSON.parse(el.getAttribute('data-pmcpadd'))); }catch{} });
+  $('#palList').querySelectorAll('[data-pcompadd]').forEach(el=>el.onclick=()=>addComp(el.getAttribute('data-pcompadd')));
 }
+function addComp(kind){ const c=COMP[kind]; if(!c)return; const id=kind+'-'+(++cidc);
+  const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
+  COMPONENTS.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y:40+COMPONENTS.length*26 }); selectNode(id); render(); }
+function removeComp(id){ COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 function addMcpNode(tl){ const id='mcp-'+(++mnidc); MCP_NODES.push({ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x:360, y:40+MCP_NODES.length*26 }); selectNode(id); render(); }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
@@ -283,7 +304,7 @@ function placeNodes(){
 }
 function renderNodes(){
   const canvas=$('#canvas');
-  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length)?'none':'block';
+  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length)?'none':'block';
   const seen=new Set();
   for(const a of state.agents){
     if(HIDDEN.has(a.id)) continue;
@@ -322,6 +343,20 @@ function renderNodes(){
     n.innerHTML=`<div class="name">🔌 ${esc(mn.tool)}${pending?`<span class="badge">${pending}</span>`:''}</div><div class="co">${esc(mn.server)} · MCP</div>
       <div class="pol ${mn.auto?'auto':''}">${mn.auto?'⚡ auto':'✋ approval'}${awaiting?' · ⏳ awaiting':busy?' · ▶ running':''}</div>
       <span class="port in" data-in="${esc(mn.id)}"></span><span class="port out" data-out="${esc(mn.id)}"></span>`;
+  }
+  for(const c of COMPONENTS){
+    const nid='n_'+cssid(c.id); seen.add(nid);
+    let n=document.getElementById(nid);
+    if(!n){ n=document.createElement('div'); n.className='node comp'; n.id=nid; n.dataset.id=c.id; canvas.appendChild(n); attachNode(n,c.id); }
+    if(!POS[c.id]) POS[c.id]={x:c.x||200,y:c.y||40};
+    n.style.left=POS[c.id].x+'px'; n.style.top=POS[c.id].y+'px'; n.classList.toggle('selected',selected===c.id);
+    const meta=COMP[c.kind]||{}; const res=c.kind==='output'?lastOutput(c.id):null;
+    const sub=c.kind==='input'?(c.config?.text?esc(c.config.text).slice(0,42):t('comp_input_sub'))
+      :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
+      :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
+    n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(meta.label||c.kind)}</div><div class="co">${sub}</div>`
+      +(c.accepts.length?`<span class="port in" data-in="${esc(c.id)}"></span>`:'')
+      +(c.emits.length?`<span class="port out" data-out="${esc(c.id)}"></span>`:'');
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
@@ -384,10 +419,11 @@ function drawLinks(){
 
 /* ---------- inspector ---------- */
 function renderInspector(){
-  const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected);
+  const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected);
   if(a) return void (ins.innerHTML = inspAgent(a));
   if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
   if(mn) return void (ins.innerHTML = inspMcp(mn), bindMcp(mn));
+  if(cn) return void (ins.innerHTML = inspComp(cn), bindComp(cn));
   ins.innerHTML = inspDefault();
   ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
   ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
@@ -438,6 +474,22 @@ function inspMcp(mn){
 function bindMcp(mn){ const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(!btn)return;
   btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
 function toggleMcpAuto(id){ const m=mcpn(id); if(m){ m.auto=!m.auto; render(); } }
+function inspComp(cn){ const meta=COMP[cn.kind]||{};
+  const fields=(meta.fields||[]).map(f=>{ const val=cn.config?.[f.key]??f.value??'';
+    return `<div class="field"><label>${esc(f.label)}</label>`
+      +(f.type==='textarea'?`<textarea class="match" data-ck="${esc(f.key)}" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
+        :f.type==='number'?`<input class="cin" type="number" data-ck="${esc(f.key)}" value="${esc(val)}">`
+        :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join('');
+  const res=cn.kind==='output'?lastOutput(cn.id):null;
+  return `<div class="ins-h">${meta.icon||'▦'} ${esc(meta.label||cn.kind)} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(cn.accepts.length?cn.accepts:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(cn.emits.length?cn.emits:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    ${fields}${meta.fields&&meta.fields.length?`<button class="ibtn" id="compSave">${t('mcp_apply_args')}</button>`:''}
+    ${res!=null?`<div class="field"><label>${t('comp_result')}</label><div class="v" style="color:var(--green);white-space:pre-wrap;max-height:220px;overflow:auto">${esc(res).slice(0,2000)}</div></div>`:''}
+    <button class="ibtn danger" onclick="removeComp('${esc(cn.id)}')">${t('btn_del_node')}</button>`;
+}
+function bindComp(cn){ const btn=$('#compSave'); if(!btn)return;
+  btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.value; }); toast(t('t_args_ok')); render(); }; }
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
   const onN=state.agents.filter(a=>a.online).length;
@@ -525,6 +577,7 @@ function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
   const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
+    const cn=comp(id); if(cn) return { id, kind:cn.kind, config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
