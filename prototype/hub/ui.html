@@ -335,6 +335,8 @@ const I18N = {
   integrations:{ja:'連携（MCP servers）',en:'Integrations (MCP servers)'}, add_mcp:{ja:'＋ MCP server を追加',en:'＋ add MCP server'},
   it_label:{ja:'ラベル',en:'label'}, it_conn:{ja:'command または url',en:'command or url'}, it_tools:{ja:'tools（カンマ区切り）',en:'tools (comma-separated)'},
   mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（⚙設定で on）',en:'no enabled MCP server (turn on in ⚙ Settings)'},
+  mcp_generic:{ja:'MCP アクション',en:'MCP action'}, mcp_generic_sub:{ja:'空の外部アクション（tool は後で）',en:'blank external action (pick tool later)'},
+  mcp_tool_sel:{ja:'tool（外部アクション）',en:'tool (external action)'}, mcp_tool_none:{ja:'— tool を選択 —',en:'— choose a tool —'}, mcp_pick_tool:{ja:'tool を選んでください',en:'choose a tool'}, mcp_no_tools:{ja:'enabled な MCP server がありません — ⚙ 設定で接続',en:'no enabled MCP server — connect one in ⚙ Settings'},
   insp_mcp:{ja:'MCP tool node',en:'MCP tool node'}, f_server:{ja:'server',en:'server'}, f_tool:{ja:'tool',en:'tool'},
   mcp_node_note:{ja:'実呼び出し：接続済み MCP server の tool を承認フェンス越しに実行（外部副作用）。',en:'Real call: runs the connected MCP server\'s tool behind the approval fence (external side-effect).'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
   f_args:{ja:'引数（JSON・任意）',en:'arguments (JSON, optional)'}, mcp_args_note:{ja:'上流の出力は input として渡されます。to / subject / channel 等はここで追加。',en:'Upstream output is passed as `input`. Add fields like to / subject / channel here.'}, mcp_apply_args:{ja:'引数を適用',en:'apply args'}, t_args_ok:{ja:'引数を更新しました',en:'arguments updated'},
@@ -539,12 +541,10 @@ function renderPalette(){
     + TRIGGERS.map(tr=>`<div class="palrow trig"><div class="pm"><b>⚡ ${esc(tr.id)}</b><span>${esc(tr.type)} ${esc(matchStr(tr))}</span></div>
         <span class="pb" data-psel="${esc(tr.id)}" title="${t('select_t')}">→</span></div>`).join('')
     || `<div class="empty" style="padding:10px 12px">${t('pal_empty')}</div>`;
-  // MCP tools section (enabled integrations)
-  const tools=INTEGRATIONS.filter(it=>it.enabled).flatMap(it=>(it.tools||[]).map(tl=>({...tl, server:it.id})));
+  // MCP actions section — place a generic (blank) external-action node; choose & change its tool in the inspector.
   $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('mcp_tools_head')}</div>`
-    + (tools.length ? tools.map(tl=>`<div class="palrow"><div class="pm"><b>🔌 ${esc(tl.name)}</b><span>${esc(tl.server)}</span></div>
-        <span class="pb" data-pmcpadd='${esc(JSON.stringify(tl))}' title="${t('add_canvas')}">＋</span></div>`).join('')
-       : `<div class="empty" style="padding:6px 12px">${t('pal_no_mcp')}</div>`);
+    + `<div class="palrow"><div class="pm"><b>🔌 ${esc(t('mcp_generic'))}</b><span>${esc(t('mcp_generic_sub'))}</span></div>
+        <span class="pb" data-pmcpgeneric="1" title="${t('add_canvas')}">＋</span></div>`;
   // Components section — place a generic (blank) node; choose & change its kind in the inspector.
   $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('comp_head')}</div>`
     + `<div class="palrow"><div class="pm"><b>▦ ${esc(t('comp_generic'))}</b><span>${esc(t('comp_generic_sub'))}</span></div>
@@ -552,7 +552,7 @@ function renderPalette(){
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
   $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
-  $('#palList').querySelectorAll('[data-pmcpadd]').forEach(el=>el.onclick=()=>{ try{ addMcpNode(JSON.parse(el.getAttribute('data-pmcpadd'))); }catch{} });
+  $('#palList').querySelectorAll('[data-pmcpgeneric]').forEach(el=>el.onclick=()=>addMcpNode());
   $('#palList').querySelectorAll('[data-pcompadd]').forEach(el=>el.onclick=()=>addComp(el.getAttribute('data-pcompadd')));
 }
 function renderCoach(){
@@ -631,7 +631,16 @@ function setCompKind(cn, kind){ const m=COMP[kind];
   if(keepName) cn.config.name=keepName; if(keepDesc) cn.config.desc=keepDesc;
   revalidateEdges(cn.id); selectNode(cn.id); }
 function removeComp(id){ COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
-function addMcpNode(tl){ const id='mcp-'+(++mnidc); MCP_NODES.push({ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x:360, y:40+MCP_NODES.length*26 }); selectNode(id); render(); }
+function addMcpNode(tl){ const id='mcp-'+(++mnidc); const y=40+MCP_NODES.length*26;
+  MCP_NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x:360, y }
+                   :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x:360, y });   // blank: choose the tool in the inspector
+  selectNode(id); render(); }
+// an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
+const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool));
+function setMcpTool(mn, val){ if(!val) return;
+  const [server,name]=val.split('::'); const it=(INTEGRATIONS||[]).find(x=>x.id===server); const tl=((it&&it.tools)||[]).find(x=>x.name===name);
+  mn.server=server; mn.tool=name; mn.accepts=(tl&&tl.accepts)||['*']; mn.emits=(tl&&tl.emits)||['*'];
+  revalidateEdges(mn.id); selectNode(mn.id); }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
@@ -679,9 +688,11 @@ function renderNodes(){
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy);
-    n.innerHTML=`<div class="name">🔌 ${esc(mn.tool)}${pending?`<span class="badge">${pending}</span>`:''}</div><div class="co">${esc(mn.server)} · MCP</div>
-      <div class="pol ${mn.auto?'auto':''}">${mn.auto?'⚡ auto':'✋ approval'}${awaiting?' · ⏳ awaiting':busy?' · ▶ running':''}</div>
-      ${portHtml('in',mn.id,(mn.accepts||[])[0])}${portHtml('out',mn.id,(mn.emits||[])[0])}`;
+    const mset=!!(mn.server&&mn.tool);
+    n.innerHTML=`<div class="name">🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+      +`<div class="co">${mset?esc(mn.server)+' · MCP':`<span style="color:var(--amber)">${t('mcp_pick_tool')}</span>`}</div>`
+      +`<div class="pol ${mn.auto?'auto':''}">${mn.auto?'⚡ auto':'✋ approval'}${awaiting?' · ⏳ awaiting':busy?' · ▶ running':''}</div>`
+      +`${portHtml('in',mn.id,(mn.accepts||[])[0])}${portHtml('out',mn.id,(mn.emits||[])[0])}`;
   }
   for(const c of COMPONENTS){
     const nid='n_'+cssid(c.id); seen.add(nid);
@@ -996,22 +1007,29 @@ function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave');
 }
 function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 function inspMcp(mn){
-  return `<div class="ins-h">${t('insp_mcp')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+  const tools=(INTEGRATIONS||[]).filter(it=>it.enabled!==false).flatMap(it=>(it.tools||[]).map(x=>({server:it.id,name:x.name})));
+  const cur=mn.tool?`${mn.server}::${mn.tool}`:'';
+  const isSet=!!(mn.server&&mn.tool);
+  const toolSel=`<div class="field"><label>${t('mcp_tool_sel')}</label><select class="cin" id="mcpTool">
+      ${isSet?'':`<option value="" selected>${esc(t('mcp_tool_none'))}</option>`}
+      ${tools.map(x=>`<option value="${esc(x.server+'::'+x.name)}" ${cur===x.server+'::'+x.name?'selected':''}>🔌 ${esc(x.name)} · ${esc(x.server)}</option>`).join('')}
+    </select>${tools.length?'':`<div class="mini" style="color:var(--amber)">${t('mcp_no_tools')}</div>`}</div>`;
+  return `<div class="ins-h">🔌 ${esc(isSet?mn.tool:t('comp_unset'))} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('mcp_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
-    <div class="field"><label>${t('f_server')}</label><div class="v">${esc(mn.server)}</div></div>
-    <div class="field"><label>${t('f_tool')}</label><div class="v">🔌 ${esc(mn.tool)}</div></div>
-    <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    ${toolSel}
+    ${isSet?`<div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(mn.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_mcp_auto')}</label>
       <button class="ibtn toggle ${mn.auto?'auto':'approval'}" onclick="toggleMcpAuto('${esc(mn.id)}')">${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}${t('toggle_sfx')}</button></div>
     <div class="field"><label>${t('f_args')}</label><textarea class="match" id="mcpArgs">${esc(JSON.stringify(mn.config||{}, null, 2))}</textarea></div>
     <button class="ibtn" id="mcpArgsSave">${t('mcp_apply_args')}</button>
     <div class="empty">${t('mcp_args_note')}</div>
-    <div class="empty">${t('mcp_node_note')}</div>
+    <div class="empty">${t('mcp_node_note')}</div>`:''}
     <button class="ibtn danger" onclick="removeMcpNode('${esc(mn.id)}')">${t('btn_del_mcp')}</button>`;
 }
-function bindMcp(mn){ const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(!btn)return;
-  btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
+function bindMcp(mn){
+  const sel=$('#mcpTool'); if(sel) sel.onchange=()=>setMcpTool(mn, sel.value);
+  const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(btn) btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
 function toggleMcpAuto(id){ const m=mcpn(id); if(m){ m.auto=!m.auto; render(); } }
 function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind];
   const fields=isSet?(meta.fields||[]).map(f=>{ const val=cn.config?.[f.key]??f.value??'';
@@ -1201,11 +1219,11 @@ function buildFlow(){ if(!EDGES.length) return null;
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; }) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
-  if(f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
+  if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
 async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
-  if(f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
+  if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_run_t'), submitLabel:t('m_run_b'), fields:[{key:'input',label:t('m_entry'),type:'textarea',value:'Target brief: Series A fintech VPs of Sales scaling outbound.'}],
     onSubmit:async v=>{ await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input:v.input }); conn(t('t_running')); refresh(); } }); }
 // ⏹ Stop every in-flight run: the hub cancels the run (no more downstream firing) and rejects its paused/queued
@@ -1244,7 +1262,7 @@ function renderTrustPanel(){
   el.style.display='block';
 }
 async function saveAutomation(){ closeMenu(); const f=buildFlow();
-  if(f&&f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
+  if(f&&f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   const tn=f&&f.nodes.find(n=>n.kind==='trigger'); if(!tn) return toast(t('t_need_trig'));
   if(!f.nodes.some(n=>n.kind==='agent')) return toast(t('t_need_agent'));
   openModal({ title:t('m_auto_t'), submitLabel:t('m_save_b'), fields:[
@@ -1311,7 +1329,7 @@ async function fireEvent(){ closeMenu();
     dlg.close(); const r=await api('/api/fire',{ event:ev }); conn('fired '+(r.fired?.length||0)); refresh(); };
 }
 async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toast(t('t_wire2'));
-  if(f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
+  if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id;
   const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
   openModal({ title:`MCP tool: ${wf.id}`, info:t('m_export_info'), submitLabel:t('m_copy'), fields:[{key:'snip',label:t('m_mcp_call'),type:'readonly',value:snip}], onSubmit:()=>copyText(snip,t('t_snip_copied')) }); refresh(); }
