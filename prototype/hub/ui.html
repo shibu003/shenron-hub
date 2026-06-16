@@ -332,12 +332,12 @@ const I18N = {
   edge_agent:{ja:'agent',en:'agent'}, edge_mcp:{ja:'MCP tool',en:'MCP tool'}, edge_component:{ja:'component',en:'component'}, edge_trigger:{ja:'trigger',en:'trigger'}, edge_unknown:{ja:'不明',en:'unknown'}, edge_mcp_gate:{ja:'MCP は外部副作用。上流 agent の external_send とこの node の approval/auto でゲートされます。',en:'MCP performs an external side-effect. It is gated by the upstream agent external_send cap plus this node approval/auto setting.'},
   edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_check:{ja:'🔎 trust を確認',en:'🔎 Check trust'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
   edge_branch:{ja:'router の分岐',en:'router branch'}, edge_pred_true:{ja:'条件が真',en:'predicate true'}, edge_pred_false:{ja:'条件が偽',en:'predicate false'},
-  f_event:{ja:'build-state event',en:'build-state event'}, trig_custom:{ja:'— カスタム（JSON）',en:'— custom (JSON)'},
+  trig_custom:{ja:'— カスタム（JSON を表示）',en:'— custom (Show JSON)'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
-  f_status_match:{ja:'結果条件',en:'result condition'}, f_match:{ja:'詳細条件 JSON（任意・上級者向け）',en:'advanced match JSON (optional)'},
+  f_match:{ja:'{ } JSON を表示（上級者向け）',en:'{ } Show JSON (advanced)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
   trig_hint:{ja:'この trigger の out ポートを agent に配線 →（⚡ 自動化 → automation として保存）。',en:"Wire this trigger's out-port into an agent, then ⚡ Automate → Save as automation."},
   trig_set:{ja:'(クリックで match を設定)',en:'(click to set match)'},
@@ -350,11 +350,11 @@ const I18N = {
   m_fire_t:{ja:'build-state イベントを発火',en:'Fire build-state event'}, m_fire_b:{ja:'⚡ 発火',en:'⚡ Fire'},
   fire_plain_info:{ja:'これは「開発で何が起きたか」を手動で再現するテストです。通常は下の選択だけで十分です。JSONは確認用です。',en:'This manually simulates what happened in development. The choices below are enough for normal use; JSON is just the preview.'},
   fire_what:{ja:'何が起きた?',en:'What happened?'}, fire_result:{ja:'結果',en:'Result'}, fire_opt:{ja:'（任意）',en:'(optional)'}, fire_custom:{ja:'カスタム（自由 JSON）',en:'Custom (free JSON)'},
-  fire_custom_hint:{ja:'下の「詳細 JSON」を直接編集してください。',en:'Edit the Advanced JSON below directly.'}, fire_adv:{ja:'詳細 JSON（任意・上級者向け）',en:'Advanced JSON (optional)'},
+  fire_custom_hint:{ja:'下の「JSON を表示」を押して直接編集してください。',en:'Press “Show JSON” below and edit it directly.'}, fire_adv:{ja:'{ } JSON を表示（任意）',en:'{ } Show JSON (optional)'},
   fp_head:{ja:'発火すると {n} 件の automation が走ります：',en:'Firing this runs {n} automation(s):'}, fp_fenced:{ja:'🔒 firewall',en:'🔒 firewall'},
   fp_none:{ja:'マッチする automation はありません — 何も実行されません。',en:'No automation matches — nothing will run.'},
   fp_none_hint:{ja:'まず trigger→chain を配線し「📋 automation として保存」してください。',en:'First wire a trigger→chain and “📋 Save as automation”.'},
-  trig_sum:{ja:'{e} が起きた時に実行',en:'Runs when {e}'}, trig_sum_custom:{ja:'カスタム条件（下の詳細 JSON）',en:'custom condition (advanced JSON below)'},
+  trig_sum:{ja:'「{e}」のとき実行',en:'Runs when: {e}'}, trig_sum_custom:{ja:'カスタム条件（下の「JSON を表示」）',en:'custom condition (see “Show JSON”)'},
   m_export_info:{ja:'workflow として保存しました。任意の MCP クライアントから呼べます:',en:'Saved as a workflow. Call it from any MCP client:'}, m_copy:{ja:'⧉ コピー',en:'⧉ Copy'}, m_mcp_call:{ja:'MCP tool 呼び出し',en:'MCP tool call'},
   m_send_b:{ja:'送信',en:'Send'}, f_from:{ja:'from（送信元）',en:'from (sender)'}, f_input:{ja:'入力',en:'input'}, ph_input:{ja:'agent に何をさせる?',en:'what should the agent do?'}, cancel:{ja:'キャンセル',en:'cancel'},
   t_wire1:{ja:'先に配線してください: out ポートを in ポートへドラッグ。',en:'Wire a flow first: drag an out-port onto an in-port.'}, t_wire2:{ja:'先に flow を配線してください。',en:'Wire a flow first.'},
@@ -366,6 +366,18 @@ const I18N = {
   mcp_token_note:{ja:'<token — run_* 実行系のみ必要>',en:'<token — only for run_* (act) tools>'}, t_conn_copied:{ja:'接続設定をコピーしました',en:'connection config copied'},
 };
 const t = (k) => (I18N[k]?.[LANG]) ?? (I18N[k]?.en) ?? k;
+// Human-language labels for the build-state IR — shown PRIMARY; the raw id (review_completed, status=green) stays
+// only as a secondary subtitle / behind "Show JSON". Falls back to the raw id for any event not mapped here.
+const EV_LABEL = {
+  pr_opened:{ja:'PR が開かれた',en:'PR opened'}, pr_merged:{ja:'PR がマージされた',en:'PR merged'},
+  review_completed:{ja:'レビューが完了した',en:'Review completed'}, ci_passed:{ja:'CI が通った',en:'CI passed'},
+  test_red:{ja:'テストが失敗した',en:'Tests failed'}, rc_built:{ja:'リリース候補ができた',en:'Release candidate built'},
+  deploy_green:{ja:'デプロイが成功した',en:'Deploy succeeded'}, deploy_failed:{ja:'デプロイが失敗した',en:'Deploy failed'},
+  issue_filed:{ja:'Issue が登録された',en:'Issue filed'}, release_tagged:{ja:'リリースがタグ付けされた',en:'Release tagged'},
+};
+const RESULT_LABEL = { green:{ja:'OK（成功）',en:'OK (success)'}, red:{ja:'NG（失敗）',en:'NG (failed)'}, changes_requested:{ja:'変更依頼',en:'changes requested'} };
+const evLabel = (id) => EV_LABEL[id]?.[LANG] || EV_LABEL[id]?.en || id;
+const resultLabel = (s) => RESULT_LABEL[s]?.[LANG] || RESULT_LABEL[s]?.en || s;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
@@ -831,10 +843,12 @@ function bindEdge(e){
   $('#inspector').querySelectorAll('[data-edge-preset]').forEach(b=>b.onclick=()=>applyPreset(e.target,b.dataset.edgePreset));
   const d=$('#edDel'); if(d) d.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==e.id); clearTrust(); deselect(); };
 }
-function triggerSummary(match){                              // plain-language one-liner for the trigger inspector header
+function triggerSummary(match){                              // plain-language one-liner for the trigger inspector header (human words, not IR ids)
   match=match||{}; if(!match.event) return t('trig_sum_custom');
-  const extra=Object.entries(match).filter(([k])=>k!=='event').map(([k,v])=>`${k} = ${typeof v==='object'?JSON.stringify(v):v}`);
-  return t('trig_sum').replace('{e}',match.event)+(extra.length?` · ${extra.join(' · ')}`:'');
+  let s=t('trig_sum').replace('{e}',evLabel(match.event));
+  if(match.status) s+=` · ${t('fire_result')}: ${resultLabel(match.status)}`;
+  const extra=Object.entries(match).filter(([k])=>k!=='event'&&k!=='status').map(([k,v])=>`${k} = ${typeof v==='object'?JSON.stringify(v):v}`);
+  return s+(extra.length?` · ${extra.join(' · ')}`:'');
 }
 function inspTrigger(tr){
   const def=(BUILDSTATE.events||[]).find(e=>e.event===(tr.match&&tr.match.event));
@@ -842,15 +856,15 @@ function inspTrigger(tr){
   return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('trigger_help')}</b><div class="mini">${t('trig_hint')}</div></div>
     <div class="trig-sum">⚡ ${esc(triggerSummary(tr.match))}</div>
-    <div class="field"><label>${t('f_event')}</label><select class="cin" id="trigEvent">
+    <div class="field"><label>${t('fire_what')}</label><select class="cin" id="trigEvent">
       <option value="">${t('trig_custom')}</option>
-      ${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(e.event)} (${(e.fields||[]).join(', ')})</option>`).join('')}
+      ${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(evLabel(e.event))}（${esc(e.event)}）</option>`).join('')}
     </select></div>
-    ${hasStatus?`<div class="field"><label>${t('f_status_match')}</label><select class="cin" id="trigStatus">
+    ${hasStatus?`<div class="field"><label>${t('fire_result')}</label><select class="cin" id="trigStatus">
       <option value="">—</option>
-      <option value="green" ${tr.match&&tr.match.status==='green'?'selected':''}>green / success</option>
-      <option value="red" ${tr.match&&tr.match.status==='red'?'selected':''}>red / failed</option>
-      <option value="changes_requested" ${tr.match&&tr.match.status==='changes_requested'?'selected':''}>changes requested</option>
+      <option value="green" ${tr.match&&tr.match.status==='green'?'selected':''}>${esc(resultLabel('green'))}</option>
+      <option value="red" ${tr.match&&tr.match.status==='red'?'selected':''}>${esc(resultLabel('red'))}</option>
+      <option value="changes_requested" ${tr.match&&tr.match.status==='changes_requested'?'selected':''}>${esc(resultLabel('changes_requested'))}</option>
     </select></div>`:''}
     <details class="fadv"><summary>${t('f_match')}</summary>
       <textarea class="match" id="matchEdit">${esc(JSON.stringify(tr.match||{}, null, 2))}</textarea>
@@ -1078,7 +1092,7 @@ function renderFireFields(){
   const box=$('#fireFields'); if(!box) return;
   const def=fireEventDef(); const fields=def?def.fields:[];   // undefined def = 'custom'
   box.innerHTML = fields.map(f=> f==='status'
-    ? `<label>${t('fire_result')}</label><select data-ff="status"><option value="green">green / success</option><option value="red">red / failed</option><option value="changes_requested">changes requested</option></select>`
+    ? `<label>${t('fire_result')}</label><select data-ff="status"><option value="green">${esc(resultLabel('green'))}</option><option value="red">${esc(resultLabel('red'))}</option><option value="changes_requested">${esc(resultLabel('changes_requested'))}</option></select>`
     : `<label>${esc(f)} ${t('fire_opt')}</label><input data-ff="${esc(f)}" placeholder="${esc(f)}">`).join('')
     || `<div class="minfo">${t('fire_custom_hint')}</div>`;
   box.querySelectorAll('[data-ff]').forEach(el=>{ el.onchange=syncFirePreview; el.oninput=syncFirePreview; });
@@ -1112,7 +1126,7 @@ function refreshFirePreview(){
 }
 async function fireEvent(){ closeMenu();
   const dlg=$('#modal');
-  const opts=(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}">${esc(e.event)}</option>`).join('');
+  const opts=(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}">${esc(evLabel(e.event))}（${esc(e.event)}）</option>`).join('');
   dlg.innerHTML=`<div class="dh">${t('m_fire_t')}</div><div class="db">
     <div class="minfo">${t('fire_plain_info')}</div>
     <div class="choice-row">
