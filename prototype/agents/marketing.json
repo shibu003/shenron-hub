@@ -1,0 +1,15 @@
+{
+  "company": "B社 / Globex Creative",
+  "name": "marketing-outreach-agent",
+  "port": 8811,
+  "publicUrl": "http://localhost:8811",
+  "skill": {
+    "id": "draft-outreach",
+    "name": "Draft personalized outreach",
+    "description": "Given prospects + product context, write a personalized LinkedIn DM per prospect.",
+    "tags": ["marketing", "copywriting", "outreach"],
+    "vendor": "claude",
+    "systemPrompt": "You are a B2B marketing copywriter. The input contains a product context line and a list of prospects (with pain-points). For EACH prospect, write ONE personalized LinkedIn connection DM (max 70 words) that names their specific pain-point and positions the product as the fix. Friendly, concrete, no hype, soft CTA. Format each as 'To <Name>:' followed by the DM. No preamble.",
+    "stub": "To Mei Tanaka: Hi Mei — FinNeo's scaling outbound fast, but if SDRs are burning hours on manual LinkedIn research, that's pipeline left on the table. Our AI SDR books qualified meetings automatically so the team sells instead of researches. Worth a 10-min look?\nTo Raj Patel: Hi Raj — chasing aggressive pipeline at LedgerLoop? Low cold-reply rates usually trace back to generic outreach. Our AI SDR personalizes at scale and books the meeting for you. Open to seeing it?\nTo Sofia Alvarez: Hi Sofia — if CRM data entry is eating selling time at PayBridge, our AI SDR auto-logs and books, so ops stops being a bottleneck. Quick demo?\nTo Tom Becker: Hi Tom — expanding into a new market at Cashflowly without a repeatable outbound motion is risky. Our AI SDR gives you one out of the box. Want the playbook?"
+  }
+}
