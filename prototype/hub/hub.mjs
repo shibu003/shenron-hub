@@ -34,7 +34,7 @@ const online = (a) => now() - (a.lastSeen || 0) < ONLINE_MS;
 const isAuto = (a, from) => a.policy === 'auto' || (a.autoFrom || []).includes(from);
 const find = (id) => { const h = state.handoffs.find((x) => x.id === id); if (!h) throw new Error(`no handoff "${id}"`); return h; };
 const touch = (h, status, by) => { h.status = status; h.updatedAt = now(); (h.history ||= []).push({ ts: now(), status, by }); };
-const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null }));
+const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'] }));
 const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status, createdAt: h.createdAt, updatedAt: h.updatedAt });
 
 // pre-register known agents (prototype/agents/*.json) so the canvas has nodes to drag between
@@ -42,7 +42,7 @@ const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: 
   try {
     const dir = path.join(HERE, '..', 'agents');
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
-      try { const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (c.name && c.skill) { const a = agent(c.name); a.skill = c.skill.id; a.company = c.company || null; } } catch {}
+      try { const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (c.name && c.skill) { const a = agent(c.name); a.skill = c.skill.id; a.company = c.company || null; a.accepts = c.skill.accepts || ['*']; a.emits = c.skill.emits || ['*']; } } catch {}
     }
     save();
   } catch {}

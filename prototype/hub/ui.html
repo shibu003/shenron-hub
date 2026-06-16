@@ -31,6 +31,18 @@
   .node:hover { border-color:var(--blue); } .node.drop { border-color:var(--green); box-shadow:0 0 0 2px var(--green) inset; }
   .node.busy { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue) inset; animation:busy 1.1s ease-in-out infinite; }
   @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
+  /* Wave A — typed wiring ports (React Flow handle concept, vanilla). out(right)→in(left) drag draws an edge. */
+  .port { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue);
+          top:50%; transform:translateY(-50%); cursor:crosshair; z-index:3; transition:box-shadow .1s, background .1s; }
+  .port.in { left:-7px; } .port.out { right:-7px; }
+  .port::after { content:attr(data-t); position:absolute; bottom:15px; left:50%; transform:translateX(-50%); font-size:9px;
+                 color:var(--dim); white-space:nowrap; opacity:0; pointer-events:none; }
+  .port:hover::after { opacity:1; } .port:hover { background:var(--blue); }
+  .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
+  .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
+  body.wiring .node { cursor:crosshair; } body.wiring { cursor:crosshair; }
+  svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
+  svg .tw { stroke-dasharray:6 5; opacity:.95; }
   .node .name { font-weight:600; display:flex; align-items:center; gap:7px; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--grey); flex:none; }
   .dot.on { background:var(--green); animation:pulse 1.8s ease-in-out infinite; }
@@ -78,7 +90,7 @@
   </div>
 </header>
 <div class="wrap">
-  <div id="canvas"><svg class="links"></svg><div class="hint" id="hint">No agents yet — add one, or start the hub with prototype/agents/*.json.</div></div>
+  <div id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div class="hint" id="hint">No agents yet — add one, or start the hub with prototype/agents/*.json.</div></div>
   <div id="panel"><h2>Handoffs <span class="clear" id="clear" style="display:none" onclick="setFilter(null)">clear filter ✕</span></h2><div id="list"></div></div>
 </div>
 
@@ -95,6 +107,8 @@
 const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set(); let filter = null;
 let state = { agents: [], handoffs: [] }; let dragFrom = null;
+// Wave A flow-draft wiring (client-side only; Wave B persists it to workflows.json).
+let EDGES = []; let wiring = null; let eidc = 0;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STC = { submitted:'var(--grey)', awaiting_approval:'var(--amber)', approved:'var(--blue)', running:'var(--blue)', completed:'var(--green)', failed:'var(--red)', rejected:'var(--red)' };
@@ -136,7 +150,7 @@ function renderNodes(){
     const nid='n_'+cssid(a.id); seen.add(nid);
     let n=document.getElementById(nid);
     if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.draggable=true; canvas.appendChild(n);
-      n.addEventListener('dragstart',e=>{dragFrom=a.id;e.dataTransfer.setData('text/plain',a.id);});
+      n.addEventListener('dragstart',e=>{if(wiring){e.preventDefault();return;}dragFrom=a.id;e.dataTransfer.setData('text/plain',a.id);});
       n.addEventListener('dragover',e=>{if(dragFrom&&dragFrom!==a.id){e.preventDefault();n.classList.add('drop');}});
       n.addEventListener('dragleave',()=>n.classList.remove('drop'));
       n.addEventListener('drop',e=>{e.preventDefault();n.classList.remove('drop');const f=e.dataTransfer.getData('text/plain');if(f&&f!==a.id)openSend(f,a.id);});
@@ -149,18 +163,64 @@ function renderNodes(){
     n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}<span class="badge">${pending}</span></div>
       <div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}</div>
       <div class="row"><span class="pill ${a.policy}" data-pol="${esc(a.id)}">${a.policy==='auto'?'⚡ auto':'✋ approval'}</span>
-      <span>${a.online?'online':'offline'}</span>${busy?'<span style="color:var(--blue)">▶ running</span>':''}</div>`;
+      <span>${a.online?'online':'offline'}</span>${busy?'<span style="color:var(--blue)">▶ running</span>':''}</div>
+      <span class="port in"  data-in="${esc(a.id)}"  data-t="${esc((a.accepts||['*']).join(', '))}"></span>
+      <span class="port out" data-out="${esc(a.id)}" data-t="${esc((a.emits||['*']).join(', '))}"></span>`;
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-pol]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();togglePolicy(el.getAttribute('data-pol'));});
+  canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
+// ---- Wave A: typed port wiring (out→in), client-side flow draft ----
+const ag = (id) => state.agents.find(a=>a.id===id);
+function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null;
+  return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
+function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
+function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const e=ag(src)?.emits||['*'], a=ag(tgt)?.accepts||['*'];
+  return e.includes('*')||a.includes('*')||e.some(t=>a.includes(t)); }            // isValidConnection = type intersection
+function matchType(src,tgt){ const e=ag(src)?.emits||['*'], a=ag(tgt)?.accepts||['*'];
+  const common=e.find(t=>t!=='*'&&a.includes(t)); if(common)return common;
+  if(a.includes('*')) return e.find(t=>t!=='*')||'*'; if(e.includes('*')) return a.find(t=>t!=='*')||'*'; return '*'; }
+function canvasPt(e){ const c=$('#canvas'), r=c.getBoundingClientRect(); return { x:e.clientX-r.left+c.scrollLeft, y:e.clientY-r.top+c.scrollTop }; }
+function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:null, over:null };
+  document.body.classList.add('wiring'); updateTemp(); }
+function updateTemp(){ const tw=$('#tempwire'); if(!wiring){ tw.removeAttribute('d'); return; }
+  const a=portPos(wiring.src,'out'); if(!a)return;
+  const b = wiring.over ? portPos(wiring.over,'in') : (wiring.pt||a);
+  const ok = wiring.over ? canConnect(wiring.src,wiring.over) : null;
+  tw.setAttribute('d', fpath(a,b)); tw.setAttribute('stroke-width','2');
+  tw.setAttribute('stroke', ok===true?'var(--green)':ok===false?'var(--red)':'var(--blue)'); }
+function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false;
+  if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
+  EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
+function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
+  wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d');
+  document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid')); }
+// hit-test the in-port under the pointer (elementFromPoint works for mouse + touch implicit capture)
+document.addEventListener('pointermove', e=>{ if(!wiring)return; wiring.pt=canvasPt(e);
+  document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid'));
+  const inp=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.port.in');
+  if(inp){ const t=inp.getAttribute('data-in'); wiring.over=t; inp.classList.add(canConnect(wiring.src,t)?'valid':'invalid'); }
+  else wiring.over=null;
+  updateTemp(); });
+document.addEventListener('pointerup', endWire);
 function drawLinks(){
-  const svg=$('svg.links');
-  svg.innerHTML=state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.to); if(!a||!b)return '';
+  // flow-draft wiring (Wave A): solid bezier, type label, click-to-delete
+  const fe = EDGES.map(e=>{ const a=portPos(e.source,'out'), b=portPos(e.target,'in'); if(!a||!b)return '';
+    const d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, esc(e.type).length*6+10);
+    return `<path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2" opacity=".85"/>`
+      +`<path class="hit" d="${d}" data-edge="${e.id}"></path>`
+      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="var(--line)"/>`
+      +`<text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="var(--blue)">${esc(e.type)}</text>`;
+  }).join('');
+  // handoff runtime edges (center→center, animated in-flight)
+  const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.to); if(!a||!b)return '';
     const c=STC[h.status]||'var(--grey)'; const mx=(a.x+b.x)/2; const flow=FLOW.has(h.status);
     return `<path class="${flow?'flow':''}" d="M${a.x},${a.y} Q${mx},${a.y} ${mx},${(a.y+b.y)/2} T${b.x},${b.y}" fill="none" stroke="${c}" stroke-width="2" opacity="${h.status==='completed'?0.45:0.9}"/><circle cx="${b.x}" cy="${b.y}" r="3.5" fill="${c}"/>`;
   }).join('');
+  $('#staticlinks').innerHTML = fe + he;
+  $('#staticlinks').querySelectorAll('.hit').forEach(el=> el.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==el.dataset.edge); drawLinks(); });
 }
 function renderList(){
   $('#clear').style.display=filter?'inline':'none';
