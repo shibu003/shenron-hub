@@ -6,6 +6,8 @@ BuildHUD を **MCP server** として公開し、AI（Claude/Codex 等）が age
 - `server.mjs` — 依存ゼロの MCP stdio server（newline-delimited JSON-RPC）。`../agents/*.json`・`workflows.json`・`automations.json` を索引。
 - `workflows.json` — named workflow（例: `sales-to-marketing`）。run-on-demand な連鎖。
 - `automations.json` — **trigger-bound** な run（`schedule` / `build_state`）。「build-state を引き金に走らせる」中核。各 automation = trigger ＋ bound workflow ＋ default input。
+- `fire.mjs` — automation を id 指定で **1 回 fire** する zero-dep CLI（MCP server 経由 = MCP-first）。外部 scheduler から呼ぶ口。
+- `trigger/` — **schedule trigger を Trigger.dev に乗せる** seam（自前 cron は持たない、`docs/08 §1.5` G1）。`gen-trigger.mjs` が `automations.json` → declarative `schedules.task()` を生成。
 
 ## Tools（11）
 
@@ -99,7 +101,16 @@ printf '%s\n' \
 # → id2 = {event, fired:[{automation, result:<B社 outreach>, trace:[...]}]}
 ```
 
-二段 fence は autonomous でも生きる：`--unattended` は dry-run を飛ばすが、**`A2A_SHARED_TOKEN` 無しなら network に出ず即 refuse**（schedule trigger の cron 化は外部 scheduler に委譲、`when` は索引に保持するだけ）。
+二段 fence は autonomous でも生きる：`--unattended` は dry-run を飛ばすが、**`A2A_SHARED_TOKEN` 無しなら network に出ず即 refuse**。
+
+**schedule trigger（cron）は Trigger.dev に乗せる**（自前 scheduler は持たない、`docs/08 §1.5` G1）。`automations.json` が単一の真実源：
+
+```bash
+A2A_SHARED_TOKEN=... node prototype/mcp/fire.mjs nightly-prospect-outreach   # 1 回 fire（MCP 経由）
+node prototype/mcp/trigger/gen-trigger.mjs                                   # automations.json → Trigger.dev tasks
+```
+
+`gen-trigger.mjs` が `schedule` automation を declarative `schedules.task({id,cron,run})` に変換、各 `run()` は `fire.mjs` 経由で `run_automation` を fire。cron 同期は `npx trigger.dev dev|deploy`。詳細・caveat（Cloud は localhost agent に届かない 等）は `trigger/README.md`。
 
 ## 拡張（agent / workflow / automation を足す）
 - agent 追加：`../agents/<name>.json` を 1 つ足すだけ（server が起動時に索引）。
