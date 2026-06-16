@@ -24,13 +24,13 @@
   .menu-pop button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--txt); padding:8px 10px; border-radius:6px; cursor:pointer; }
   .menu-pop button:hover { background:#0d1117; } .menu-pop .mh { color:var(--dim); font-size:11px; padding:6px 10px 2px; }
   #lang { margin-left:auto; } #conn { font-size:12px; color:var(--dim); min-width:70px; text-align:right; }
-  #app { display:grid; grid-template-columns:212px 1fr 326px; height:calc(100vh - 49px); }
-  #app.pcol { grid-template-columns:0 1fr 326px; } #app.icol { grid-template-columns:212px 1fr 0; } #app.pcol.icol { grid-template-columns:0 1fr 0; }
-  #app.pcol > #palette, #app.icol > #inspector { display:none; }
-  .pancol { position:absolute; top:50%; transform:translateY(-50%); z-index:25; width:22px; height:30px; display:grid; place-items:center;
-            background:var(--panel2); border:1px solid var(--line); color:var(--dim); border-radius:7px; cursor:pointer; font-size:13px; box-shadow:0 4px 14px -6px #000; }
-  .pancol.left { left:8px; } .pancol.right { right:8px; } .pancol:hover { border-color:var(--blue); color:var(--blue); }
-  #palette { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
+  #app { position:relative; display:grid; grid-template-columns:var(--palw,212px) 1fr var(--inspw,326px); height:calc(100vh - 49px); }
+  .resizer { position:absolute; top:0; height:100%; width:8px; z-index:18; cursor:col-resize; }
+  .resizer::after { content:''; position:absolute; top:0; left:3px; width:2px; height:100%; background:var(--line); transition:background .12s; }
+  .resizer:hover::after, .resizer.drag::after { background:var(--blue); }
+  #palResizer { left:var(--palw,212px); transform:translateX(-4px); }
+  #inspResizer { right:var(--inspw,326px); transform:translateX(4px); }
+  #palette { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
   .pal-head { padding:11px 13px 7px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   #palSearch { margin:0 11px 8px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 9px; font:inherit; }
   .pal-tip { margin:0 11px 9px; padding:8px 9px; border:1px solid #2a3440; border-radius:8px; background:#0f1620; color:#b8c7d8; font-size:11px; }
@@ -48,8 +48,14 @@
   .pal-add .row2 { display:flex; gap:6px; } .pal-add .row2 button { flex:1; }
   .pal-add button { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:6px; cursor:pointer; }
   .pal-add button:hover { border-color:var(--blue); }
-  #canvas { position:relative; overflow:auto; background-color:#08090c; background-image:radial-gradient(circle at 1px 1px, #2b313a 1px, transparent 0); background-size:24px 24px; }
+  #canvas { position:relative; overflow:hidden; background-color:#08090c; cursor:grab; }
+  #canvas.panning { cursor:grabbing; }
+  #world { position:absolute; top:0; left:0; width:6000px; height:4200px; transform-origin:0 0; will-change:transform;
+           background-image:radial-gradient(circle at 1px 1px, #2b313a 1px, transparent 0); background-size:24px 24px; }
   svg.links { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  #zoomctl { position:absolute; right:12px; bottom:14px; z-index:25; display:flex; gap:4px; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:3px; box-shadow:0 8px 24px -10px #000; }
+  #zoomctl button { min-width:30px; height:26px; background:none; border:0; color:var(--txt); border-radius:6px; cursor:pointer; font:inherit; }
+  #zoomctl button:hover { background:#0d1117; } #zoomctl #zoomPct { min-width:46px; color:var(--dim); font-size:11px; }
   svg .flow { stroke-dasharray:7 6; animation:dash .7s linear infinite; } @keyframes dash { to { stroke-dashoffset:-13; } }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
@@ -159,6 +165,12 @@
   .tsum .ts-chips { display:flex; flex-wrap:wrap; gap:4px; }
   .tsum .ts-chip { font-size:10px; background:#1c2230; border:1px solid var(--amber); color:var(--amber); border-radius:4px; padding:0 6px; }
   .tsum .ts-clean { font-size:11px; color:var(--green); } .tsum .ts-route { font-size:11px; color:var(--blue); margin-top:4px; }
+  .tsum.rep { border-color:var(--blue); background:rgba(88,166,255,.06); }   /* Wave R: reputation panel is neutral (not a green "all good") */
+  .rep-row { display:flex; flex-direction:column; gap:2px; padding:5px 0; border-top:1px solid rgba(255,255,255,.05); } .rep-row:first-of-type { border-top:0; }
+  .rep-meta { font-size:11px; color:var(--dim); } .rep-meta i { font-style:normal; cursor:help; }
+  .rep-note { font-size:10px; color:var(--dim); margin-top:8px; line-height:1.4; }
+  .rep-chip { font-size:9px; border:1px solid var(--line); border-radius:999px; padding:0 5px; margin-left:5px; color:var(--dim); }
+  .rep-chip.allow { color:var(--green); border-color:rgba(63,185,80,.6); } .rep-chip.approval { color:var(--amber); border-color:rgba(245,158,11,.65); } .rep-chip.deny { color:var(--red); border-color:rgba(248,81,73,.6); }
   .aud.deny { border-left-color:var(--red); } .aud.deny .atype { color:var(--red); }
   .aud.send,.aud.approve { border-left-color:var(--green); } .aud.send .atype,.aud.approve .atype { color:var(--green); }
   .aud .adet { color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -251,11 +263,19 @@
       <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button></div>
     </div>
   </aside>
-  <main id="canvas"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg><div id="hint"></div><section id="coach"></section><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
-    <button id="palToggle" class="pancol left" title="palette" onclick="togglePanel('pal')">‹</button>
-    <button id="inspToggle" class="pancol right" title="inspector" onclick="togglePanel('insp')">›</button>
+  <main id="canvas">
+    <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
+    <div id="hint"></div><section id="coach"></section><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
+    <div id="zoomctl">
+      <button onclick="zoomStep(-1)" title="zoom out">−</button>
+      <button id="zoomPct" onclick="resetView()" title="reset to 100%">100%</button>
+      <button onclick="zoomStep(1)" title="zoom in">＋</button>
+      <button onclick="fitView()" title="fit to flow">⤢</button>
+    </div>
   </main>
   <aside id="inspector"></aside>
+  <div class="resizer" id="palResizer" title="drag to resize · drag to edge to hide"></div>
+  <div class="resizer" id="inspResizer" title="drag to resize · drag to edge to hide"></div>
 </div>
 
 <dialog id="modal"></dialog>
@@ -327,6 +347,12 @@ const I18N = {
   tp_wires:{ja:'配線（data firewall）',en:'wires (data firewall)'}, tp_caps:{ja:'capability ゲート',en:'capability gates'}, tp_runtime:{ja:'実行時に評価',en:'evaluated at runtime'}, tp_note:{ja:'実 enforcement コードで dry-run（agent は走らせず・送信なし）。net/fs は宣言、実 sandbox は runner 側。',en:'Dry-run with the real enforcement code (no agents run, nothing sent). net/fs are declared; real sandbox is runner-side.'},
   ts_title:{ja:'Trust verdict（実行結果）',en:'Trust verdict (last run)'}, ts_stripped:{ja:'除去',en:'stripped'}, ts_sent:{ja:'送信',en:'sent'}, ts_held:{ja:'承認待ち',en:'held'}, ts_blocked:{ja:'遮断',en:'blocked'}, ts_skipped:{ja:'分岐スキップ',en:'skipped'}, ts_noleak:{ja:'秘密/PII の漏れなし',en:'no secrets/PII leaked'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
+  rep_title:{ja:'評価（監査が示す履歴）',en:'Reputation (what the audit shows)'},
+  rep_tier_verified:{ja:'検証済',en:'verified'}, rep_tier_observed:{ja:'観測中',en:'observed'}, rep_tier_new:{ja:'履歴なし',en:'no history'}, rep_tier_broken:{ja:'検証不能',en:'unverifiable'},
+  rep_runs:{ja:'run',en:'runs'}, rep_clean:{ja:'クリーン率',en:'clean'}, rep_caught:{ja:'除去',en:'caught'}, rep_blocks:{ja:'遮断',en:'blocks'}, rep_approvals:{ja:'承認',en:'approvals'},
+  rep_partial:{ja:'帰属は一部（handoff 経由で推定）',en:'partial attribution (inferred via handoff)'}, rep_unattributed:{ja:'agent 不明の除去（配線単位）',en:'unattributed strips (edge-level)'},
+  rep_chain_bad:{ja:'監査チェーンが改ざん — 評価は信頼できません',en:'audit chain tampered — reputation is not trustworthy'},
+  rep_note:{ja:'監査が示す事実の集計（道徳評価ではない）。deny は firewall が機能した記録で、減点ではありません。',en:'Aggregated from what the audit shows (not a judgment). A deny = the firewall doing its job, not a demerit.'},
   insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で何が渡るか、受け手が何をできるかを先に確認します。秘密/PII は常時除去。必要な情報カテゴリだけ追加で止めます。',en:'First check what crosses this wire and what the receiver can do. Secrets/PII are always stripped; add only the extra data classes you need.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_contract:{ja:'この配線で渡るもの',en:'what crosses this wire'}, edge_source:{ja:'送り手',en:'sender'}, edge_target:{ja:'受け手',en:'receiver'}, edge_company:{ja:'会社',en:'company'}, edge_sends:{ja:'出す型',en:'sends'}, edge_receives:{ja:'受ける型',en:'receives'},
   edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_target_handles:{ja:'受け手の扱える範囲',en:'receiver handling'}, edge_data_classes:{ja:'情報カテゴリごとの設定',en:'data class policy'}, edge_custom_never:{ja:'追加 never（任意・1行1つ）',en:'extra never (optional, one per line)'}, edge_never:{ja:'追加で除去する語・パターン',en:'extra strings to strip'},
@@ -387,14 +413,36 @@ const RESULT_LABEL = { green:{ja:'OK（成功）',en:'OK (success)'}, red:{ja:'N
 const evLabel = (id) => EV_LABEL[id]?.[LANG] || EV_LABEL[id]?.en || id;
 const resultLabel = (s) => RESULT_LABEL[s]?.[LANG] || RESULT_LABEL[s]?.en || s;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
-function setPanel(which, collapsed){            // collapse/expand the palette ('pal') or inspector ('insp') column; remembered across sessions
-  const app=$('#app'), cls=which==='pal'?'pcol':'icol';
-  app.classList.toggle(cls, collapsed); localStorage.setItem('bh_'+cls, collapsed?'1':'0');
-  const btn=$(which==='pal'?'#palToggle':'#inspToggle'); if(btn) btn.textContent = which==='pal' ? (collapsed?'›':'‹') : (collapsed?'‹':'›');
-  drawLinks();
+// ---------- resizable panels: drag the splitter to set the palette / inspector width (drag to the edge to hide). No buttons. ----------
+function setPanelW(varName, w){ w=Math.max(0, Math.min(620, w)); if(w<56) w=0; $('#app').style.setProperty(varName, w+'px'); localStorage.setItem('bh'+varName, w); drawLinks(); }
+function initResizer(id, varName, grow){            // grow:+1 → width follows cursor rightward (palette); -1 → leftward (inspector)
+  const h=$('#'+id); if(!h) return;
+  h.addEventListener('pointerdown', e=>{ e.preventDefault(); h.setPointerCapture?.(e.pointerId); h.classList.add('drag');
+    const x0=e.clientX, w0=parseInt(getComputedStyle($('#app')).getPropertyValue(varName)) || (grow>0?212:326);
+    const move=ev=> setPanelW(varName, w0 + grow*(ev.clientX-x0));
+    const up=()=>{ h.classList.remove('drag'); document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',up); };
+    document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); });
 }
-function togglePanel(which){ const cls=which==='pal'?'pcol':'icol'; setPanel(which, !$('#app').classList.contains(cls)); }
-function restorePanels(){ setPanel('pal', localStorage.getItem('bh_pcol')==='1'); setPanel('insp', localStorage.getItem('bh_icol')==='1'); }
+function restorePanels(){
+  const pw=localStorage.getItem('bh--palw'), iw=localStorage.getItem('bh--inspw');
+  if(pw!=null) $('#app').style.setProperty('--palw', (+pw)+'px'); if(iw!=null) $('#app').style.setProperty('--inspw', (+iw)+'px');
+  initResizer('palResizer','--palw',+1); initResizer('inspResizer','--inspw',-1);
+}
+// ---------- pan + zoom: the nodes/links live in #world (a transformed layer); chrome stays in #canvas ----------
+let ZOOM=1, PANX=0, PANY=0, panning=null;
+function applyView(){ const w=$('#world'); if(w) w.style.transform=`translate(${PANX}px,${PANY}px) scale(${ZOOM})`; const p=$('#zoomPct'); if(p) p.textContent=Math.round(ZOOM*100)+'%'; }
+const clampZoom = (z) => Math.min(2.5, Math.max(.35, z));
+function saveView(){ try{ localStorage.setItem('bh_view', JSON.stringify({ ZOOM, PANX, PANY })); }catch{} }
+function setView(z, px, py){ ZOOM=clampZoom(z); PANX=px; PANY=py; applyView(); drawLinks(); saveView(); }
+function zoomAt(z, clientX, clientY){ const r=$('#canvas').getBoundingClientRect(), sx=clientX-r.left, sy=clientY-r.top;
+  z=clampZoom(z); const wx=(sx-PANX)/ZOOM, wy=(sy-PANY)/ZOOM; setView(z, sx-wx*z, sy-wy*z); }   // keep the world point under the cursor fixed
+function zoomStep(d){ const r=$('#canvas').getBoundingClientRect(); zoomAt(ZOOM*(d>0?1.15:1/1.15), r.left+r.width/2, r.top+r.height/2); }
+function resetView(){ setView(1, 0, 0); }
+function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.length) return resetView();
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const n of ns){ x0=Math.min(x0,n.offsetLeft); y0=Math.min(y0,n.offsetTop); x1=Math.max(x1,n.offsetLeft+n.offsetWidth); y1=Math.max(y1,n.offsetTop+n.offsetHeight); }
+  const r=$('#canvas').getBoundingClientRect(), pad=60, z=clampZoom(Math.min((r.width-pad*2)/(x1-x0||1),(r.height-pad*2)/(y1-y0||1),1.4));
+  setView(z, pad-x0*z, pad-y0*z); }
+function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
@@ -464,9 +512,10 @@ function renderPalette(){
   const q=($('#palSearch').value||'').toLowerCase();
   const agents=state.agents.filter(a=>!q||(a.id+' '+(a.skill||'')+' '+(a.company||'')).toLowerCase().includes(q));
   $('#palList').innerHTML =
-    agents.map(a=>{ const on=!HIDDEN.has(a.id);
+    agents.map(a=>{ const on=!HIDDEN.has(a.id); const rp=repOf(a.id);
+      const repChip=(rp&&rp.r.auditedRuns)?`<span class="rep-chip ${rp.tone}" title="${esc(rp.counts)}">${rp.score!=null?rp.score+'%':rp.label}</span>`:'';   // Wave R: longitudinal trust at a glance
       return `<div class="palrow ${on?'on':''}" title="${on?t('on_canvas'):t('add_canvas')}">
-        <div class="pm"><b>${esc(a.id)}</b><span>${esc(a.skill||'—')}${a.company?' · '+esc(a.company):''}</span></div>
+        <div class="pm"><b>${esc(a.id)}</b><span>${esc(a.skill||'—')}${a.company?' · '+esc(a.company):''}${repChip}</span></div>
         <span class="pb" data-padd="${esc(a.id)}" title="${on?t('on_canvas'):t('add_canvas')}">${on?'·':'＋'}</span>
         <span class="pb" data-pmcp="${esc(a.id)}" title="${t('copy_mcp_t')}">⧉</span></div>`; }).join('')
     + TRIGGERS.map(tr=>`<div class="palrow trig"><div class="pm"><b>⚡ ${esc(tr.id)}</b><span>${esc(tr.type)} ${esc(matchStr(tr))}</span></div>
@@ -562,7 +611,7 @@ function placeNodes(){
   state.agents.filter(a=>!HIDDEN.has(a.id)).forEach((a,i)=>{ if(!POS[a.id]) POS[a.id]={ x:40+(i%per)*COLW, y:40+Math.floor(i/per)*ROWH }; });
 }
 function renderNodes(){
-  const canvas=$('#canvas');
+  const canvas=$('#world');
   $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length)?'none':'block';
   const seen=new Set();
   for(const a of state.agents){
@@ -634,12 +683,21 @@ function selectNode(id){ selected=id; selEdge=null; render(); }
 function selectEdge(id){ selEdge=id; selected=null; render(); }
 function deselect(){ if(selected||selEdge){ selected=null; selEdge=null; render(); } }
 const edgeOf = (id) => EDGES.find(e=>e.id===id);
-$('#canvas').addEventListener('pointerdown', e=>{ if(e.target.id==='canvas'||e.target.tagName==='svg'||e.target.tagName==='g') deselect(); });
+$('#canvas').addEventListener('pointerdown', e=>{                                    // empty-canvas drag = pan; a click (no drag) = deselect
+  if(wiring||e.button!==0) return;
+  const bg = e.target.id==='canvas'||e.target.id==='world'||e.target.tagName==='svg'||e.target.tagName==='g';
+  if(!bg) return; panning={ x:e.clientX, y:e.clientY, px:PANX, py:PANY, moved:false }; $('#canvas').classList.add('panning');
+});
+$('#canvas').addEventListener('wheel', e=>{                                          // ctrl/⌘+wheel = zoom at cursor; otherwise pan freely (trackpad)
+  e.preventDefault();
+  if(e.ctrlKey||e.metaKey){ zoomAt(ZOOM*(e.deltaY<0?1.12:1/1.12), e.clientX, e.clientY); }
+  else { PANX-=e.deltaX; PANY-=e.deltaY; applyView(); drawLinks(); saveView(); }
+}, { passive:false });
 
 /* ---------- wiring ---------- */
 function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
-function canvasPt(e){ const c=$('#canvas'), r=c.getBoundingClientRect(); return { x:e.clientX-r.left+c.scrollLeft, y:e.clientY-r.top+c.scrollTop }; }
+function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
 function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger')return false;
   const e=nodeOf(src)?.emits||['*'], a=tn.accepts||['*']; return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }
 function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
@@ -661,7 +719,7 @@ function showWireTip(e){
   const ok=wiring.over?canConnect(wiring.src,wiring.over):null;
   tip.className = ok===true ? 'ok' : ok===false ? 'bad' : '';
   tip.innerHTML = wireMessage(wiring.src,wiring.over);
-  const p=canvasPt(e); tip.style.left=(p.x+16)+'px'; tip.style.top=(p.y+16)+'px'; tip.style.display='block';
+  const r=$('#canvas').getBoundingClientRect(); tip.style.left=(e.clientX-r.left+16)+'px'; tip.style.top=(e.clientY-r.top+16)+'px'; tip.style.display='block';
 }
 function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false; if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
   EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
@@ -677,9 +735,12 @@ document.addEventListener('pointermove', e=>{
     if(inp){ const tt=inp.getAttribute('data-in'); wiring.over=tt; inp.classList.add(canConnect(wiring.src,tt)?'valid':'invalid'); } else wiring.over=null;
     updateTemp(); showWireTip(e); return; }
   if(nodeDrag){ const p=canvasPt(e); POS[nodeDrag.id]={ x:Math.max(0,p.x-nodeDrag.offX), y:Math.max(0,p.y-nodeDrag.offY) };
-    nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true; drawLinks(); }
+    nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true; drawLinks(); return; }
+  if(panning){ const dx=e.clientX-panning.x, dy=e.clientY-panning.y; if(Math.abs(dx)+Math.abs(dy)>3) panning.moved=true;
+    PANX=panning.px+dx; PANY=panning.py+dy; applyView(); drawLinks(); }
 });
-document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved) selectNode(nd.id); } });
+document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved) selectNode(nd.id); }
+  if(panning){ const p=panning; panning=null; $('#canvas').classList.remove('panning'); if(!p.moved) deselect(); saveView(); } });
 
 /* ---------- edges ---------- */
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
@@ -729,12 +790,16 @@ function capRow(key,a){ const cur=(a.passport&&a.passport.caps&&a.passport.caps[
   const opts=(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('');
   return `<div class="caprow"><span class="capk">${esc(key.replace('_',' '))}</span><select class="cin" data-cap="${key}">${opts}</select></div>`; }
 function inspAgent(a){
+  const rp=repOf(a.id);
   return `<div class="ins-h">${t('insp_agent')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('agent_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
     <div class="field"><label>id</label><div class="v">${esc(a.id)}</div></div>
     <div class="field"><label>${t('f_company')}</label><div class="v">${esc(a.company||'—')}</div></div>
     <div class="field"><label>${t('f_skill')}</label><div class="v">${esc(a.skill||'—')}</div></div>
     <div class="field"><label>${t('f_presence')}</label><div class="v">${a.online?t('online'):t('offline')}${a.local?t('runs_hub'):''}</div></div>
+    ${rp?`<div class="field"><label>📇 ${t('rep_title')}</label>
+      <div class="capmini"><span class="${rp.tone}">${rp.label}${rp.score!=null?` · ${rp.score}%`:''}</span></div>
+      <div class="mini">${rp.counts}${rp.partial?` · ~ ${t('rep_partial')}`:''}${state.reputation&&!state.reputation.chainOk?` · <span style="color:var(--red)">${t('aud_bad')}</span>`:''}</div></div>`:''}
     <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(a.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(a.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_policy')}</label>
@@ -947,7 +1012,7 @@ function inspDefault(){
     </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
   return `<div class="ins-h">${t('insp_flow')}</div>
     <div class="helpbox"><b>${t('default_help')}</b><div style="margin-top:9px"><button class="linkbtn" onclick="placeExampleFlow()">${t('demo_btn')}</button> · <button class="linkbtn" onclick="placeSafeHandoff()">${t('safe_btn')}</button></div></div>
-    ${trustSummary()}
+    ${trustSummary()}${reputationPanel()}
     <div id="summary"><span class="cnt online"><b>${onN}</b>/${state.agents.length} ${t('s_online')}</span>
       ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}${auditPanel()}`;
 }
@@ -973,6 +1038,35 @@ function trustSummary(){
     <div class="ts-h"><b>🔒 ${t('ts_title')}</b><span class="ts-run">#${esc(runId)} · ${esc(run.status)}</span><span class="ts-verify ${verify.ok?'ok':'bad'}">${verify.ok?t('aud_ok'):t('aud_bad')}</span></div>
     <div class="ts-line">${t('ts_stripped')} <b>${leakN}</b> · ${t('ts_sent')} <b>${sent}</b>${held?` · ${t('ts_held')} <b>${held}</b>`:''}${blocked?` · ${t('ts_blocked')} <b style="color:var(--red)">${blocked}</b>`:''}${skipped?` · ${t('ts_skipped')} <b>${skipped}</b>`:''}</div>
     <div class="ts-chips">${leakChips}</div>${routeRows}</div>`;
+}
+// Wave R — audit-backed reputation: the LONGITUDINAL counterpart to the per-run Trust verdict above. Aggregates
+// the SAME tamper-evident audit per-agent across all runs into a transparent activity+integrity summary. The tier
+// is just a label for the raw counts shown beside it; `denials` = "blocks enforced" (the firewall working, neutral).
+// Data already on /api/state (state.reputation) — no extra fetch. repOf() is shared by the panel, palette chip,
+// and agent inspector so the formatting lives in one place.
+const REP_TONE = { verified:'allow', observed:'approval', new:'', 'chain-broken':'deny' };
+function repOf(id){
+  const r = state.reputation && state.reputation.agents && state.reputation.agents[id]; if(!r) return null;
+  const tone = REP_TONE[r.tier] || '';
+  const counts = [`${r.auditedRuns} ${t('rep_runs')}`,
+    r.cleanRunRate!=null?`${t('rep_clean')} ${Math.round(r.cleanRunRate*100)}%`:null,
+    r.redactionsCaught?`${t('rep_caught')} ${r.redactionsCaught}`:null,
+    r.denials?`${t('rep_blocks')} ${r.denials}`:null,
+    r.approvalsRequired?`${t('rep_approvals')} ${r.approvalsRequired}`:null].filter(Boolean).join(' · ');
+  return { r, tone, label:t('rep_tier_'+(r.tier==='chain-broken'?'broken':r.tier)), score:r.score, counts, partial:r.attribution==='partial' };
+}
+function reputationPanel(){
+  const rep=state.reputation; if(!rep||!rep.agents) return '';
+  const ids=Object.keys(rep.agents); if(!ids.length) return '';
+  const rows=ids.map(id=>({id, rp:repOf(id)})).filter(x=>x.rp)
+    .sort((a,b)=> b.rp.r.auditedRuns-a.rp.r.auditedRuns || (b.rp.r.redactionsCaught+b.rp.r.denials)-(a.rp.r.redactionsCaught+a.rp.r.denials) || a.id.localeCompare(b.id))
+    .map(({id,rp})=>`<div class="rep-row"><span class="capmini"><span class="${rp.tone}">${esc(id)} · ${rp.label}${rp.score!=null?` · ${rp.score}%`:''}</span></span>
+      <div class="rep-meta">${rp.counts}${rp.partial?` · <i title="${t('rep_partial')}">~</i>`:''}</div></div>`).join('');
+  const una = rep.unattributed && rep.unattributed.edgeRedactions ? `<div class="rep-meta" style="margin-top:6px">${t('rep_unattributed')}: ${rep.unattributed.edgeRedactions}</div>` : '';
+  return `<div class="tsum rep ${rep.chainOk?'':'bad'}">
+    <div class="ts-h"><b>📇 ${t('rep_title')}</b>${rep.chainOk?'':`<span class="ts-verify bad">${t('aud_bad')}</span>`}</div>
+    ${rep.chainOk?'':`<div class="ts-line" style="color:var(--red)">${t('rep_chain_bad')}</div>`}
+    ${rows}${una}<div class="rep-note">${t('rep_note')}</div></div>`;
 }
 function auditPanel(){
   const ents=AUDIT.entries||[]; const ok=!(AUDIT.verify&&AUDIT.verify.ok===false);
@@ -1227,5 +1321,5 @@ document.addEventListener('keydown', e=>{
 function deleteSelected(){ const id=selected; if(!id)return;
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
-applyChrome(); restorePanels(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
