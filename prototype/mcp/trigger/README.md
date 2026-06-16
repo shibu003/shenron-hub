@@ -32,6 +32,7 @@ automations.json ──gen-trigger.mjs──▶ buildhud.schedules.ts ──trig
 - The fence still holds: `fire.mjs` calls `run_automation(confirm:true)`, and execution requires `A2A_SHARED_TOKEN` (no token → refuses without touching the network). Disabled automations are not emitted.
 - ⚠️ **`enabled:false` is not a live kill-switch for already-synced schedules.** Declarative schedules only change on `trigger.dev dev|deploy`. Setting `enabled:false` in `automations.json` stops *future* generated output, but a previously-synced cron keeps firing until you **regenerate and redeploy** (or delete the schedule in Trigger.dev). The "single source of truth" holds only after a sync.
 - `buildhud.schedules.ts` is **gitignored** (machine-specific baked path). Regenerate per host; override the path at runtime with `BUILDHUD_FIRE=/abs/path/to/fire.mjs`.
+- If `FIRE` is missing or `fire.mjs` exits non-zero, the generated task **throws an actionable error into the Trigger.dev run log** (the missing path + the fix, or the child's exit code + stderr) — not an opaque ENOENT. `gen-trigger.mjs` also warns at generation if the baked path doesn't exist.
 
 ## Why this shape
 - **Single source of truth**: schedules are derived from `automations.json`, not hand-maintained in two places.
