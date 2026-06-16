@@ -414,8 +414,18 @@ const EV_LABEL = {
   issue_filed:{ja:'Issue が登録された',en:'Issue filed'}, release_tagged:{ja:'リリースがタグ付けされた',en:'Release tagged'},
 };
 const RESULT_LABEL = { green:{ja:'OK（成功）',en:'OK (success)'}, red:{ja:'NG（失敗）',en:'NG (failed)'}, changes_requested:{ja:'変更依頼',en:'changes requested'} };
+// Human labels for the build-state IR FIELDS (repo/pr/branch…) — shown PRIMARY in the fire modal, raw id in parens.
+// Same human-first treatment as the event/result labels above. Falls back to the raw field name when unmapped.
+const FIELD_LABEL = {
+  repo:{ja:'リポジトリ',en:'repository'}, pr:{ja:'PR 番号',en:'PR number'}, author:{ja:'作成者',en:'author'},
+  branch:{ja:'ブランチ',en:'branch'}, base:{ja:'ベースブランチ',en:'base branch'}, sha:{ja:'コミット SHA',en:'commit SHA'},
+  suite:{ja:'テストスイート',en:'test suite'}, failures:{ja:'失敗数',en:'failures'}, version:{ja:'バージョン',en:'version'},
+  artifact:{ja:'成果物',en:'artifact'}, env:{ja:'環境',en:'environment'}, service:{ja:'サービス',en:'service'},
+  reason:{ja:'理由',en:'reason'}, issue:{ja:'Issue 番号',en:'issue number'}, severity:{ja:'重大度',en:'severity'}, tag:{ja:'タグ',en:'tag'},
+};
 const evLabel = (id) => EV_LABEL[id]?.[LANG] || EV_LABEL[id]?.en || id;
 const resultLabel = (s) => RESULT_LABEL[s]?.[LANG] || RESULT_LABEL[s]?.en || s;
+const fieldLabel = (f) => FIELD_LABEL[f]?.[LANG] || FIELD_LABEL[f]?.en || f;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
 // ---------- resizable panels: drag the splitter to set the palette / inspector width (drag to the edge to hide). No buttons. ----------
 function setPanelW(varName, w){ w=Math.max(0, Math.min(620, w)); if(w<56) w=0; $('#app').style.setProperty(varName, w+'px'); localStorage.setItem('bh'+varName, w); drawLinks(); }
@@ -1223,7 +1233,7 @@ function renderFireFields(){
   const def=fireEventDef(); const fields=def?def.fields:[];   // undefined def = 'custom'
   box.innerHTML = fields.map(f=> f==='status'
     ? `<label>${t('fire_result')}</label><select data-ff="status"><option value="green">${esc(resultLabel('green'))}</option><option value="red">${esc(resultLabel('red'))}</option><option value="changes_requested">${esc(resultLabel('changes_requested'))}</option></select>`
-    : `<label>${esc(f)} ${t('fire_opt')}</label><input data-ff="${esc(f)}" placeholder="${esc(f)}">`).join('')
+    : `<label>${esc(fieldLabel(f))}（${esc(f)}）${t('fire_opt')}</label><input data-ff="${esc(f)}" placeholder="${esc(fieldLabel(f))}">`).join('')
     || `<div class="minfo">${t('fire_custom_hint')}</div>`;
   box.querySelectorAll('[data-ff]').forEach(el=>{ el.onchange=syncFirePreview; el.oninput=syncFirePreview; });
 }
