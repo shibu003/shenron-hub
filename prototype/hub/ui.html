@@ -325,6 +325,7 @@ const I18N = {
   on_canvas:{ja:'キャンバス上',en:'on canvas'}, add_canvas:{ja:'キャンバスに追加',en:'add to canvas'}, copy_mcp_t:{ja:'MCP 呼び出しをコピー',en:'copy MCP call'}, select_t:{ja:'選択',en:'select'},
   insp_agent:{ja:'Agent',en:'Agent'}, insp_trigger:{ja:'Trigger',en:'Trigger'}, close:{ja:'閉じる ✕',en:'close ✕'},
   f_company:{ja:'会社',en:'company'}, f_skill:{ja:'skill',en:'skill'}, f_presence:{ja:'presence / runtime',en:'presence / runtime'},
+  ag_rebind:{ja:'この agent を変更（中身の差し替え）',en:'change which agent (rebind)'},
   online:{ja:'🟢 オンライン',en:'🟢 online'}, offline:{ja:'⚪ オフライン',en:'⚪ offline'}, runs_hub:{ja:' · hub で実行',en:' · runs in hub'},
   f_accepts:{ja:'accepts（受け取る型）',en:'accepts'}, f_emits:{ja:'emits（出す型）',en:'emits'}, f_policy:{ja:'policy（承認方針）',en:'policy'},
   pol_auto:{ja:'⚡ auto — 承認なしで実行',en:'⚡ auto — runs without approval'}, pol_appr:{ja:'✋ approval — 人間ゲート',en:'✋ approval — human gate'}, toggle_sfx:{ja:' · 切替',en:' · toggle'},
@@ -641,6 +642,12 @@ function setMcpTool(mn, val){ if(!val) return;
   const [server,name]=val.split('::'); const it=(INTEGRATIONS||[]).find(x=>x.id===server); const tl=((it&&it.tools)||[]).find(x=>x.name===name);
   mn.server=server; mn.tool=name; mn.accepts=(tl&&tl.accepts)||['*']; mn.emits=(tl&&tl.emits)||['*'];
   revalidateEdges(mn.id); selectNode(mn.id); }
+// rebind an agent node to a different registry agent, in place: keep this canvas slot's position + wiring,
+// swap which agent it points at (hide the old, reveal the new), then re-validate ports. ("agent の中身変更")
+function rebindAgent(oldId, newId){ if(!newId||newId===oldId) return;
+  POS[newId]=POS[oldId]||POS[newId]||{x:60,y:60}; HIDDEN.delete(newId); HIDDEN.add(oldId);
+  EDGES.forEach(e=>{ if(e.source===oldId) e.source=newId; if(e.target===oldId) e.target=newId; });
+  revalidateEdges(newId); selectNode(newId); }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
@@ -840,6 +847,9 @@ function inspAgent(a){
   const rp=repOf(a.id);
   return `<div class="ins-h">${t('insp_agent')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('agent_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
+    <div class="field"><label>${t('ag_rebind')}</label><select class="cin" id="agSel">
+      ${state.agents.filter(x=>x.id===a.id||HIDDEN.has(x.id)).map(x=>`<option value="${esc(x.id)}" ${x.id===a.id?'selected':''}>${esc(x.id)}${x.skill?' · '+esc(x.skill):''}</option>`).join('')}
+    </select></div>
     <div class="field"><label>id</label><div class="v">${esc(a.id)}</div></div>
     <div class="field"><label>${t('f_company')}</label><div class="v">${esc(a.company||'—')}</div></div>
     <div class="field"><label>${t('f_skill')}</label><div class="v">${esc(a.skill||'—')}</div></div>
@@ -869,7 +879,8 @@ function inspAgent(a){
     <button class="ibtn" onclick="copyMcp('${esc(a.id)}')">${t('btn_copy_mcp')}</button>
     <button class="ibtn danger" onclick="HIDDEN.add('${esc(a.id)}');deselect()">${t('btn_remove')}</button>`;
 }
-function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
+function bindAgent(a){ const sel=$('#agSel'); if(sel) sel.onchange=()=>rebindAgent(a.id, sel.value);
+  const b=$('#ppSave'); if(!b)return;
   b.onclick=async()=>{ const caps={ secrets:'deny' }; $('#inspector').querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
     const never=($('#ppNever').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
     await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }; }
