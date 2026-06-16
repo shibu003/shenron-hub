@@ -136,6 +136,7 @@ function sweep() {
       continue;                                             // awaiting_approval → leave for the human
     }
     if (h.prompt) { if (h.status === 'running' || h.status === 'approved') runPrompt(h); continue; }   // Wave K prompt = internal compute → safe to re-run
+    if (h.consensus) { if (h.status === 'running' || h.status === 'approved') runConsensus(h); continue; }   // Wave I consensus = internal compute → safe to re-run
     const a = state.agents[h.to]; if (!a || !a.local || !autorunOn(a)) continue;
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
     else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
@@ -187,6 +188,7 @@ function fireNode(run, node, input) {
   if (node.kind === 'input')  { run.outputs[node.id] = (node.config && node.config.text) || input || ''; save(); return advanceFrom(run, node.id); }  // Wave K Chat Input: emit baked text or the run input
   if (node.kind === 'output') { run.outputs[node.id] = input || ''; save(); return advanceFrom(run, node.id); }                                       // Wave K Chat Output: terminal display
   if (node.kind === 'prompt') return firePromptNode(run, node, input, from);   // Wave K: inline LLM template (in-process vendor, no approval)
+  if (node.kind === 'consensus') return fireConsensusNode(run, node, input, from);   // Wave I: fan to N vendors → agree
   if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id; save();
@@ -211,6 +213,39 @@ function runPrompt(h) {
     .then((result) => postResult(h.id, { result }, 'hub'))
     .catch((e) => postResult(h.id, { error: e.message }, 'hub'))
     .finally(() => { running.delete(h.id); console.log(`✓ [hub] prompt ${h.id} done`); });
+}
+// Wave I — consensus: fan the SAME task to N vendors in parallel, then pick the medoid (output most similar
+// to the others) and report an agreement score. A single vendor can't do this — it's the structural answer to
+// "why BuildHUD and not Claude-native?". Internal compute → no approval fence; handoff-backed for visibility.
+const tokens = (s) => new Set(String(s || '').toLowerCase().match(/[a-z0-9]+/g) || []);
+function jaccard(a, b) { const A = tokens(a), B = tokens(b); if (!A.size && !B.size) return 1; let i = 0; for (const x of A) if (B.has(x)) i++; return i / ((A.size + B.size - i) || 1); }
+function consensusOf(results) {
+  const n = results.length; if (!n) return { text: '', agreement: 1, picked: null };
+  if (n === 1) return { text: results[0].text, agreement: 1, picked: results[0].vendor };
+  let best = -1, bi = 0;
+  for (let i = 0; i < n; i++) { let s = 0; for (let j = 0; j < n; j++) if (i !== j) s += jaccard(results[i].text, results[j].text); if (s > best) { best = s; bi = i; } }
+  let sum = 0, p = 0; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { sum += jaccard(results[i].text, results[j].text); p++; }
+  return { text: results[bi].text, agreement: p ? Math.round(sum / p * 100) / 100 : 1, picked: results[bi].vendor };
+}
+function fireConsensusNode(run, node, input, from) {
+  const vendors = String((node.config && node.config.vendors) || 'claude,codex,gemini').split(',').map((s) => s.trim()).filter(Boolean);
+  const task = `${(node.config && node.config.prompt) || ''}\n${input || ''}`.trim();
+  const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'consensus', skill: 'consensus', input: task,
+    status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [], consensus: { vendors }, runId: run.id, node: node.id };
+  touch(h, 'approved', 'auto'); state.handoffs.push(h); save(); runConsensus(h);
+}
+async function runConsensus(h) {
+  if (running.has(h.id)) return; running.add(h.id);
+  const vendors = (h.consensus && h.consensus.vendors) || ['stub']; const task = h.input || '';
+  touch(h, 'running', 'hub'); save();
+  console.log(`▶ [hub] consensus ${h.id} → ${vendors.join('+')}`);
+  try {
+    const results = await Promise.all(vendors.map((v) => runVendorAsync(EXEC_VENDOR || v, task, `[${v}] ${task.slice(0, 60)}`).then((text) => ({ vendor: v, text }))));
+    const c = consensusOf(results);
+    h.consensus = { vendors, picked: c.picked, agreement: c.agreement, results: results.map((r) => ({ vendor: r.vendor, chars: r.text.length })) }; save();
+    postResult(h.id, { result: `[consensus ${c.picked} · agree ${c.agreement}]\n${c.text}` }, 'hub');
+  } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
+  finally { running.delete(h.id); console.log(`✓ [hub] consensus ${h.id} done`); }
 }
 // Wave G — an mcp node is an external SIDE-EFFECT (Gmail/Slack…). Reuse the durable-inbox handoff so it
 // shows in the cockpit, has history, and rides the SAME approval fence as agents: blast-radius gate →
@@ -424,7 +459,7 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })) });
+    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })) });
   if (req.method === 'GET' && p === '/api/workflows')
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   if (req.method === 'GET' && p === '/api/automations')

@@ -247,6 +247,7 @@ let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style c
 const COMP = {                                       // minimal component library (per-field typed template). Agent stays our LLM unit.
   input:  { label:'Chat Input',  icon:'💬', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(empty → use the Run input)' }] },
   prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
+  consensus: { label:'Consensus', icon:'⚖️', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
   output: { label:'Chat Output', icon:'📤', accepts:['*'], emits:[],           fields:[] },
 };
 const HIDDEN = new Set(); let selected = null, nodeDrag = null, filter = null;
@@ -373,8 +374,10 @@ function renderNodes(){
     if(!POS[c.id]) POS[c.id]={x:c.x||200,y:c.y||40};
     n.style.left=POS[c.id].x+'px'; n.style.top=POS[c.id].y+'px'; n.classList.toggle('selected',selected===c.id);
     const meta=COMP[c.kind]||{}; const res=c.kind==='output'?lastOutput(c.id):null;
+    const ch=c.kind==='consensus'?state.handoffs.filter(h=>h.consensus&&h.node===c.id).pop():null;
     const sub=c.kind==='input'?(c.config?.text?esc(c.config.text).slice(0,42):t('comp_input_sub'))
       :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
+      :c.kind==='consensus'?(ch&&ch.consensus.picked?`⚖️ ${esc(ch.consensus.picked)} · agree ${ch.consensus.agreement}`:esc((c.config?.vendors)||'claude,codex,gemini').slice(0,40))
       :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
     n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(meta.label||c.kind)}</div><div class="co">${sub}</div>`
       +(c.accepts.length?portHtml('in',c.id,c.accepts[0]):'')
