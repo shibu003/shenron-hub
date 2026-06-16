@@ -1,0 +1,24 @@
+# Secrets / env
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+*.key
+*.pem
+.a2a_token
+A2A_SHARED_TOKEN*
+
+# Local agent / session data
+.claude/
+
+# Dogfood (07) local artifacts
+handoff.log
+*.log
+tunnel.txt
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
