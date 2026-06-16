@@ -41,6 +41,9 @@
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
   .node.dragging { z-index:10; opacity:.92; cursor:grabbing; box-shadow:0 6px 20px -6px rgba(0,0,0,.6); }
+  .node.trigger { width:170px; border-color:var(--amber); background:#1b1407; }
+  .node.trigger .name { color:var(--amber); } .node.trigger .badge { border-color:var(--amber); color:var(--amber); }
+  .node.trigger .port.out { border-color:var(--amber); }
   body.wiring .node { cursor:crosshair; } body.wiring { cursor:crosshair; }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
@@ -87,8 +90,11 @@
   <div id="add">
     <input id="addName" placeholder="new agent id…" onkeydown="if(event.key==='Enter')addAgent()">
     <button class="btn" onclick="addAgent()">＋ agent</button>
+    <button class="btn" onclick="addTrigger()" title="Add a build_state trigger node">＋ trigger</button>
     <button class="btn" onclick="saveFlow()" title="Save the wired graph as a workflow">💾 save</button>
     <button class="btn" onclick="runFlow()" title="Run the wired graph topologically">▶ run</button>
+    <button class="btn" onclick="saveAutomation()" title="Save trigger + chain as an automation">📋 auto</button>
+    <button class="btn" onclick="fireEvent()" title="Fire a build_state event → runs matching automations">⚡ fire</button>
     <span id="conn">connecting…</span>
   </div>
 </header>
@@ -112,6 +118,8 @@ const POS = {}; const expanded = new Set(); let filter = null;
 let state = { agents: [], handoffs: [] }; let nodeDrag = null;
 // Wave A flow-draft wiring (client-side only; Wave B persists it to workflows.json).
 let EDGES = []; let wiring = null; let eidc = 0;
+// Wave C trigger nodes (client-side; saved into an automation on "save auto").
+let TRIGGERS = []; let tidc = 0;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STC = { submitted:'var(--grey)', awaiting_approval:'var(--amber)', approved:'var(--blue)', running:'var(--blue)', completed:'var(--green)', failed:'var(--red)', rejected:'var(--red)' };
@@ -131,14 +139,31 @@ async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; awa
 // Wave B2: turn the wired draft (EDGES + the agents they touch) into a flow {nodes,edges}; save it / run it via the hub.
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
-  const nodes=[...ids].map(id=>{ const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
+  const nodes=[...ids].map(id=>{ const t=trig(id); if(t) return { id, kind:'trigger', trigger:{type:t.type, match:t.match, when:t.when}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
+    const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return alert('Wire nodes first: drag an out-port (right) onto an in-port (left).');
-  const name=prompt('Workflow name', f.nodes.map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
+  const name=prompt('Workflow name', f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
   const wf=await api('/api/workflows',{ name, nodes:f.nodes, edges:f.edges }); $('#conn').textContent='saved '+wf.id; refresh(); }
 async function runFlow(){ const f=buildFlow(); if(!f) return alert('Wire nodes first: drag an out-port (right) onto an in-port (left).');
   const input=prompt('Input for the entry node(s)','Target brief: Series A fintech VPs of Sales scaling outbound.'); if(input===null) return;
   await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input }); refresh(); }
+// --- Wave C: trigger nodes + automations ---
+function addTrigger(){ const id='trigger-'+(++tidc);
+  TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*30 });
+  render(); }
+function editTrigger(id){ const t=trig(id); if(!t) return;
+  const s=prompt('build_state match (JSON) — the event shape that fires this trigger', JSON.stringify(t.match||{})); if(s===null) return;
+  try{ t.match=JSON.parse(s); }catch{ return alert('invalid JSON'); } render(); }
+async function saveAutomation(){ const f=buildFlow();
+  const tn=f&&f.nodes.find(n=>n.kind==='trigger'); if(!tn) return alert('Add a ⚡ trigger (＋ trigger) and wire it into the chain first.');
+  if(!f.nodes.some(n=>n.kind==='agent')) return alert('Wire the trigger into at least one agent.');
+  const name=prompt('Automation name', 'auto-'+f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
+  const input=prompt('Default input for the entry node(s)','Target: design-partner ICP from the green build.'); if(input===null) return;
+  const m=await api('/api/automations',{ name, trigger:tn.trigger, input, nodes:f.nodes, edges:f.edges }); $('#conn').textContent='automation '+m.id; refresh(); }
+async function fireEvent(){ const s=prompt('Fire a build_state event (JSON) — runs every enabled automation it matches', '{"event":"review_completed","status":"green"}'); if(s===null) return;
+  let ev; try{ ev=JSON.parse(s); }catch{ return alert('invalid JSON'); }
+  const r=await api('/api/fire',{ event:ev }); $('#conn').textContent='fired '+(r.fired?.length||0)+' automation(s)'; refresh(); }
 
 function render(){
   renderSummary(); placeNodes(); renderNodes(); drawLinks(); renderList();
@@ -163,15 +188,7 @@ function renderNodes(){
   for(const a of state.agents){
     const nid='n_'+cssid(a.id); seen.add(nid);
     let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n);
-      // node-body drag = live reposition; release on another node = send handoff (preserved); release on empty = move.
-      n.addEventListener('pointerdown',e=>{
-        if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('[data-pol]'))return;
-        e.preventDefault(); const p=canvasPt(e); const o=POS[a.id]||{x:n.offsetLeft,y:n.offsetTop};
-        nodeDrag={ id:a.id, node:n, offX:p.x-o.x, offY:p.y-o.y, startX:o.x, startY:o.y, moved:false };
-        n.classList.add('dragging'); n.style.pointerEvents='none';
-      });
-    }
+    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNodeDrag(n,a.id); }
     n.style.left=POS[a.id].x+'px'; n.style.top=POS[a.id].y+'px';
     const mine=state.handoffs.filter(h=>h.to===a.id);
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
@@ -184,19 +201,43 @@ function renderNodes(){
       <span class="port in"  data-in="${esc(a.id)}"  data-t="${esc((a.accepts||['*']).join(', '))}"></span>
       <span class="port out" data-out="${esc(a.id)}" data-t="${esc((a.emits||['*']).join(', '))}"></span>`;
   }
+  for(const t of TRIGGERS){
+    const nid='n_'+cssid(t.id); seen.add(nid);
+    let n=document.getElementById(nid);
+    if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=t.id; canvas.appendChild(n); attachNodeDrag(n,t.id); }
+    if(!POS[t.id]) POS[t.id]={x:t.x||40,y:t.y||40};
+    n.style.left=POS[t.id].x+'px'; n.style.top=POS[t.id].y+'px';
+    const mt=t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
+    n.innerHTML=`<div class="name">⚡ trigger<span class="badge">${esc(t.type)}</span></div>
+      <div class="co">${t.type==='build_state'?esc(mt||'(click edit)'):t.type==='schedule'?esc(t.when||'cron'):'manual'}</div>
+      <div class="row"><span class="pill" data-edit="${esc(t.id)}">edit</span></div>
+      <span class="port out" data-out="${esc(t.id)}" data-t="*"></span>`;
+  }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-pol]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();togglePolicy(el.getAttribute('data-pol'));});
+  canvas.querySelectorAll('[data-edit]').forEach(el=>el.onclick=ev=>{ev.stopPropagation();editTrigger(el.getAttribute('data-edit'));});
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
-// ---- Wave A: typed port wiring (out→in), client-side flow draft ----
+// ---- Wave A/C: node model (agents + trigger nodes), typed port wiring (out→in) ----
 const ag = (id) => state.agents.find(a=>a.id===id);
+const trig = (id) => TRIGGERS.find(t=>t.id===id);
+const nodeOf = (id) => ag(id) || trig(id);
+function attachNodeDrag(n, id){    // node-body drag = live reposition; release on a node = send; release on empty = move
+  n.addEventListener('pointerdown',e=>{
+    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('[data-pol]')||e.target.closest('[data-edit]'))return;
+    e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
+    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, startX:o.x, startY:o.y, moved:false };
+    n.classList.add('dragging'); n.style.pointerEvents='none';
+  });
+}
 function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null;
   return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
-function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const e=ag(src)?.emits||['*'], a=ag(tgt)?.accepts||['*'];
-  return e.includes('*')||a.includes('*')||e.some(t=>a.includes(t)); }            // isValidConnection = type intersection
-function matchType(src,tgt){ const e=ag(src)?.emits||['*'], a=ag(tgt)?.accepts||['*'];
+function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const t=nodeOf(tgt); if(!t||t.kind==='trigger')return false; // can't wire INTO a trigger
+  const e=nodeOf(src)?.emits||['*'], a=t.accepts||['*'];
+  return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }            // isValidConnection = type intersection
+function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
   const common=e.find(t=>t!=='*'&&a.includes(t)); if(common)return common;
   if(a.includes('*')) return e.find(t=>t!=='*')||'*'; if(e.includes('*')) return a.find(t=>t!=='*')||'*'; return '*'; }
 function canvasPt(e){ const c=$('#canvas'), r=c.getBoundingClientRect(); return { x:e.clientX-r.left+c.scrollLeft, y:e.clientY-r.top+c.scrollTop }; }

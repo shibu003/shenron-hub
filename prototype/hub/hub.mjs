@@ -148,6 +148,8 @@ function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
 function runFlow({ id, nodes, edges, input }) {
   if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
+  const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));   // triggers are entry markers, not executable
+  if (trg.size) { nodes = nodes.filter((n) => !trg.has(n.id)); edges = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)); }
   const runId = randomUUID().slice(0, 8);
   const run = (state.runs[runId] = { id: runId, flowId: id || null, nodes, edges, input: input || '', outputs: {}, status: 'running', createdAt: now() });
   const entries = nodes.filter((n) => n.kind !== 'trigger' && !edges.some((e) => e.target === n.id));
@@ -180,6 +182,43 @@ function advanceFrom(run, nodeId) {
   save();
 }
 
+// ---------- automations (Wave C): trigger node + wired workflow; fire on manual / build_state event ----------
+// An automation = { trigger:{type:'manual'|'schedule'|'build_state', when?, match?}, workflow:<id>, input }.
+// "save as automation" splits the canvas: the trigger node's config + the agent chain saved as a workflow it refs.
+const AUTO_FILE = path.join(HERE, '..', 'mcp', 'automations.json');
+const readAutomations = () => { try { return JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')); } catch { return []; } };
+const deepMatch = (pat, val) => {                          // same semantics as mcp/server.mjs (shared trigger matching)
+  if (pat === null || typeof pat !== 'object') return pat === val;
+  if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
+  return val !== null && typeof val === 'object' && Object.entries(pat).every(([k, v]) => deepMatch(v, val[k]));
+};
+const triggerMatches = (trig, event) => !!trig && trig.type === 'build_state' && !!trig.match && deepMatch(trig.match, event);
+function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workflow, input, enabled }) {
+  if (!trigger || !trigger.type) throw new Error('trigger {type} required');
+  let workflowId = workflow;
+  if (Array.isArray(nodes) && Array.isArray(edges)) {      // save the wired agent chain (triggers stripped) as a workflow, ref it
+    const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));
+    const wf = saveWorkflow({ name: (name || 'automation') + ' flow', nodes: nodes.filter((n) => !trg.has(n.id)), edges: edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)) });
+    workflowId = wf.id;
+  }
+  if (!workflowId) throw new Error('workflow id (or nodes/edges) required');
+  id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'auto-' + randomUUID().slice(0, 4);
+  const m = { id, name: name || id, summary: summary || '', tags: tags || [], trigger, workflow: workflowId, input: input || '', enabled: enabled !== false };
+  const arr = readAutomations(); const i = arr.findIndex((a) => a.id === id);
+  if (i >= 0) arr[i] = m; else arr.push(m);
+  fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
+  return m;
+}
+function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
+  const matched = readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
+  const fired = [];
+  for (const m of matched) {
+    try { fired.push({ automation: m.id, ...runFlow({ id: m.workflow, input: input ?? m.input ?? '' }) }); }
+    catch (e) { fired.push({ automation: m.id, error: e.message }); }
+  }
+  return { event, matched: matched.map((m) => m.id), fired };
+}
+
 // ---------- HTTP ----------
 const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const server = http.createServer((req, res) => {
@@ -193,6 +232,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null })), runs: Object.values(state.runs).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length })) });
   if (req.method === 'GET' && p === '/api/workflows')
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
+  if (req.method === 'GET' && p === '/api/automations')
+    return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false })));
   if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }
 
   let body = ''; req.on('data', (c) => { body += c; if (body.length > 32 * 1024 * 1024) req.destroy(); });
@@ -203,6 +244,8 @@ const server = http.createServer((req, res) => {
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
+      if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
+      if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
       let m;
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : ref(postResult(m[1], j)));
