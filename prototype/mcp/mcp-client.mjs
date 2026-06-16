@@ -53,6 +53,7 @@ function callStdio(command, tool, args, { timeoutMs = 30000, cwd } = {}) {
       });
     }
     const notify = (method) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method }) + '\n');
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');   // string frames split on UTF-8 char boundaries (no multibyte corruption across chunks)
     child.on('error', (e) => finish(new Error(`MCP "${command}": ${e.message}`)));
     child.stderr.on('data', (d) => { errBuf += d; });
     child.on('close', (code) => { if (!settled) finish(new Error(`MCP "${command}" exited (${code}) ${errBuf.trim().slice(0, 200)}`)); });
