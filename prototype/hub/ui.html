@@ -254,6 +254,9 @@ const I18N = {
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
+  insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
+  edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
+  edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
   f_event:{ja:'build-state event',en:'build-state event'}, trig_custom:{ja:'— カスタム（JSON）',en:'— custom (JSON)'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
@@ -311,7 +314,7 @@ const COMP = {                                       // minimal component librar
   consensus: { label:'Consensus', icon:'⚖️', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
   output: { label:'Chat Output', icon:'📤', accepts:['*'], emits:[],           fields:[] },
 };
-const HIDDEN = new Set(); let selected = null, nodeDrag = null, filter = null;
+const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STC = { submitted:'var(--grey)', awaiting_approval:'var(--amber)', approved:'var(--blue)', running:'var(--blue)', completed:'var(--green)', failed:'var(--red)', rejected:'var(--red)' };
@@ -494,8 +497,10 @@ function attachNode(n, id){
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false };
   });
 }
-function selectNode(id){ selected=id; render(); }
-function deselect(){ if(selected){ selected=null; render(); } }
+function selectNode(id){ selected=id; selEdge=null; render(); }
+function selectEdge(id){ selEdge=id; selected=null; render(); }
+function deselect(){ if(selected||selEdge){ selected=null; selEdge=null; render(); } }
+const edgeOf = (id) => EDGES.find(e=>e.id===id);
 $('#canvas').addEventListener('pointerdown', e=>{ if(e.target.id==='canvas'||e.target.tagName==='svg'||e.target.tagName==='g') deselect(); });
 
 /* ---------- wiring ---------- */
@@ -547,21 +552,24 @@ document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
 function drawLinks(){
   const fe = EDGES.map(e=>{ const a=portPos(e.source,'out'), b=portPos(e.target,'in'); if(!a||!b)return '';
-    const d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, esc(e.type).length*6+10), col=typeColor(e.type);
-    return `<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
-      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${esc(e.type)}</text>`;
+    const fenced=!!(e.share&&((e.share.never||[]).length));                       // Wave A: this wire has a data-firewall policy
+    const lbl=(fenced?'🔒 ':'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':typeColor(e.type);
+    const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
+    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
     const c=STC[h.status]||'var(--grey)'; const mx=(a.x+b.x)/2; const flow=FLOW.has(h.status);
     return `<path class="${flow?'flow':''}" d="M${a.x},${a.y} Q${mx},${a.y} ${mx},${(a.y+b.y)/2} T${b.x},${b.y}" fill="none" stroke="${c}" stroke-width="2" opacity="${h.status==='completed'?0.4:0.9}"/><circle cx="${b.x}" cy="${b.y}" r="3.5" fill="${c}"/>`;
   }).join('');
   $('#staticlinks').innerHTML = fe + he;
-  $('#staticlinks').querySelectorAll('.hit').forEach(el=> el.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==el.dataset.edge); drawLinks(); });
+  $('#staticlinks').querySelectorAll('.hit').forEach(el=> el.onclick=()=> selectEdge(el.dataset.edge));   // Wave A: edge click → firewall editor (delete moved into the inspector)
 }
 
 /* ---------- inspector ---------- */
 function renderInspector(){
-  const ins=$('#inspector'); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected);
+  const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected);
+  if(ed) return void (ins.innerHTML = inspEdge(ed), bindEdge(ed));
   if(a) return void (ins.innerHTML = inspAgent(a), bindAgent(a));
   if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
   if(mn) return void (ins.innerHTML = inspMcp(mn), bindMcp(mn));
@@ -598,6 +606,26 @@ function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
   b.onclick=async()=>{ const caps=[...$('#inspector').querySelectorAll('[data-cap]')].filter(x=>x.checked).map(x=>x.dataset.cap);
     const never=($('#ppNever').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
     await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }; }
+// Wave A — per-edge Data Firewall editor. The wire's `share.never` strips extra strings on THIS edge only;
+// secrets/PII are stripped on every edge regardless. Cross-company edges (source/target differ in company)
+// are deny-by-default (firewall mandatory). Lives client-side in the flow draft; saved with the flow.
+const companyClient = (id) => { const a=(state.agents||[]).find(x=>x.id===id); return a?(a.company||null):null; };
+function inspEdge(e){
+  const sc=companyClient(e.source), tc=companyClient(e.target), cross=!!sc&&!!tc&&sc!==tc;
+  const never=((e.share&&e.share.never)||[]).join('\n');
+  return `<div class="ins-h">${t('insp_edge')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="helpbox"><b>${t('edge_help')}</b></div>
+    <div class="field"><label>${t('edge_wire')}</label><div class="v">${esc(e.source)} <b>→</b> ${esc(e.target)}</div></div>
+    ${cross?`<div class="field"><div style="color:var(--amber);font-size:12px">⚠ ${t('edge_cross')}${sc?` · ${esc(sc)}→${esc(tc)}`:''}</div></div>`:''}
+    <div class="field"><label>${t('edge_never')}</label><textarea class="match" id="edNever" placeholder="${t('h_never_ph')}">${esc(never)}</textarea></div>
+    <button class="ibtn" id="edSave">${t('edge_apply')}</button>
+    <button class="ibtn danger" id="edDel">${t('edge_del')}</button>`;
+}
+function bindEdge(e){
+  const s=$('#edSave'); if(s) s.onclick=()=>{ const never=($('#edNever').value||'').split('\n').map(x=>x.trim()).filter(Boolean);
+    e.share = never.length ? { ...(e.share||{}), never } : undefined; toast(t('edge_saved')); drawLinks(); };
+  const d=$('#edDel'); if(d) d.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==e.id); deselect(); };
+}
 function inspTrigger(tr){
   return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('trigger_help')}</b><div class="mini">${t('trig_hint')}</div></div>
@@ -684,7 +712,7 @@ function auditPanel(){
   return `<div class="ins-h" style="margin-top:16px">🔒 ${t('aud_head')}<span class="aud-v ${ok?'ok':'bad'}">${ok?t('aud_ok'):t('aud_bad')} · ${ents.length}</span></div>${rows}`;
 }
 function auditDetail(e){
-  if(e.type==='redact') return `${e.egress?'→ ':''}${e.to||''}: ${(e.removed||[]).map(r=>r.label+'×'+r.count).join(', ')}`;
+  if(e.type==='redact') return `${e.egress?'→ ':''}${e.edge?'⟜'+e.edge+' ':''}${e.crossCompany?'⚠x-co ':''}${e.to||''}: ${(e.removed||[]).map(r=>r.label+'×'+r.count).join(', ')}`;
   if(e.type==='deny') return `${e.from||''} → ${e.to||''} — ${e.why||''}`;
   if(e.type==='send') return `${e.server||''}.${e.tool||''}${e.redacted?` (redacted ${e.redacted})`:''}`;
   if(e.type==='approve') return `${e.to||''} · ${e.skill||''}`;
@@ -761,7 +789,7 @@ function buildFlow(){ if(!EDGES.length) return null;
     const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const cn=comp(id); if(cn) return { id, kind:cn.kind, config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
-  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
+  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target, ...(e.share&&(e.share.never||[]).length?{share:{never:e.share.never}}:{}) })) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
@@ -858,7 +886,7 @@ function loadFlow(flow){                          // materialize a generated/sav
     else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
     else if(COMP[n.kind]){ const m=COMP[n.kind]; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config:n.config||{} }); }
   }
-  EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target) }));
+  EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}) }));
   deselect(); render();
 }
 function showAgentDraft(d){

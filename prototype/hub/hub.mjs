@@ -293,12 +293,26 @@ function advanceRun(h) {
   if (!(h.node in run.outputs)) run.outputs[h.node] = h.error ? `[error] ${h.error}` : (h.result || '');
   advanceFrom(run, h.node);
 }
+// Wave A — per-edge Data Firewall: the productized granularity over the per-agent firewall in create().
+// Each EDGE may carry share.never (extra strings to strip on THIS wire); the built-in secret/PII firewall
+// ALWAYS runs and cannot be disabled. A cross-company edge (source/target agents differ in `company`) is
+// deny-by-default: the firewall is mandatory there (the pass-allowlist for structured payloads is a future
+// refinement — see docs/11 §2.6 #2). Every removal lands in the tamper-evident audit, tagged with the edge.
+const companyOf = (run, nodeId) => { const n = nodeById(run, nodeId); const a = n && n.agent && state.agents[n.agent]; return a ? (a.company || null) : null; };
+function fenceEdge(run, edge, value) {
+  const never = (edge && edge.share && Array.isArray(edge.share.never)) ? edge.share.never : [];
+  const sc = companyOf(run, edge.source), tc = companyOf(run, edge.target);
+  const cross = !!sc && !!tc && sc !== tc;
+  const fw = redact(value, { never });
+  if (fw.removed.length) trail('redact', { runId: run.id, edge: edge.id || `${edge.source}→${edge.target}`, from: edge.source, to: edge.target, crossCompany: cross || undefined, removed: fw.removed });
+  return fw.text;
+}
 function advanceFrom(run, nodeId) {
   for (const e of run.edges.filter((e) => e.source === nodeId)) {
     const tgt = nodeById(run, e.target); if (!tgt || tgt.id in run.outputs) continue;
     const incoming = run.edges.filter((x) => x.target === tgt.id);
     if (incoming.every((x) => x.source in run.outputs) && !state.handoffs.some((x) => x.runId === run.id && x.node === tgt.id)) {
-      fireNode(run, tgt, incoming.map((x) => run.outputs[x.source]).filter(Boolean).join('\n\n'));
+      fireNode(run, tgt, incoming.map((x) => fenceEdge(run, x, run.outputs[x.source])).filter(Boolean).join('\n\n'));
     }
   }
   if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => n.id in run.outputs)) { run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); }
@@ -400,7 +414,7 @@ function validateFlow(nodes, edges) {
     if (!s || !t) { warnings.push(`dropped ${e.source}→${e.target} (missing node)`); continue; }
     const so = portsOf(s), to = portsOf(t);
     if (!so.emits.length || !to.accepts.length || !portIntersect(so.emits, to.accepts)) { warnings.push(`dropped ${e.source}→${e.target} (port mismatch)`); continue; }
-    kept.push({ id: e.id || 'e' + kept.length, source: e.source, target: e.target });
+    kept.push({ id: e.id || 'e' + kept.length, source: e.source, target: e.target, ...(e.share ? { share: e.share } : {}) });
   }
   return { edges: kept, warnings };
 }
