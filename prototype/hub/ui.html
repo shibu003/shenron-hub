@@ -95,7 +95,7 @@
   .node .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; padding:0 12px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { width:188px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
-  .node.mcp { width:200px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
+  .node.mcp { width:240px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
   .node.comp { width:244px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
   /* in-node settings — edit a component's fields directly on the card (Langflow-style) */
   .nbody { padding:8px 11px 2px; display:grid; gap:7px; }
@@ -521,6 +521,11 @@ const COMP = {                                       // minimal component librar
   prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
   consensus: { label:'Consensus', icon:'⚖️', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
   output: { label:'Chat Output', icon:'📤', accepts:['*'], emits:[],           fields:[] },
+  languagemodel: { label:'Language Model', icon:'🧠', accepts:['*'], emits:['text','*'], fields:[   // Langflow LM: system + input → vendor (in-process)
+    { key:'model', label:'model', type:'select', options:['claude','codex','gemini','stub'], value:'claude' }, { key:'system', label:'system message', type:'textarea' } ] },
+  structured: { label:'Structured Output', icon:'🧷', accepts:['*'], emits:['json','*'], fields:[   // Langflow structured-output: ask the LLM for JSON
+    { key:'schema', label:'fields (comma-sep)', value:'' }, { key:'instructions', label:'instructions', type:'textarea' } ] },
+  parser: { label:'Parser', icon:'🔧', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM)
   router: { label:'Trust Router', icon:'🔀', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
@@ -744,10 +749,16 @@ function renderNodes(){
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy);
+    if(n.contains(document.activeElement)) continue;   // in-node editing: don't rebuild while a field here is focused (would kill the caret)
     const mset=!!(mn.server&&mn.tool);
+    const tools=(INTEGRATIONS||[]).filter(it=>it.enabled!==false).flatMap(it=>(it.tools||[]).map(x=>({server:it.id,name:x.name})));
+    const cur=mset?`${mn.server}::${mn.tool}`:'';
+    const toolSel=`<select class="nf nkind" data-mcpnf="${esc(mn.id)}" data-mcpsel="1">${mset?'':`<option value="" selected>${esc(t('mcp_tool_none'))}</option>`}${tools.map(x=>`<option value="${esc(x.server+'::'+x.name)}" ${cur===x.server+'::'+x.name?'selected':''}>🔌 ${esc(x.name)} · ${esc(x.server)}</option>`).join('')}</select>${tools.length?'':`<div class="nflabel" style="color:var(--amber)">${t('mcp_no_tools')}</div>`}`;
+    const body=mset
+      ? `${toolSel}<label class="nfbool"><input type="checkbox" class="nf" data-mcpnf="${esc(mn.id)}" data-mcpauto="1" ${mn.auto?'checked':''}> ${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}</label><div class="nfrow"><label class="nflabel">${t('f_args')}</label><textarea class="nf" data-mcpnf="${esc(mn.id)}" data-mcpargs="1" rows="2">${esc(JSON.stringify(mn.config||{}))}</textarea></div>${awaiting?`<div class="nflabel" style="color:var(--amber)">⏳ awaiting approval</div>`:busy?`<div class="nflabel" style="color:var(--blue)">▶ running</div>`:''}`
+      : toolSel;
     n.innerHTML=`<div class="name">🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co">${mset?esc(mn.server)+' · MCP':`<span style="color:var(--amber)">${t('mcp_pick_tool')}</span>`}</div>`
-      +`<div class="pol ${mn.auto?'auto':''}">${mn.auto?'⚡ auto':'✋ approval'}${awaiting?' · ⏳ awaiting':busy?' · ▶ running':''}</div>`
+      +`<div class="nbody">${body}</div>`
       +`${portHtml('in',mn.id,(mn.accepts||[])[0])}${portHtml('out',mn.id,(mn.emits||[])[0])}`;
   }
   for(const c of COMPONENTS){
@@ -1554,7 +1565,12 @@ document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu
 // in-node settings: live-bind inline field widgets → component config. Text 'input' updates config WITHOUT a
 // re-render (the focused element survives); selects/checkboxes commit on 'change' (kind switch / sub-flow ref / bool).
 document.addEventListener('input', e=>{ const el=e.target; if(!el.matches||!el.matches('.nf[data-fk]')||el.tagName==='SELECT')return; const c=comp(el.dataset.nf); if(c) c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; });
-document.addEventListener('change', e=>{ const el=e.target; if(!el.matches||!el.matches('.nf[data-nf]'))return; const c=comp(el.dataset.nf); if(!c)return;
+document.addEventListener('change', e=>{ const el=e.target; if(!el.matches)return;
+  if(el.matches('.nf[data-mcpnf]')){ const m=mcpn(el.dataset.mcpnf); if(!m)return;             // MCP action in-node settings (tool / auto / args)
+    if(el.dataset.mcpsel) return setMcpTool(m, el.value);
+    if(el.dataset.mcpauto){ m.auto=el.checked; return render(); }
+    if(el.dataset.mcpargs){ try{ m.config=JSON.parse(el.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } return; } return; }
+  if(!el.matches('.nf[data-nf]'))return; const c=comp(el.dataset.nf); if(!c)return;
   if(el.dataset.kindsel){ return setCompKind(c, el.value); }                                   // inline kind selector → specialize the node
   c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; if(el.dataset.rerender||el.type==='checkbox') render(); });
 document.addEventListener('keydown', e=>{

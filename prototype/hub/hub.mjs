@@ -34,6 +34,7 @@ const UI_FILE = path.join(HERE, 'ui.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
+const parseFmt = (p, inp) => String(p || '{input}').split('{input}').join(inp || '');   // Parser node: substitute {input} (pure string transform)
 const WF_FILE = path.join(HERE, '..', 'mcp', 'workflows.json');   // shared workflow store (nodes/edges canonical + steps[] shim)
 let state = load();
 state.runs ||= {};                          // runId -> { nodes, edges, outputs, status } for in-flight DAG runs
@@ -216,6 +217,9 @@ function fireNode(run, node, input) {
   if (node.kind === 'router') return fireRouterNode(run, node, input, from);   // Wave E2: trust-router — fire only the chosen branch
   if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
   if (node.kind === 'workflow') return fireWorkflowNode(run, node, input, from);   // 📦 sub-flow: run the referenced flow as a nested run
+  if (node.kind === 'parser') { run.outputs[node.id] = parseFmt((node.config && node.config.pattern) || '{input}', input); save(); return advanceFrom(run, node.id); }   // Langflow-style Parser: pure string format (no LLM)
+  if (node.kind === 'languagemodel') return firePromptNode(run, { ...node, config: { template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from);   // = prompt + system preamble (in-process vendor)
+  if (node.kind === 'structured') return firePromptNode(run, { ...node, config: { template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from);   // structured-output ≈ prompt asking for JSON
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id; save();
 }
