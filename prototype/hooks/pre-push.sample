@@ -3,7 +3,8 @@
 # Install into the repo you push FROM:  cp this to .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 # Requires env: A2A_SHARED_TOKEN, B_URL (friend's tunnel URL). Adjust SEND path.
 
-SEND="$HOME/GioGio/prototype/send.mjs"
+# Point BUILDHUD_SEND at your send.mjs (default below works only for the canonical checkout).
+SEND="${BUILDHUD_SEND:-$HOME/GioGio/prototype/send.mjs}"
 branch=$(git rev-parse --abbrev-ref HEAD)
 
 # Non-blocking: don't fail the push if the handoff errors (review is advisory).

@@ -48,7 +48,8 @@ A2A_SHARED_TOKEN=<shared> B_URL=https://xxxx.trycloudflare.com node prototype/se
 
 ## Fence (do NOT add here — `docs/07 §5`)
 real auth (OBO/DPoP) · multi-tenant · billing · arbitrary connections · unattended chains · auto-merge · multiple skills.
-The reviewer **returns a review only — never writes/merges**.
+The reviewer **returns a review (or a `REJECTED` decline) — never writes/merges**.
+A shared token is **required**: set `A2A_SHARED_TOKEN`, or pass `--dev` to both server.mjs and send.mjs for the insecure `dev-token` (localhost only).
 
 ## Success = `docs/07 §6`
 friend+repo+task named · a real A2A round-trip happened · both say "again" · `handoff.log` has the trace.

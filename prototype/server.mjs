@@ -28,8 +28,16 @@ const REVIEWER = cfg.reviewer || 'stub';            // 'stub' | 'codex' | 'claud
 const AUTO_APPROVE = !!cfg.autoApprove;             // testing only — bypasses the attended gate
 const AUDIT_LOG = path.join(process.cwd(), 'prototype', 'handoff.log');
 
-const TOKEN = process.env.A2A_SHARED_TOKEN || 'dev-token';
-if (!process.env.A2A_SHARED_TOKEN) console.warn('⚠ A2A_SHARED_TOKEN unset — using insecure "dev-token" (smoke test only)');
+// Trust gate: require a shared token. Refuse to start without one unless --dev (Codex review #1).
+const DEV = process.argv.includes('--dev');
+const TOKEN = process.env.A2A_SHARED_TOKEN || (DEV ? 'dev-token' : null);
+if (!TOKEN) {
+  console.error('✗ A2A_SHARED_TOKEN is required.');
+  console.error('  export A2A_SHARED_TOKEN=$(openssl rand -hex 16)   # recommended');
+  console.error('  …or pass --dev to use the insecure "dev-token" (localhost smoke test only).');
+  process.exit(1);
+}
+if (DEV && !process.env.A2A_SHARED_TOKEN) console.warn('⚠ --dev: insecure "dev-token" — localhost smoke only, never tunnel this');
 if (AUTO_APPROVE) console.warn('⚠ autoApprove=true — attended gate BYPASSED (testing only)');
 
 // ---------- Agent Card (A2A-shaped) ----------

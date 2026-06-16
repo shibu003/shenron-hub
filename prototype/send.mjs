@@ -13,19 +13,23 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 const B_URL = (process.env.B_URL || 'http://localhost:8787').replace(/\/$/, '');
-const TOKEN = process.env.A2A_SHARED_TOKEN || 'dev-token';
+// Trust gate: require a shared token unless --dev (Codex review #1).
+const DEV = process.argv.includes('--dev');
+const TOKEN = process.env.A2A_SHARED_TOKEN || (DEV ? 'dev-token' : null);
+if (!TOKEN) { console.error('✗ A2A_SHARED_TOKEN required (or pass --dev for the insecure dev-token).'); process.exit(1); }
 const MAX_DIFF = 200 * 1024;   // cap payload (docs/04 R4: minimize; real product sends a ref, not the body)
 
 const git = (args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const pos = process.argv.slice(2).filter((a) => !a.startsWith('--'));   // positionals, ignoring flags like --dev
 const cur = git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout?.trim() || 'HEAD';
-const branch = process.argv[2] || cur;
+const branch = pos[0] || cur;
 
 // pick a base that exists
 function firstExistingRef(cands) {
   for (const r of cands) if (git(['rev-parse', '--verify', '--quiet', r]).status === 0) return r;
   return 'HEAD~1';
 }
-const base = process.argv[3] || firstExistingRef(['origin/main', 'origin/master', 'main', 'master', 'HEAD~1']);
+const base = pos[1] || firstExistingRef(['origin/main', 'origin/master', 'main', 'master', 'HEAD~1']);
 
 // repo name: from origin url, else cwd basename
 function repoName() {
