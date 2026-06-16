@@ -8,17 +8,22 @@
 //
 //   node prototype/hub/hub.mjs [--port 8790]
 //
-// Brokers ONLY — it never runs skills. The recipient's worker (worker.mjs) polls, runs, posts the result.
-// Per-agent policy: "approval" (human gate) | "auto" (run on poll, automation-like) | autoFrom allowlist.
+// Execution: for LOCAL agents (config in prototype/agents/*.json) the hub runs the skill IN-PROCESS itself
+// (no worker.mjs needed — see the executor section below). For REMOTE/cross-company agents it stays a pure
+// broker: the durable inbox holds the handoff until the agent's own worker.mjs polls, runs, and posts back.
+// Per-agent policy: "approval" (human gate) | "auto" (run automatically) | autoFrom allowlist.
+//   --vendor <stub|codex|claude>  forces the vendor for local in-process execution (default: each agent's own).
 
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { runVendorAsync } from '../runner.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : 8795; })();
+const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 const STATE_FILE = path.join(HERE, 'inbox.json');
 const UI_FILE = path.join(HERE, 'ui.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
@@ -34,7 +39,7 @@ const online = (a) => now() - (a.lastSeen || 0) < ONLINE_MS;
 const isAuto = (a, from) => a.policy === 'auto' || (a.autoFrom || []).includes(from);
 const find = (id) => { const h = state.handoffs.find((x) => x.id === id); if (!h) throw new Error(`no handoff "${id}"`); return h; };
 const touch = (h, status, by) => { h.status = status; h.updatedAt = now(); (h.history ||= []).push({ ts: now(), status, by }); };
-const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'] }));
+const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a) || !!a.local, lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'], local: !!a.local }));
 const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status, createdAt: h.createdAt, updatedAt: h.updatedAt });
 
 // pre-register known agents (prototype/agents/*.json) so the canvas has nodes to drag between
@@ -42,7 +47,8 @@ const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: 
   try {
     const dir = path.join(HERE, '..', 'agents');
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
-      try { const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (c.name && c.skill) { const a = agent(c.name); a.skill = c.skill.id; a.company = c.company || null; a.accepts = c.skill.accepts || ['*']; a.emits = c.skill.emits || ['*']; } } catch {}
+      try { const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (c.name && c.skill) { const a = agent(c.name); a.skill = c.skill.id; a.company = c.company || null; a.accepts = c.skill.accepts || ['*']; a.emits = c.skill.emits || ['*'];
+        a.local = { skillId: c.skill.id, vendor: c.skill.vendor || 'stub', systemPrompt: c.skill.systemPrompt || '', stub: c.skill.stub || '' }; } } catch {}   // hub has the config → it can RUN this agent in-process (no worker.mjs)
     }
     save();
   } catch {}
@@ -56,11 +62,13 @@ function create({ from, to, skill, input }) {
     result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [] };
   touch(h, 'submitted', from || '?');
   state.handoffs.push(h); save();
+  schedule(h);                              // local agent → hub runs it in-process; remote → waits in durable inbox
   return h;
 }
 // recipient comes online: heartbeat + advance its submitted handoffs by policy, return the ones to run now
 function poll(agentId) {
   const a = agent(agentId); a.lastSeen = now();
+  if (a.local) { save(); return []; }       // local agents are run by the hub itself — poll is heartbeat-only (no double-run)
   for (const h of state.handoffs)
     if (h.to === agentId && h.status === 'submitted') touch(h, isAuto(a, h.from) ? 'approved' : 'awaiting_approval', isAuto(a, h.from) ? 'auto' : 'policy');
   const runnable = state.handoffs.filter((h) => h.to === agentId && h.status === 'approved');
@@ -68,13 +76,44 @@ function poll(agentId) {
   save();
   return runnable;                          // full handoffs (worker needs .input)
 }
-function postResult(id, { result, error }) {
+function postResult(id, { result, error }, by = 'worker') {
   const h = find(id); h.result = result ?? null; h.error = error ?? null;
-  touch(h, error ? 'failed' : 'completed', 'worker'); save(); return h;
+  touch(h, error ? 'failed' : 'completed', by); save(); return h;
 }
-function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); save(); return h; }
+function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); save(); schedule(h); return h; }
 function decline(id) { const h = find(id); touch(h, 'rejected', 'human'); save(); return h; }
 function setPolicy(id, { policy, autoFrom }) { const a = agent(id); if (policy) a.policy = policy === 'auto' ? 'auto' : 'approval'; if (Array.isArray(autoFrom)) a.autoFrom = autoFrom; save(); return { id: a.id, policy: a.policy, autoFrom: a.autoFrom, online: online(a) }; }
+
+// ---------- in-process executor (LOCAL agents only: the hub runs the skill itself, no worker.mjs) ----------
+// This deliberately revises the "broker never runs skills" stance for LOCAL agents (config present in
+// prototype/agents/*.json): they have no separate runtime, so the hub embeds one. REMOTE/cross-company
+// agents are still broker-only — their runtime is theirs (A2A); the durable inbox holds until they poll.
+const running = new Set();                   // handoff ids executing in-process right now (de-dupe guard)
+function schedule(h) {
+  const a = agent(h.to);
+  if (!a.local) return;                      // remote → durable inbox; their worker/server runs it
+  if (h.status === 'submitted') { touch(h, isAuto(a, h.from) ? 'approved' : 'awaiting_approval', isAuto(a, h.from) ? 'auto' : 'policy'); save(); }
+  if (h.status === 'approved') runLocal(h);
+}
+function runLocal(h) {
+  if (running.has(h.id)) return; running.add(h.id);
+  const lc = agent(h.to).local; const vendor = EXEC_VENDOR || lc.vendor || 'stub';
+  if (h.skill !== lc.skillId) { running.delete(h.id); return void postResult(h.id, { error: `agent ${h.to} does not serve skill "${h.skill}"` }); }
+  touch(h, 'running', 'hub'); save();
+  console.log(`▶ [hub] running ${h.id} (${h.skill}) for ${h.to} — ${vendor}`);
+  runVendorAsync(vendor, `${lc.systemPrompt}\n\n--- INPUT ---\n${h.input}\n--- END INPUT ---`, lc.stub)
+    .then((result) => postResult(h.id, { result }, 'hub'))
+    .catch((e) => postResult(h.id, { error: e.message }, 'hub'))
+    .finally(() => { running.delete(h.id); console.log(`✓ [hub] ${h.id} done`); });
+}
+// crash recovery: on boot, resume local handoffs left mid-flight (running) or unprocessed (submitted/approved)
+(function sweep() {
+  for (const h of state.handoffs) {
+    const a = state.agents[h.to]; if (!a || !a.local) continue;
+    if (h.status === 'submitted' || h.status === 'approved') schedule(h);
+    else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run
+  }
+})();
 
 // ---------- HTTP ----------
 const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
