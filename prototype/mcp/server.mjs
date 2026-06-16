@@ -42,6 +42,13 @@ let AGENTS = loadAgents();
 let WORKFLOWS = loadJson('workflows.json', []);
 let AUTOMATIONS = loadJson('automations.json', []);
 log(`indexed ${Object.keys(AGENTS).length} agents, ${WORKFLOWS.length} workflows, ${AUTOMATIONS.length} automations${UNATTENDED ? ' [UNATTENDED]' : ''}`);
+// fire_event does FLAT primitive equality on trigger.match — warn loudly if an author wrote a non-primitive
+// value (object/array), which would silently never fire instead of erroring (Claude #9 / Codex #3).
+for (const m of AUTOMATIONS) {
+  const match = m.trigger?.type === 'build_state' ? m.trigger.match || {} : null;
+  if (match) for (const [k, v] of Object.entries(match))
+    if (v !== null && typeof v === 'object') log(`⚠ automation "${m.id}": trigger.match.${k} is non-primitive — fire_event only flat-=== matches, so this will NEVER fire`);
+}
 
 // keyword scorer (MVP; swap for embeddings later) + one generic searcher over any index
 function score(text, query) {
@@ -65,7 +72,8 @@ const searchAutomations = (q, limit) => searchIndex(AUTOMATIONS,
   (m) => `${m.name} ${m.summary} ${(m.tags || []).join(' ')} ${m.trigger?.type || ''} ${m.workflow}`,
   (m) => ({ id: m.id, name: m.name, summary: m.summary, trigger: m.trigger?.type, workflow: m.workflow, enabled: m.enabled !== false, tags: m.tags }), q, limit);
 
-// build_state trigger fires when every key in trigger.match equals the incoming event's value (no eval, subset-match)
+// build_state trigger fires when every key in trigger.match flat-=== the event's value (no eval, subset-match).
+// MVP limitation (warned at load): primitive values only — nested object/array match values never fire.
 const triggerMatches = (trig, event) =>
   !!trig && trig.type === 'build_state' && !!trig.match && Object.entries(trig.match).every(([k, v]) => event?.[k] === v);
 
