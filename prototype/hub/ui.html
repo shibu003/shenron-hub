@@ -87,6 +87,8 @@
   <div id="add">
     <input id="addName" placeholder="new agent id…" onkeydown="if(event.key==='Enter')addAgent()">
     <button class="btn" onclick="addAgent()">＋ agent</button>
+    <button class="btn" onclick="saveFlow()" title="Save the wired graph as a workflow">💾 save</button>
+    <button class="btn" onclick="runFlow()" title="Run the wired graph topologically">▶ run</button>
     <span id="conn">connecting…</span>
   </div>
 </header>
@@ -126,6 +128,17 @@ async function refresh() {
 }
 function setFilter(f){ filter = (filter===f)?null:f; render(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; refresh(); }
+// Wave B2: turn the wired draft (EDGES + the agents they touch) into a flow {nodes,edges}; save it / run it via the hub.
+function buildFlow(){ if(!EDGES.length) return null;
+  const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
+  const nodes=[...ids].map(id=>{ const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
+  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target })) }; }
+async function saveFlow(){ const f=buildFlow(); if(!f) return alert('Wire nodes first: drag an out-port (right) onto an in-port (left).');
+  const name=prompt('Workflow name', f.nodes.map(n=>n.id.split('-')[0]).join('→')); if(!name) return;
+  const wf=await api('/api/workflows',{ name, nodes:f.nodes, edges:f.edges }); $('#conn').textContent='saved '+wf.id; refresh(); }
+async function runFlow(){ const f=buildFlow(); if(!f) return alert('Wire nodes first: drag an out-port (right) onto an in-port (left).');
+  const input=prompt('Input for the entry node(s)','Target brief: Series A fintech VPs of Sales scaling outbound.'); if(input===null) return;
+  await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input }); refresh(); }
 
 function render(){
   renderSummary(); placeNodes(); renderNodes(); drawLinks(); renderList();

@@ -29,7 +29,9 @@ const UI_FILE = path.join(HERE, 'ui.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
+const WF_FILE = path.join(HERE, '..', 'mcp', 'workflows.json');   // shared workflow store (nodes/edges canonical + steps[] shim)
 let state = load();
+state.runs ||= {};                          // runId -> { nodes, edges, outputs, status } for in-flight DAG runs
 function load() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { handoffs: [], agents: {} }; } }
 function save() { try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch (e) { console.error('[hub] save failed', e.message); } }
 
@@ -78,7 +80,9 @@ function poll(agentId) {
 }
 function postResult(id, { result, error }, by = 'worker') {
   const h = find(id); h.result = result ?? null; h.error = error ?? null;
-  touch(h, error ? 'failed' : 'completed', by); save(); return h;
+  touch(h, error ? 'failed' : 'completed', by); save();
+  if (h.runId) advanceRun(h);               // this node is part of a DAG run → fire ready downstream nodes
+  return h;
 }
 function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); save(); schedule(h); return h; }
 function decline(id) { const h = find(id); touch(h, 'rejected', 'human'); save(); return h; }
@@ -111,9 +115,70 @@ function runLocal(h) {
   for (const h of state.handoffs) {
     const a = state.agents[h.to]; if (!a || !a.local) continue;
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
-    else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run
+    else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
   }
 })();
+
+// ---------- flow engine (Wave B2): save a wired DAG, run it topologically via the executor above ----------
+// Save shape = nodes/edges CANONICAL (Langflow-style); steps[] is a derived linear shim so the existing
+// MCP run_workflow / run_automation (a2aSend) stay compatible. Execution is REACTIVE: each node is a handoff
+// (run by B1 for local agents), and when it completes, downstream nodes whose inputs are all ready fire next
+// — so per-agent approval pauses the run cleanly until approved, and the cockpit animates it via handoff edges.
+const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, 'utf8')); } catch { return []; } };
+const nodeById = (run, id) => run.nodes.find((n) => n.id === id);
+function toposort(nodes, edges) {                          // Kahn's; returns best-effort order (cycle → partial)
+  const indeg = new Map(nodes.map((n) => [n.id, 0]));
+  for (const e of edges) if (indeg.has(e.target)) indeg.set(e.target, indeg.get(e.target) + 1);
+  const q = nodes.filter((n) => indeg.get(n.id) === 0), order = [];
+  while (q.length) { const n = q.shift(); order.push(n);
+    for (const e of edges.filter((e) => e.source === n.id)) { const d = indeg.get(e.target) - 1; indeg.set(e.target, d);
+      if (d === 0) { const t = nodes.find((x) => x.id === e.target); if (t) q.push(t); } } }
+  return order;
+}
+function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
+  id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'flow-' + randomUUID().slice(0, 4);
+  const steps = toposort(nodes, edges).filter((n) => n.agent && n.skill).map((n) => ({ agent: n.agent, skill: n.skill })); // derived shim
+  const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, steps };
+  const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
+  if (i >= 0) arr[i] = wf; else arr.push(wf);
+  fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+  return wf;
+}
+function runFlow({ id, nodes, edges, input }) {
+  if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
+  const runId = randomUUID().slice(0, 8);
+  const run = (state.runs[runId] = { id: runId, flowId: id || null, nodes, edges, input: input || '', outputs: {}, status: 'running', createdAt: now() });
+  const entries = nodes.filter((n) => n.kind !== 'trigger' && !edges.some((e) => e.target === n.id));
+  if (!entries.length) throw new Error('flow has no entry node (every node has an incoming edge — cycle?)');
+  save();
+  for (const n of entries) fireNode(run, n, input || '');
+  return { runId: run.id, status: run.status, entries: entries.map((n) => n.id) };
+}
+function fireNode(run, node, input) {
+  if (node.kind === 'mcp') { run.outputs[node.id] = `[mcp "${node.tool || '?'}" — executed in Wave G]`; save(); return advanceFrom(run, node.id); } // placeholder until Wave G
+  const inc = run.edges.filter((e) => e.target === node.id);
+  const from = inc[0] ? (nodeById(run, inc[0].source)?.agent || inc[0].source) : (run.flowId || 'flow');
+  const h = create({ from, to: node.agent, skill: node.skill, input });
+  h.runId = run.id; h.node = node.id; save();
+}
+function advanceRun(h) {
+  const run = state.runs[h.runId]; if (!run) return;
+  if (!(h.node in run.outputs)) run.outputs[h.node] = h.error ? `[error] ${h.error}` : (h.result || '');
+  advanceFrom(run, h.node);
+}
+function advanceFrom(run, nodeId) {
+  for (const e of run.edges.filter((e) => e.source === nodeId)) {
+    const tgt = nodeById(run, e.target); if (!tgt || tgt.id in run.outputs) continue;
+    const incoming = run.edges.filter((x) => x.target === tgt.id);
+    if (incoming.every((x) => x.source in run.outputs) && !state.handoffs.some((x) => x.runId === run.id && x.node === tgt.id)) {
+      fireNode(run, tgt, incoming.map((x) => run.outputs[x.source]).filter(Boolean).join('\n\n'));
+    }
+  }
+  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => n.id in run.outputs)) { run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); }
+  save();
+}
 
 // ---------- HTTP ----------
 const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
@@ -125,7 +190,9 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history })) });
+    return json(res, 200, { agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null })), runs: Object.values(state.runs).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length })) });
+  if (req.method === 'GET' && p === '/api/workflows')
+    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }
 
   let body = ''; req.on('data', (c) => { body += c; if (body.length > 32 * 1024 * 1024) req.destroy(); });
@@ -134,6 +201,8 @@ const server = http.createServer((req, res) => {
     try {
       if (p === '/api/handoffs') return json(res, 200, ref(create(j)));
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
+      if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
+      if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
       let m;
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : ref(postResult(m[1], j)));

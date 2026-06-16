@@ -174,10 +174,13 @@ async function callTool(name, args = {}) {
       return { result: await a2aSend(a.url, args.skill, args.input) };
     }
     case 'run_workflow': {
+      WORKFLOWS = loadJson('workflows.json', []);             // refresh: pick up flows saved from the cockpit
       const w = WORKFLOWS.find((x) => x.id === args.id); if (!w) throw new Error(`no workflow "${args.id}"`);
-      if (!shouldExec(args.confirm)) return { dryRun: true, workflow: w.id, plan: planOf(w), note: 'call again with confirm:true to execute (agents must be running)' };
+      const isDag = Array.isArray(w.nodes) && Array.isArray(w.edges);
+      if (!shouldExec(args.confirm)) return { dryRun: true, workflow: w.id, plan: planOf(w), note: isDag ? 'DAG flow → runs via the hub (B1 executor, no agent servers); call again with confirm:true' : 'call again with confirm:true to execute (agents must be running)' };
       assertToken();
-      return await execWorkflow(w, args.input);
+      if (isDag) return await hub('/api/runflow', { id: w.id, input: args.input });   // same DAG run as the cockpit ▶ (topo via hub + B1)
+      return await execWorkflow(w, args.input);                // legacy linear steps via a2aSend
     }
     case 'run_automation': {
       const m = AUTOMATIONS.find((x) => x.id === args.id); if (!m) throw new Error(`no automation "${args.id}"`);

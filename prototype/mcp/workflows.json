@@ -4,6 +4,13 @@
     "name": "LinkedIn sales → marketing outreach",
     "summary": "A社 finds qualified prospects, B社 drafts personalized LinkedIn outreach per prospect.",
     "tags": ["sales", "marketing", "gtm", "linkedin", "outreach"],
+    "nodes": [
+      { "id": "linkedin-sales-agent", "kind": "agent", "agent": "linkedin-sales-agent", "skill": "find-prospects", "x": 40, "y": 80 },
+      { "id": "marketing-outreach-agent", "kind": "agent", "agent": "marketing-outreach-agent", "skill": "draft-outreach", "x": 320, "y": 80 }
+    ],
+    "edges": [
+      { "id": "e1", "source": "linkedin-sales-agent", "target": "marketing-outreach-agent" }
+    ],
     "steps": [
       { "agent": "linkedin-sales-agent", "skill": "find-prospects" },
       { "agent": "marketing-outreach-agent", "skill": "draft-outreach" }
