@@ -59,7 +59,9 @@ const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: 
 // ---------- core ops ----------
 function create({ from, to, skill, input }) {
   if (!to || !skill) throw new Error('to + skill required');
-  agent(to); if (from) agent(from);
+  agent(to);                                 // only the recipient must exist; `from` is just a label
+  // (do NOT auto-register `from` — flow-run entry handoffs carry the flow id / "cockpit" / "mcp" as
+  //  from, and registering those would spawn phantom agents that clutter the canvas)
   const h = { id: randomUUID().slice(0, 8), from: from || '?', to, skill, input: input || '', status: 'submitted',
     result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [] };
   touch(h, 'submitted', from || '?');
