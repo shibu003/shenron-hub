@@ -19,6 +19,7 @@
   .tb:hover { border-color:var(--blue); }
   .tb.primary { border-color:var(--blue); color:var(--blue); } .tb.go { border-color:var(--green); color:var(--green); }
   .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
+  .tb.collapse { border-color:#8957e5; color:#a371f7; } .tb.collapse:hover { border-color:#a371f7; background:rgba(137,87,229,.1); }
   .menu { position:relative; }
   .menu-pop { position:absolute; top:38px; right:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:230px; z-index:30; box-shadow:0 12px 34px -12px #000; display:none; }
   .menu-pop.open { display:block; }
@@ -83,6 +84,7 @@
           padding:10px 12px; cursor:grab; user-select:none; box-shadow:0 1px 2px rgba(0,0,0,.45); transition:border-color .12s, box-shadow .12s; }
   .node:hover { border-color:#48515c; box-shadow:0 6px 20px -8px rgba(0,0,0,.7); }
   .node.selected { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 8px 22px -10px var(--blue); }
+  .node.multi { box-shadow:0 0 0 2px var(--amber), 0 8px 22px -10px rgba(210,153,34,.6); }   /* ③b-2 shift-click multi-select */
   .node.busy { border-color:var(--blue); animation:busy 1.1s ease-in-out infinite; }
   @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
   .node .name { font-weight:600; display:flex; align-items:center; gap:7px; }
@@ -236,6 +238,7 @@
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none"></button>
+    <button class="tb collapse" id="btnCollapse" onclick="collapseSelection()" style="display:none"></button>
     <button class="tb" id="btnTrust" onclick="checkTrust()"></button>
     <div class="menu">
       <button class="tb" id="btnAuto" onclick="toggleMenu(event)"></button>
@@ -348,6 +351,8 @@ const I18N = {
   comp_unset:{ja:'未設定',en:'unconfigured'}, comp_pick_kind:{ja:'種類を選んでください',en:'choose a kind'}, comp_kind:{ja:'種類',en:'kind'}, comp_kind_none:{ja:'— 種類を選択 —',en:'— choose a kind —'},
   t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
   sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
+  collapse:{ja:'📦 {n}個を畳む',en:'📦 Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
+  t_collapse_linear:{ja:'入口/出口が複数です — 線形の選択にしてください',en:'Multiple entry/exit points — select a linear chain'}, t_collapsed:{ja:'選択を sub-flow に畳みました',en:'collapsed into a sub-flow'}, t_collapse_min:{ja:'2つ以上を Shift+クリックで選択してください',en:'Shift+click 2+ nodes first'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
@@ -466,7 +471,7 @@ function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.
 function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
-  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
+  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
@@ -497,6 +502,7 @@ const COMP = {                                       // minimal component librar
   workflow: { label:'Sub-flow', icon:'📦', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
 };
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
+const selSet = new Set();   // ③b-2: shift-click multi-selection (for collapse-into-sub-flow)
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STC = { submitted:'var(--grey)', awaiting_approval:'var(--amber)', approved:'var(--blue)', running:'var(--blue)', completed:'var(--green)', failed:'var(--red)', rejected:'var(--red)' };
@@ -513,7 +519,9 @@ async function refresh() {
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
 function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach();
-  const sb=$('#btnStop'); if(sb) sb.style.display=(state.runs||[]).some(r=>r.status==='running')?'inline-flex':'none'; }   // ⏹ visible only while a run is active
+  const sb=$('#btnStop'); if(sb) sb.style.display=(state.runs||[]).some(r=>r.status==='running')?'inline-flex':'none';   // ⏹ visible only while a run is active
+  document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('multi', selSet.has(n.dataset.id)));        // ③b-2 multi-select highlight
+  const cb=$('#btnCollapse'); if(cb){ cb.style.display=selSet.size>=2?'inline-flex':'none'; cb.textContent=t('collapse').replace('{n}',selSet.size); } }
 function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
@@ -734,12 +742,13 @@ function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
     if(wiring||e.button!==0||e.target.closest('.port'))return;
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
-    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false };
+    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
   });
 }
-function selectNode(id){ selected=id; selEdge=null; render(); }
-function selectEdge(id){ selEdge=id; selected=null; render(); }
-function deselect(){ if(selected||selEdge){ selected=null; selEdge=null; render(); } }
+function selectNode(id){ selected=id; selEdge=null; selSet.clear(); render(); }
+function selectEdge(id){ selEdge=id; selected=null; selSet.clear(); render(); }
+function deselect(){ if(selected||selEdge||selSet.size){ selected=null; selEdge=null; selSet.clear(); render(); } }
+function toggleMulti(id){ selSet.has(id)?selSet.delete(id):selSet.add(id); selected=null; selEdge=null; render(); }   // ③b-2 shift-click
 const edgeOf = (id) => EDGES.find(e=>e.id===id);
 $('#canvas').addEventListener('pointerdown', e=>{                                    // empty-canvas drag = pan; a click (no drag) = deselect
   if(wiring||e.button!==0) return;
@@ -797,7 +806,7 @@ document.addEventListener('pointermove', e=>{
   if(panning){ const dx=e.clientX-panning.x, dy=e.clientY-panning.y; if(Math.abs(dx)+Math.abs(dy)>3) panning.moved=true;
     PANX=panning.px+dx; PANY=panning.py+dy; applyView(); drawLinks(); }
 });
-document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved) selectNode(nd.id); }
+document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } }
   if(panning){ const p=panning; panning=null; $('#canvas').classList.remove('panning'); if(!p.moved) deselect(); saveView(); } });
 
 /* ---------- edges ---------- */
@@ -1230,13 +1239,39 @@ function sendHandoff(to){ const a=ag(to);
 function flowName(){ const v=$('#flowName').value.trim(); if(v) return v; const f=buildFlow(); return f? f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→') : 'flow'; }
 function serialShare(share){ if(!share)return null; const s={}; const never=listClean(share.never), classes=listClean(share.classes);
   if(never.length) s.never=never; if(classes.length) s.classes=classes; return Object.keys(s).length?s:null; }
+function nodeSpecOf(id){ const X=Math.round(POS[id]?.x||0), Y=Math.round(POS[id]?.y||0);   // one node → flow-schema spec (shared by buildFlow + buildSubflow)
+  const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:X, y:Y };
+  const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:X, y:Y };
+  const cn=comp(id); if(cn) return { id, kind:cn.kind, ...(cn.kind==='workflow'?{ref:cn.config?.ref||''}:{}), config:cn.config||{}, x:X, y:Y };
+  const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:X, y:Y }; }
+const edgeSpecOf=(e)=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; };
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
-  const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
-    const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
-    const cn=comp(id); if(cn) return { id, kind:cn.kind, ...(cn.kind==='workflow'?{ref:cn.config?.ref||''}:{}), config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
-    const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
-  return { nodes, edges:EDGES.map(e=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; }) }; }
+  return { nodes:[...ids].map(nodeSpecOf), edges:EDGES.map(edgeSpecOf) }; }
+function buildSubflow(ids, edges){ return { nodes:ids.map(nodeSpecOf), edges:edges.map(edgeSpecOf) }; }   // ③b-2: serialize a selected subset
+// ③b-2 — collapse a (linear) multi-selection into one 📦 Sub-flow node: save the picked nodes + their internal
+// edges as a workflow, drop a workflow node in their place, and rewire the external edges to it. Linear only —
+// >1 external entry or >1 external exit is refused (ask for a linear chain). The new node runs as a nested run (③b).
+async function collapseSelection(){
+  if(selSet.size<2) return toast(t('t_collapse_min'));
+  const S=selSet, ids=[...S];
+  const internal=EDGES.filter(e=>S.has(e.source)&&S.has(e.target));
+  const inExt=EDGES.filter(e=>S.has(e.target)&&!S.has(e.source));    // edges entering the selection from outside
+  const outExt=EDGES.filter(e=>S.has(e.source)&&!S.has(e.target));   // edges leaving the selection to outside
+  if(new Set(inExt.map(e=>e.target)).size>1 || new Set(outExt.map(e=>e.source)).size>1) return toast(t('t_collapse_linear'));
+  const f=buildSubflow(ids, internal);
+  if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
+  let wf; try{ wf=await api('/api/workflows',{ name:(flowName()||'flow')+'-sub', nodes:f.nodes, edges:f.edges }); }catch(e){ return toast(e.message); }
+  fetchWorkflows();
+  const cx=Math.round(ids.reduce((s,id)=>s+(POS[id]?.x||0),0)/ids.length), cy=Math.round(ids.reduce((s,id)=>s+(POS[id]?.y||0),0)/ids.length);
+  const wid='workflow-'+(++cidc);
+  COMPONENTS.push({ id:wid, kind:'workflow', accepts:['*'], emits:['*'], config:{ ref:wf.id, name:wf.name } }); POS[wid]={x:cx,y:cy};
+  inExt.forEach(e=>{ if(!EDGES.some(x=>x.source===e.source&&x.target===wid)) EDGES.push({ id:'fe_'+(++eidc), source:e.source, target:wid }); });
+  outExt.forEach(e=>{ if(!EDGES.some(x=>x.source===wid&&x.target===e.target)) EDGES.push({ id:'fe_'+(++eidc), source:wid, target:e.target }); });
+  EDGES=EDGES.filter(e=>!S.has(e.source)&&!S.has(e.target));   // drop the collapsed nodes' own edges (rewired ones survive — wid ∉ S)
+  ids.forEach(id=>{ if(ag(id)) HIDDEN.add(id); else if(trig(id)) TRIGGERS=TRIGGERS.filter(x=>x.id!==id); else if(mcpn(id)) MCP_NODES=MCP_NODES.filter(x=>x.id!==id); else if(comp(id)) COMPONENTS=COMPONENTS.filter(x=>x.id!==id); });
+  selSet.clear(); clearTrust(); selectNode(wid); toast(t('t_collapsed'));
+}
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
