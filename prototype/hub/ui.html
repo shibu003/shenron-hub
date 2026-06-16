@@ -102,6 +102,9 @@
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
   textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
   input.cin, select.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  .presetrow { display:flex; gap:5px; flex-wrap:wrap; }
+  .presetrow button { flex:1; min-width:88px; font-size:11px; padding:4px 6px; background:var(--panel2,#161b22); color:var(--ink,#e6edf3); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  .presetrow button:hover { border-color:var(--amber); }
   .caprow { display:flex; align-items:center; gap:8px; margin:4px 0; }
   .caprow .capk { flex:0 0 92px; font-size:11px; color:var(--dim); font-family:ui-monospace,monospace; }
   .caprow select.cin { flex:1; }
@@ -255,6 +258,8 @@ const I18N = {
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
   cap_always:{ja:'常時',en:'always'}, cap_note:{ja:'external_send は hub が強制。net / fs は宣言＋監査（実 sandbox は runner 側・将来）。',en:'external_send is hub-enforced. net / fs are declared + audited (real sandbox is runner-side · roadmap).'},
+  h_presets:{ja:'信頼プリセット（1 クリック）',en:'trust preset (1-click)'}, preset_untrusted:{ja:'未信頼 3rd-party',en:'untrusted 3rd-party'}, preset_internal:{ja:'社内',en:'internal'}, preset_trusted:{ja:'信頼済',en:'trusted'}, preset_applied:{ja:'プリセット適用',en:'preset applied'},
+  safe_btn:{ja:'🔒 Safe Handoff 例',en:'🔒 Safe Handoff example'}, safe_desc:{ja:'会社をまたぐ handoff を trust 境界つきで配置（秘密除去＋承認制送信）。',en:'Lays out a cross-company handoff fenced by the trust bundle (secret-stripped + approval-gated send).'}, safe_placed:{ja:'Safe Handoff を配置。配線 🔒 と passport を確認して ▶ Run。',en:'Safe Handoff placed. Check the 🔒 wire + passports, then ▶ Run.'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
@@ -389,7 +394,8 @@ function renderCoach(){
       <div class="step"><b>2</b><div>${t('coach_2')}</div></div>
       <div class="step"><b>3</b><div>${t('coach_3')}</div></div>
     </div>
-    <div class="coach-actions"><button onclick="placeExampleFlow()">${t('demo_btn')}</button><small>${t('demo_desc')}</small></div>
+    <div class="coach-actions"><button onclick="placeExampleFlow()">${t('demo_btn')}</button><button onclick="placeSafeHandoff()">${t('safe_btn')}</button></div>
+    <div class="mini" style="color:var(--dim);margin-top:4px">${t('safe_desc')}</div>
     <div class="legend"><span><i></i>${t('legend_in')}</span><span><i></i>${t('legend_out')}</span></div>
     ${hasDraft?`<div class="mini" style="color:var(--dim);margin-top:8px">${t('next_pick')}</div>`:''}
   </div>`;
@@ -417,6 +423,24 @@ function placeExampleFlow(){
   const add=(source,target)=>{ if(!EDGES.some(e=>e.source===source&&e.target===target)) EDGES.push({ id:'fe_'+(++eidc), source, target, type:matchType(source,target) }); };
   add(trId,a.id); add(a.id,b.id);
   selected=trId; render(); toast(t('demo_placed'));
+}
+// Wave C — the SKU's representative flow: a cross-owner handoff fenced by the trust bundle.
+// Chat Input (with a secret + codename baked in) → upstream agent → [🔒 cross-company wire: never=codename]
+// → downstream agent → approval-gated external send → Chat Output. Run it to see the firewall + audit fire.
+function placeSafeHandoff(){
+  const pair=exampleChain(); if(pair.length<2) return toast(t('pal_empty'));
+  const [a,b]=pair;
+  const send=[].concat(...(INTEGRATIONS||[]).filter(i=>i.enabled!==false).map(i=>(i.tools||[]).map(tl=>({server:i.id,tool:tl.name})))).find(x=>/send|email|message|post/i.test(x.tool));
+  const baked='Draft outreach for our top prospect. Internal note: OPENAI_API_KEY=sk-live-DEMO1234567890ABCD; codename PROJECT-FALCON — do not share externally.';
+  const nodes=[{id:'in1',kind:'input',config:{text:baked},x:30,y:90},
+               {id:a.id,kind:'agent',agent:a.id,skill:a.skill,x:250,y:90},
+               {id:b.id,kind:'agent',agent:b.id,skill:b.skill,x:470,y:90}];
+  const edges=[{id:'fe_'+(++eidc),source:'in1',target:a.id},
+               {id:'fe_'+(++eidc),source:a.id,target:b.id,share:{never:['PROJECT-FALCON']}}];   // 🔒 cross-company wire
+  if(send){ nodes.push({id:'send1',kind:'mcp',server:send.server,tool:send.tool,config:{},auto:false,x:690,y:90},{id:'out1',kind:'output',x:910,y:90});
+    edges.push({id:'fe_'+(++eidc),source:b.id,target:'send1'},{id:'fe_'+(++eidc),source:'send1',target:'out1'}); }
+  else { nodes.push({id:'out1',kind:'output',x:690,y:90}); edges.push({id:'fe_'+(++eidc),source:b.id,target:'out1'}); }
+  loadFlow({nodes,edges}); toast(t('safe_placed'));
 }
 function addComp(kind){ const c=COMP[kind]; if(!c)return; const id=kind+'-'+(++cidc);
   const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
@@ -583,6 +607,14 @@ function renderInspector(){
   ins.querySelectorAll('[data-ok]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-ok'),'approve');});
   ins.querySelectorAll('[data-no]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-no'),'decline');});
 }
+// Wave C — packaging: one-click Trust presets. A buyer picks a trust level for an agent instead of hand-setting
+// each field. Sends only caps (share is preserved by the hub's normalizePassport merge).
+const TRUST_PRESETS = {
+  untrusted: { net:'none', fs:'diff-only', external_send:'approval', secrets:'deny' },   // a 3rd-party agent you don't control
+  internal:  { net:'read', fs:'repo',      external_send:'approval', secrets:'deny' },   // your own agent, least-privilege
+  trusted:   { net:'full', fs:'repo',      external_send:'allow',    secrets:'deny' },   // first-party, fully trusted
+};
+async function applyPreset(id,name){ const c=TRUST_PRESETS[name]; if(!c)return; await api(`/api/agents/${id}/passport`,{caps:c}); toast(`${t('preset_applied')}: ${name}`); refresh(); }
 function capRow(key,a){ const cur=(a.passport&&a.passport.caps&&a.passport.caps[key])||(CAPVOCAB[key]||[])[0];
   const opts=(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('');
   return `<div class="caprow"><span class="capk">${esc(key.replace('_',' '))}</span><select class="cin" data-cap="${key}">${opts}</select></div>`; }
@@ -599,6 +631,11 @@ function inspAgent(a){
       <button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
     ${a.local?`<div class="field"><label>${t('f_autorun')}</label>
       <button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button></div>`:''}
+    <div class="field"><label>${t('h_presets')}</label><div class="presetrow">
+      <button onclick="applyPreset('${esc(a.id)}','untrusted')" title="net:none · fs:diff-only · send:approval">${t('preset_untrusted')}</button>
+      <button onclick="applyPreset('${esc(a.id)}','internal')" title="net:read · fs:repo · send:approval">${t('preset_internal')}</button>
+      <button onclick="applyPreset('${esc(a.id)}','trusted')" title="net:full · fs:repo · send:allow">${t('preset_trusted')}</button>
+    </div></div>
     <div class="field"><label>🔒 ${t('h_caps')}</label>
       ${capRow('net',a)}${capRow('fs',a)}${capRow('external_send',a)}
       <div class="caprow"><span class="capk">secrets</span><span class="chip">deny · ${t('cap_always')}</span></div>
@@ -710,7 +747,7 @@ function inspDefault(){
       ${h.status==='awaiting_approval'?`<div class="acts"><button class="act ok" data-ok="${h.id}">${t('approve')}</button><button class="act no" data-no="${h.id}">${t('decline')}</button></div>`:''}
     </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
   return `<div class="ins-h">${t('insp_flow')}</div>
-    <div class="helpbox"><b>${t('default_help')}</b><div style="margin-top:9px"><button class="linkbtn" onclick="placeExampleFlow()">${t('demo_btn')}</button></div></div>
+    <div class="helpbox"><b>${t('default_help')}</b><div style="margin-top:9px"><button class="linkbtn" onclick="placeExampleFlow()">${t('demo_btn')}</button> · <button class="linkbtn" onclick="placeSafeHandoff()">${t('safe_btn')}</button></div></div>
     <div id="summary"><span class="cnt online"><b>${onN}</b>/${state.agents.length} ${t('s_online')}</span>
       ${pill('submitted',t('s_queued'))}${pill('awaiting_approval',t('s_await'))}${pill('running',t('s_running'))}${pill('completed',t('s_done'))}${pill('failed',t('s_failed'))}</div>${list}${auditPanel()}`;
 }
