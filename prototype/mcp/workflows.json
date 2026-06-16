@@ -1,0 +1,12 @@
+[
+  {
+    "id": "sales-to-marketing",
+    "name": "LinkedIn sales → marketing outreach",
+    "summary": "A社 finds qualified prospects, B社 drafts personalized LinkedIn outreach per prospect.",
+    "tags": ["sales", "marketing", "gtm", "linkedin", "outreach"],
+    "steps": [
+      { "agent": "linkedin-sales-agent", "skill": "find-prospects" },
+      { "agent": "marketing-outreach-agent", "skill": "draft-outreach" }
+    ]
+  }
+]
