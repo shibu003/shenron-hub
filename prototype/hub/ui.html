@@ -100,7 +100,10 @@
   dialog .minfo { font-size:12px; color:var(--dim); }
   dialog input, dialog textarea { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:8px 10px; font:inherit; }
   dialog textarea { min-height:88px; resize:vertical; font:12px/1.4 ui-monospace,Menlo,monospace; }
-  dialog textarea[readonly] { min-height:200px; }
+  dialog textarea[readonly] { min-height:62px; }
+  .toolsel { display:flex; gap:6px; }
+  .tsel { border:1px solid var(--line); background:#0d1117; color:var(--dim); border-radius:7px; padding:5px 12px; cursor:pointer; font:inherit; }
+  .tsel.on { border-color:var(--blue); color:var(--blue); }
   dialog .df { display:flex; gap:8px; justify-content:flex-end; padding:0 16px 14px; }
   ::backdrop { background:rgba(0,0,0,.55); }
   #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel2); border:1px solid var(--line); color:var(--txt); padding:9px 16px; border-radius:9px; font-size:12px; opacity:0; pointer-events:none; transition:.2s; box-shadow:0 10px 30px -10px #000; z-index:50; }
@@ -183,10 +186,10 @@ const I18N = {
   t_wire1:{ja:'先に配線してください: out ポートを in ポートへドラッグ。',en:'Wire a flow first: drag an out-port onto an in-port.'}, t_wire2:{ja:'先に flow を配線してください。',en:'Wire a flow first.'},
   t_need_trig:{ja:'パレットで ⚡ trigger を追加し chain に配線してください。',en:'Add a ⚡ trigger (palette) and wire it into the chain first.'}, t_need_agent:{ja:'trigger を最低 1 つの agent に配線してください。',en:'Wire the trigger into at least one agent.'},
   t_match_ok:{ja:'match を更新しました',en:'match updated'}, t_badjson:{ja:'不正な JSON',en:'invalid JSON'}, t_mcp_copied:{ja:'MCP 呼び出しをコピーしました',en:'MCP call copied'}, t_snip_copied:{ja:'MCP tool スニペットをコピーしました',en:'MCP tool snippet copied'}, t_running:{ja:'flow を実行中…',en:'running flow…'},
-  mcp_info:{ja:'BuildHUD を MCP server として繋げば、AI がこの agent に handoff を送れます。',en:'Connect BuildHUD as an MCP server, then an AI can hand off to this agent.'},
-  mcp_step1:{ja:'① MCP クライアントに BuildHUD server を追加（.mcp.json / claude mcp add）',en:'① Add the BuildHUD server to your MCP client (.mcp.json / claude mcp add)'},
-  mcp_step2:{ja:'② このツールを呼んで {a} に handoff（A2A_SHARED_TOKEN は不要）',en:'② Call this tool to hand off to {a} (no A2A_SHARED_TOKEN needed)'},
-  mcp_token_note:{ja:'<token — run_* 実行系のみ必要>',en:'<token — only for run_* (act) tools>'},
+  mcp_info:{ja:'AI に、この agent への handoff を頼む文面 / 呼び出しを取得します。',en:'Get the instruction / call to ask an AI to hand off to this agent.'},
+  mcp_tool:{ja:'tool を選択',en:'choose a tool'}, mcp_nl:{ja:'① AI への指示文（そのまま貼る）',en:'① Instruction for an AI (paste as-is)'}, mcp_call2:{ja:'② tool 呼び出し（JSON）',en:'② Tool call (JSON)'},
+  mcp_copy_nl:{ja:'⧉ 指示文をコピー',en:'⧉ Copy instruction'}, mcp_copy_call:{ja:'⧉ 呼び出しをコピー',en:'⧉ Copy tool call'}, mcp_copy_conn:{ja:'⧉ 接続設定',en:'⧉ Connection config'},
+  mcp_token_note:{ja:'<token — run_* 実行系のみ必要>',en:'<token — only for run_* (act) tools>'}, t_conn_copied:{ja:'接続設定をコピーしました',en:'connection config copied'},
 };
 const t = (k) => (I18N[k]?.[LANG]) ?? (I18N[k]?.en) ?? k;
 function toggleLang(){ LANG = LANG==='ja'?'en':'ja'; localStorage.setItem('bh_lang',LANG); applyChrome(); render(); }
@@ -398,12 +401,36 @@ function inspDefault(){
 
 /* ---------- actions ---------- */
 async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
-function copyMcp(id){ const a=ag(id);
-  const call=JSON.stringify({ tool:'send_handoff', args:{ to:id, skill:a?.skill||'task', input:'…' } }, null, 2);
-  const cfg = MCP ? JSON.stringify({ mcpServers:{ [MCP.name]:{ command:MCP.command, args:MCP.args, env:{ BUILDHUD_HUB:MCP.hub, [MCP.tokenEnv]:t('mcp_token_note') } } } }, null, 2)
-                  : '(hub /api/mcp not reachable)';
-  const text=`# ${t('mcp_step1')}\n${cfg}\n\n# ${t('mcp_step2').replace('{a}', id)}\n${call}`;
-  openModal({ title:`MCP · ${id}`, info:t('mcp_info'), submitLabel:t('m_copy'), fields:[{key:'x',label:t('m_mcp_call'),type:'readonly',value:text}], onSubmit:()=>copyText(text, t('t_mcp_copied')) }); }
+let mcpTool = 'send_handoff';
+function copyMcp(id){ openMcpModal(id); }
+function openMcpModal(id){
+  const a=ag(id), skill=a?.skill||'task', tool=mcpTool;
+  const nl = LANG==='ja'
+    ? `BuildHUD の MCP server で、agent「${id}」に skill「${skill}」を ${tool==='run_handoff'?'run_handoff（同期実行）':'send_handoff（durable inbox に投入）'}して。input は: …`
+    : `Using BuildHUD's MCP server, ${tool==='run_handoff'?'run (run_handoff)':'send a handoff (send_handoff) to'} agent "${id}" with skill "${skill}". Input: …`;
+  const call = tool==='run_handoff'
+    ? JSON.stringify({ tool:'run_handoff', args:{ toAgentId:id, skill, input:'…', confirm:true } }, null, 2)
+    : JSON.stringify({ tool:'send_handoff', args:{ to:id, skill, input:'…' } }, null, 2);
+  const cfg = MCP ? JSON.stringify({ mcpServers:{ [MCP.name]:{ command:MCP.command, args:MCP.args, env:{ BUILDHUD_HUB:MCP.hub, [MCP.tokenEnv]:t('mcp_token_note') } } } }, null, 2) : '';
+  const dlg=$('#modal');
+  dlg.innerHTML=`<div class="dh">MCP · ${esc(id)}</div><div class="db">
+    <div class="minfo">${t('mcp_info')}</div>
+    <label>${t('mcp_tool')}</label>
+    <div class="toolsel"><button class="tsel ${tool==='send_handoff'?'on':''}" data-tool="send_handoff">send_handoff</button><button class="tsel ${tool==='run_handoff'?'on':''}" data-tool="run_handoff">run_handoff</button></div>
+    <label>${t('mcp_nl')}</label><textarea readonly id="mcpNl">${esc(nl)}</textarea>
+    <label>${t('mcp_call2')}</label><textarea readonly id="mcpCall">${esc(call)}</textarea>
+    </div><div class="df">
+    ${cfg?`<button class="act" id="mcpCfg">${t('mcp_copy_conn')}</button>`:''}
+    <button class="act" id="mcpClose">${t('close')}</button>
+    <button class="act ok" id="mcpCopyCall">${t('mcp_copy_call')}</button>
+    <button class="act ok" id="mcpCopyNl">${t('mcp_copy_nl')}</button></div>`;
+  if(!dlg.open) dlg.showModal();
+  dlg.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{ mcpTool=b.dataset.tool; openMcpModal(id); });
+  $('#mcpCopyNl').onclick=()=>copyText(nl, t('t_mcp_copied'));
+  $('#mcpCopyCall').onclick=()=>copyText(call, t('t_mcp_copied'));
+  $('#mcpClose').onclick=()=>dlg.close();
+  if(cfg) $('#mcpCfg').onclick=()=>copyText(cfg, t('t_conn_copied'));
+}
 async function act(id,what){ await api(`/api/handoffs/${id}/${what}`,{}); refresh(); }
 function sendHandoff(to){ const a=ag(to);
   openModal({ title:`handoff → ${to}`, submitLabel:t('m_send_b'), fields:[
