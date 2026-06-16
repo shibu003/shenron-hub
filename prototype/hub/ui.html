@@ -347,6 +347,7 @@ const I18N = {
   comp_generic:{ja:'Component',en:'Component'}, comp_generic_sub:{ja:'空のノードを置く（種類は後で）',en:'place a blank node (pick kind later)'},
   comp_unset:{ja:'未設定',en:'unconfigured'}, comp_pick_kind:{ja:'種類を選んでください',en:'choose a kind'}, comp_kind:{ja:'種類',en:'kind'}, comp_kind_none:{ja:'— 種類を選択 —',en:'— choose a kind —'},
   t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
+  sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
@@ -484,6 +485,7 @@ let TRUSTPREVIEW = null;   // Wave E1: last "🔒 Check trust" dry-run (wires + 
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
+let WORKFLOWS = [];                                  // saved workflows (for the 📦 Sub-flow node's picker)
 const COMP = {                                       // minimal component library (per-field typed template). Agent stays our LLM unit.
   input:  { label:'Chat Input',  icon:'💬', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(empty → use the Run input)' }] },
   prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
@@ -492,6 +494,7 @@ const COMP = {                                       // minimal component librar
   router: { label:'Trust Router', icon:'🔀', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
+  workflow: { label:'Sub-flow', icon:'📦', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
 };
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -637,7 +640,7 @@ function addMcpNode(tl){ const id='mcp-'+(++mnidc); const y=40+MCP_NODES.length*
                    :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x:360, y });   // blank: choose the tool in the inspector
   selectNode(id); render(); }
 // an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
-const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool));
+const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool)) || (n.kind==='workflow' && !n.ref);
 function setMcpTool(mn, val){ if(!val) return;
   const [server,name]=val.split('::'); const it=(INTEGRATIONS||[]).find(x=>x.id===server); const tl=((it&&it.tools)||[]).find(x=>x.name===name);
   mn.server=server; mn.tool=name; mn.accepts=(tl&&tl.accepts)||['*']; mn.emits=(tl&&tl.emits)||['*'];
@@ -714,6 +717,7 @@ function renderNodes(){
       :c.kind==='router'?`🔀 then if ${esc(c.config?.predicate||'redacted')}${c.config?.predicate==='contains'?` "${esc((c.config?.value||'').slice(0,16))}"`:''}`
       :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
       :c.kind==='consensus'?(ch&&ch.consensus.picked?`⚖️ ${esc(ch.consensus.picked)} · agree ${ch.consensus.agreement}`:esc((c.config?.vendors)||'claude,codex,gemini').slice(0,40))
+      :c.kind==='workflow'?(c.config?.ref?`📦 ${esc(sfName(c.config.ref))}`:`<span style="color:var(--amber)">${t('sf_pick')}</span>`)
       :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
     const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));   // Wave: per-component custom name (falls back to the kind label)
     const cdesc=(c.config?.desc||'').trim();
@@ -1048,6 +1052,7 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind]
       +(f.type==='textarea'?`<textarea class="match" data-ck="${esc(f.key)}" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
         :f.type==='number'?`<input class="cin" type="number" data-ck="${esc(f.key)}" value="${esc(val)}">`
         :f.type==='select'?`<select class="cin" data-ck="${esc(f.key)}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
+        :f.type==='workflow'?`<select class="cin" id="compRef"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)} · ${w.nodes}n</option>`).join('')}</select>`
         :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join(''):'';
   const res=cn.kind==='output'?lastOutput(cn.id):null;
   const title=(cn.config?.name||'').trim()||meta.label||(isSet?cn.kind:t('comp_unset'));
@@ -1068,6 +1073,7 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind]
 }
 function bindComp(cn){
   const ks=$('#compKind'); if(ks) ks.onchange=()=>setCompKind(cn, ks.value);
+  const rs=$('#compRef'); if(rs) rs.onchange=()=>{ cn.config.ref=rs.value; render(); };   // 📦 Sub-flow: bind which workflow (auto-applies)
   const btn=$('#compSave'); if(btn) btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.value; }); toast(t('t_args_ok')); render(); }; }
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
@@ -1161,6 +1167,8 @@ function auditDetail(e){
 async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
 async function toggleAutorun(id){ const a=ag(id); await api(`/api/agents/${id}/autorun`,{on:!(a?.autorun!==false)}); refresh(); }
 async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integrations'); }catch{ INTEGRATIONS=[]; } }
+async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the 📦 Sub-flow picker
+const sfName=(id)=>{ const w=WORKFLOWS.find(x=>x.id===id); return w?(w.name||w.id):id; };
 function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
     <label>${t('set_autorun_g')}</label>
@@ -1226,13 +1234,13 @@ function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
   const nodes=[...ids].map(id=>{ const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
-    const cn=comp(id); if(cn) return { id, kind:cn.kind, config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
+    const cn=comp(id); if(cn) return { id, kind:cn.kind, ...(cn.kind==='workflow'?{ref:cn.config?.ref||''}:{}), config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; }) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
-    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
+    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); fetchWorkflows(); refresh(); } }); }
 async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_run_t'), submitLabel:t('m_run_b'), fields:[{key:'input',label:t('m_entry'),type:'textarea',value:'Target brief: Series A fintech VPs of Sales scaling outbound.'}],
@@ -1341,7 +1349,7 @@ async function fireEvent(){ closeMenu();
 }
 async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toast(t('t_wire2'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
-  const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id;
+  const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; fetchWorkflows();
   const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
   openModal({ title:`MCP tool: ${wf.id}`, info:t('m_export_info'), submitLabel:t('m_copy'), fields:[{key:'snip',label:t('m_mcp_call'),type:'readonly',value:snip}], onSubmit:()=>copyText(snip,t('t_snip_copied')) }); refresh(); }
 async function copyText(text,label){ try{ await navigator.clipboard.writeText(text); conn(label); toast(label); }catch{ openModal({title:label,fields:[{key:'x',label:t('m_mcp_call'),type:'readonly',value:text}]}); } }
@@ -1367,7 +1375,7 @@ function loadFlow(flow){                          // materialize a generated/sav
     if(n.kind==='agent'){ HIDDEN.delete(n.agent||n.id); }
     else if(n.kind==='trigger'){ TRIGGERS.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }
     else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
-    else if(COMP[n.kind]){ const m=COMP[n.kind]; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config:n.config||{} }); }
+    else if(COMP[n.kind]){ const m=COMP[n.kind]; const config=n.config||{}; if(n.kind==='workflow'&&n.ref&&!config.ref) config.ref=n.ref; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config }); }
   }
   EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}), ...(e.branch?{branch:e.branch}:{}) }));
   deselect(); render();
@@ -1407,5 +1415,5 @@ document.addEventListener('keydown', e=>{
 function deleteSelected(){ const id=selected; if(!id)return;
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
-applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>

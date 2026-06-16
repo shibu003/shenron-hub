@@ -173,19 +173,38 @@ function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return wf;
 }
-function runFlow({ id, nodes, edges, input }) {
+function runFlow({ id, nodes, edges, input, parent }) {
   if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
+  const depth = parent ? ((state.runs[parent.runId]?.depth || 0) + 1) : 0;   // 📦 sub-flow nesting — bound it so a self-referential flow can't loop forever
+  if (depth > 8) throw new Error('sub-flow nesting too deep (>8)');
   const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));   // triggers are entry markers, not executable
   if (trg.size) { nodes = nodes.filter((n) => !trg.has(n.id)); edges = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)); }
   edges.forEach((e, i) => { if (!e.id) e.id = 'e' + i; });   // Wave E2: dead-branch tracking keys on edge id
   const runId = randomUUID().slice(0, 8);
-  const run = (state.runs[runId] = { id: runId, flowId: id || null, nodes, edges, input: input || '', outputs: {}, dead: [], skipped: [], routerPick: {}, status: 'running', createdAt: now() });
+  const run = (state.runs[runId] = { id: runId, flowId: id || null, parent: parent || null, depth, nodes, edges, input: input || '', outputs: {}, dead: [], skipped: [], routerPick: {}, status: 'running', createdAt: now() });
   const entries = nodes.filter((n) => n.kind !== 'trigger' && !edges.some((e) => e.target === n.id));
   if (!entries.length) throw new Error('flow has no entry node (every node has an incoming edge — cycle?)');
   save();
   for (const n of entries) fireNode(run, n, input || '');
   return { runId: run.id, status: run.status, entries: entries.map((n) => n.id) };
+}
+// 📦 sub-flow node — run the referenced workflow as a NESTED run (Option A): the node stays one box, the nested
+// flow runs with its OWN approvals / data-firewall / audit, and when it completes its terminal output flows to
+// this node's output → the parent advances. Errors (missing ref, too deep) surface as the node's [error] output.
+function fireWorkflowNode(run, node, input, from) {
+  const wf = node.ref ? readWorkflows().find((w) => w.id === node.ref) : null;
+  if (!wf) { run.outputs[node.id] = `[error] no workflow "${node.ref || '?'}"`; save(); return advanceFrom(run, node.id); }
+  try { runFlow({ id: wf.id, input, parent: { runId: run.id, node: node.id } }); }   // nested run; its completion propagates back via advanceFrom
+  catch (e) { run.outputs[node.id] = `[error] ${e.message}`; save(); advanceFrom(run, node.id); }
+}
+// the value a (sub-)flow hands upward: prefer a Chat Output, else a sink (no outgoing edge), else the last output.
+function flowResult(run) {
+  const out = run.nodes.find((n) => n.kind === 'output' && (n.id in run.outputs));
+  if (out) return run.outputs[out.id];
+  const sink = run.nodes.find((n) => n.kind !== 'trigger' && (n.id in run.outputs) && !run.edges.some((e) => e.source === n.id));
+  if (sink) return run.outputs[sink.id];
+  const ks = Object.keys(run.outputs); return ks.length ? run.outputs[ks[ks.length - 1]] : '';
 }
 function fireNode(run, node, input) {
   const inc = run.edges.filter((e) => e.target === node.id);
@@ -196,6 +215,7 @@ function fireNode(run, node, input) {
   if (node.kind === 'consensus') return fireConsensusNode(run, node, input, from);   // Wave I: fan to N vendors → agree
   if (node.kind === 'router') return fireRouterNode(run, node, input, from);   // Wave E2: trust-router — fire only the chosen branch
   if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
+  if (node.kind === 'workflow') return fireWorkflowNode(run, node, input, from);   // 📦 sub-flow: run the referenced flow as a nested run
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id; save();
 }
@@ -361,6 +381,7 @@ function stopRun(id) {
   const run = state.runs[id]; if (!run) throw new Error(`no run "${id}"`);
   if (run.status !== 'running') return { id, status: run.status, stopped: 0 };          // already terminal — nothing to stop
   run.status = 'cancelled'; run.stoppedAt = now();
+  for (const child of Object.values(state.runs)) if (child.parent && child.parent.runId === id && child.status === 'running') stopRun(child.id);   // 📦 stop nested sub-flows too
   let stopped = 0;
   for (const h of state.handoffs) {
     if (h.runId !== id) continue;
@@ -411,7 +432,11 @@ function advanceFrom(run, nodeId) {
     if (pick !== undefined && (e.branch || 'then') !== pick) { markDead(run, e); continue; }   // router: prune the branch not taken
     tryFire(run, e.target);
   }
-  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) { run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); }
+  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) {
+    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`);
+    if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
+      if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
+  }
   save();
 }
 
