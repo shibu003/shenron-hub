@@ -1,0 +1,13 @@
+#!/bin/sh
+# M2 trigger (docs/09): fire a cross-person review handoff on push.
+# Install into the repo you push FROM:  cp this to .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Requires env: A2A_SHARED_TOKEN, B_URL (friend's tunnel URL). Adjust SEND path.
+
+SEND="$HOME/GioGio/prototype/send.mjs"
+branch=$(git rev-parse --abbrev-ref HEAD)
+
+# Non-blocking: don't fail the push if the handoff errors (review is advisory).
+if [ -n "$B_URL" ] && [ -f "$SEND" ]; then
+  node "$SEND" "$branch" || echo "pre-push: handoff failed (continuing push)"
+fi
+exit 0

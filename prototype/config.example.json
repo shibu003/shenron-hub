@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to prototype/config.json and edit. Token is NOT here — set env A2A_SHARED_TOKEN (gitignored).",
+  "port": 8787,
+  "publicUrl": "http://localhost:8787",
+  "repoAllowlist": ["GioGio"],
+  "reviewer": "stub",
+  "autoApprove": false
+}

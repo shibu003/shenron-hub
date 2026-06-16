@@ -11,10 +11,11 @@ A2A_SHARED_TOKEN*
 # Local agent / session data
 .claude/
 
-# Dogfood (07) local artifacts
+# Dogfood (07) / prototype local artifacts
 handoff.log
 *.log
 tunnel.txt
+prototype/config.json
 
 # Node
 node_modules/
