@@ -341,6 +341,9 @@ const I18N = {
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_name:{ja:'名前（任意）',en:'name (optional)'}, comp_name_ph:{ja:'この部品の呼び名…',en:'a name for this node…'}, comp_desc:{ja:'説明（任意）',en:'description (optional)'}, comp_desc_ph:{ja:'この部品が何をするか…',en:'what this node does…'}, comp_save:{ja:'✓ 適用',en:'✓ Apply'},
+  comp_generic:{ja:'Component',en:'Component'}, comp_generic_sub:{ja:'空のノードを置く（種類は後で）',en:'place a blank node (pick kind later)'},
+  comp_unset:{ja:'未設定',en:'unconfigured'}, comp_pick_kind:{ja:'種類を選んでください',en:'choose a kind'}, comp_kind:{ja:'種類',en:'kind'}, comp_kind_none:{ja:'— 種類を選択 —',en:'— choose a kind —'},
+  t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
@@ -542,10 +545,10 @@ function renderPalette(){
     + (tools.length ? tools.map(tl=>`<div class="palrow"><div class="pm"><b>🔌 ${esc(tl.name)}</b><span>${esc(tl.server)}</span></div>
         <span class="pb" data-pmcpadd='${esc(JSON.stringify(tl))}' title="${t('add_canvas')}">＋</span></div>`).join('')
        : `<div class="empty" style="padding:6px 12px">${t('pal_no_mcp')}</div>`);
-  // Components section (Wave K — Langflow-style library)
+  // Components section — place a generic (blank) node; choose & change its kind in the inspector.
   $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('comp_head')}</div>`
-    + Object.entries(COMP).map(([k,c])=>`<div class="palrow"><div class="pm"><b>${c.icon} ${esc(c.label)}</b><span>${t('comp_'+k)||''}</span></div>
-        <span class="pb" data-pcompadd="${k}" title="${t('add_canvas')}">＋</span></div>`).join('');
+    + `<div class="palrow"><div class="pm"><b>▦ ${esc(t('comp_generic'))}</b><span>${esc(t('comp_generic_sub'))}</span></div>
+        <span class="pb" data-pcompadd="" title="${t('add_canvas')}">＋</span></div>`;
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
   $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
@@ -611,9 +614,22 @@ function placeSafeHandoff(){
   else { nodes.push({id:'out1',kind:'output',x:690,y:90}); edges.push({id:'fe_'+(++eidc),source:b.id,target:'out1'}); }
   loadFlow({nodes,edges}); toast(t('safe_placed'));
 }
-function addComp(kind){ const c=COMP[kind]; if(!c)return; const id=kind+'-'+(++cidc);
-  const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
-  COMPONENTS.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y:40+COMPONENTS.length*26 }); selectNode(id); render(); }
+function addComp(kind){ const c=COMP[kind]; const id=(c?kind:'node')+'-'+(++cidc); const y=40+COMPONENTS.length*26;
+  if(c){ const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
+    COMPONENTS.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y }); }
+  else { COMPONENTS.push({ id, kind:'unset', accepts:['*'], emits:['*'], config:{}, x:200, y }); }   // blank node: choose the kind in the inspector
+  selectNode(id); render(); }
+// the node's ports change when its kind/中身 changes → drop wires that no longer type-match (and say so)
+function revalidateEdges(id){ const before=EDGES.length;
+  EDGES=EDGES.filter(e=>(e.source!==id&&e.target!==id)||canConnect(e.source,e.target));
+  const dropped=before-EDGES.length; if(dropped) toast(t('t_edges_dropped').replace('{n}',dropped)); }
+function setCompKind(cn, kind){ const m=COMP[kind];
+  if(!m){ cn.kind='unset'; cn.accepts=['*']; cn.emits=['*']; return selectNode(cn.id); }
+  cn.kind=kind; cn.accepts=m.accepts.slice(); cn.emits=m.emits.slice();
+  const keepName=cn.config?.name, keepDesc=cn.config?.desc;                       // preserve the human name/desc across a kind change
+  cn.config={}; (m.fields||[]).forEach(f=>{ if(f.value!=null) cn.config[f.key]=f.value; });
+  if(keepName) cn.config.name=keepName; if(keepDesc) cn.config.desc=keepDesc;
+  revalidateEdges(cn.id); selectNode(cn.id); }
 function removeComp(id){ COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 function addMcpNode(tl){ const id='mcp-'+(++mnidc); MCP_NODES.push({ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x:360, y:40+MCP_NODES.length*26 }); selectNode(id); render(); }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
@@ -673,14 +689,15 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node comp'; n.id=nid; n.dataset.id=c.id; canvas.appendChild(n); attachNode(n,c.id); }
     if(!POS[c.id]) POS[c.id]={x:c.x||200,y:c.y||40};
     n.style.left=POS[c.id].x+'px'; n.style.top=POS[c.id].y+'px'; n.classList.toggle('selected',selected===c.id);
-    const meta=COMP[c.kind]||{}; const res=c.kind==='output'?lastOutput(c.id):null;
+    const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
     const ch=c.kind==='consensus'?state.handoffs.filter(h=>h.consensus&&h.node===c.id).pop():null;
-    const sub=c.kind==='input'?(c.config?.text?esc(c.config.text).slice(0,42):t('comp_input_sub'))
+    const sub=!isSet?`<span style="color:var(--amber)">${t('comp_pick_kind')}</span>`
+      :c.kind==='input'?(c.config?.text?esc(c.config.text).slice(0,42):t('comp_input_sub'))
       :c.kind==='router'?`🔀 then if ${esc(c.config?.predicate||'redacted')}${c.config?.predicate==='contains'?` "${esc((c.config?.value||'').slice(0,16))}"`:''}`
       :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
       :c.kind==='consensus'?(ch&&ch.consensus.picked?`⚖️ ${esc(ch.consensus.picked)} · agree ${ch.consensus.agreement}`:esc((c.config?.vendors)||'claude,codex,gemini').slice(0,40))
       :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
-    const cname=(c.config?.name||'').trim()||meta.label||c.kind;          // Wave: per-component custom name (falls back to the kind label)
+    const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));   // Wave: per-component custom name (falls back to the kind label)
     const cdesc=(c.config?.desc||'').trim();
     n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(cname)}</div>`
       +(cdesc?`<div class="co" style="color:#b8c7d8">${esc(cdesc).slice(0,72)}</div>`:'')
@@ -996,27 +1013,33 @@ function inspMcp(mn){
 function bindMcp(mn){ const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(!btn)return;
   btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
 function toggleMcpAuto(id){ const m=mcpn(id); if(m){ m.auto=!m.auto; render(); } }
-function inspComp(cn){ const meta=COMP[cn.kind]||{};
-  const fields=(meta.fields||[]).map(f=>{ const val=cn.config?.[f.key]??f.value??'';
+function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind];
+  const fields=isSet?(meta.fields||[]).map(f=>{ const val=cn.config?.[f.key]??f.value??'';
     return `<div class="field"><label>${esc(f.label)}</label>`
       +(f.type==='textarea'?`<textarea class="match" data-ck="${esc(f.key)}" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
         :f.type==='number'?`<input class="cin" type="number" data-ck="${esc(f.key)}" value="${esc(val)}">`
         :f.type==='select'?`<select class="cin" data-ck="${esc(f.key)}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
-        :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join('');
+        :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join(''):'';
   const res=cn.kind==='output'?lastOutput(cn.id):null;
-  const title=(cn.config?.name||'').trim()||meta.label||cn.kind;
+  const title=(cn.config?.name||'').trim()||meta.label||(isSet?cn.kind:t('comp_unset'));
+  const kindSel=`<div class="field"><label>${t('comp_kind')}</label><select class="cin" id="compKind">
+      ${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}
+      ${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${cn.kind===k?'selected':''}>${esc(m.icon+' '+m.label)}</option>`).join('')}
+    </select></div>`;
   return `<div class="ins-h">${meta.icon||'▦'} ${esc(title)} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('comp_help')}</b><div class="ports">${cn.accepts.length?`<div><i></i>${t('legend_in')}</div>`:''}${cn.emits.length?`<div><i class="out"></i>${t('legend_out')}</div>`:''}</div></div>
+    ${kindSel}
     <div class="field"><label>${t('comp_name')}</label><input class="cin" data-ck="name" value="${esc(cn.config?.name||'')}" placeholder="${esc(t('comp_name_ph'))}"></div>
     <div class="field"><label>${t('comp_desc')}</label><textarea class="match" data-ck="desc" placeholder="${esc(t('comp_desc_ph'))}">${esc(cn.config?.desc||'')}</textarea></div>
-    <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(cn.accepts.length?cn.accepts:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(cn.emits.length?cn.emits:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    ${isSet?`<div class="field"><label>${t('f_accepts')}</label><div class="chips">${(cn.accepts.length?cn.accepts:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
+    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(cn.emits.length?cn.emits:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>`:''}
     ${fields}<button class="ibtn" id="compSave">${t('comp_save')}</button>
     ${res!=null?`<div class="field"><label>${t('comp_result')}</label><div class="v" style="color:var(--green);white-space:pre-wrap;max-height:220px;overflow:auto">${esc(res).slice(0,2000)}</div></div>`:''}
     <button class="ibtn danger" onclick="removeComp('${esc(cn.id)}')">${t('btn_del_node')}</button>`;
 }
-function bindComp(cn){ const btn=$('#compSave'); if(!btn)return;
-  btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.value; }); toast(t('t_args_ok')); render(); }; }
+function bindComp(cn){
+  const ks=$('#compKind'); if(ks) ks.onchange=()=>setCompKind(cn, ks.value);
+  const btn=$('#compSave'); if(btn) btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.value; }); toast(t('t_args_ok')); render(); }; }
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
   const onN=state.agents.filter(a=>a.online).length;
@@ -1178,9 +1201,11 @@ function buildFlow(){ if(!EDGES.length) return null;
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
   return { nodes, edges:EDGES.map(e=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; }) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
+  if(f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
 async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
+  if(f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
   openModal({ title:t('m_run_t'), submitLabel:t('m_run_b'), fields:[{key:'input',label:t('m_entry'),type:'textarea',value:'Target brief: Series A fintech VPs of Sales scaling outbound.'}],
     onSubmit:async v=>{ await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input:v.input }); conn(t('t_running')); refresh(); } }); }
 // ⏹ Stop every in-flight run: the hub cancels the run (no more downstream firing) and rejects its paused/queued
@@ -1219,6 +1244,7 @@ function renderTrustPanel(){
   el.style.display='block';
 }
 async function saveAutomation(){ closeMenu(); const f=buildFlow();
+  if(f&&f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
   const tn=f&&f.nodes.find(n=>n.kind==='trigger'); if(!tn) return toast(t('t_need_trig'));
   if(!f.nodes.some(n=>n.kind==='agent')) return toast(t('t_need_agent'));
   openModal({ title:t('m_auto_t'), submitLabel:t('m_save_b'), fields:[
@@ -1285,6 +1311,7 @@ async function fireEvent(){ closeMenu();
     dlg.close(); const r=await api('/api/fire',{ event:ev }); conn('fired '+(r.fired?.length||0)); refresh(); };
 }
 async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toast(t('t_wire2'));
+  if(f.nodes.some(n=>n.kind==='unset')) return toast(t('t_unset'));
   const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id;
   const snip=JSON.stringify({ tool:'run_workflow', args:{ id:wf.id, input:'…', confirm:true } }, null, 2);
   openModal({ title:`MCP tool: ${wf.id}`, info:t('m_export_info'), submitLabel:t('m_copy'), fields:[{key:'snip',label:t('m_mcp_call'),type:'readonly',value:snip}], onSubmit:()=>copyText(snip,t('t_snip_copied')) }); refresh(); }
