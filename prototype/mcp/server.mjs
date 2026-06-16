@@ -20,6 +20,7 @@ const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const AGENTS_DIR = path.join(HERE, '..', 'agents');
 const TOKEN = process.env.A2A_SHARED_TOKEN || null;     // needed only for run_*/fire_event (act)
 const UNATTENDED = process.argv.includes('--unattended') || process.env.BUILDHUD_UNATTENDED === '1';
+const HUB = process.env.BUILDHUD_HUB || 'http://localhost:8795';     // durable handoff hub (prototype/hub)
 const log = (...a) => console.error('[buildhud-mcp]', ...a);
 
 // ---------- build the indexes (token-light: refs only; full loaded on demand) ----------
@@ -106,6 +107,14 @@ async function execWorkflow(w, input) {
 }
 const planOf = (w) => w.steps.map((s, i) => `${i + 1}. ${AGENTS[s.agent]?.company || s.agent} · ${s.skill}`);
 
+// ---------- durable inbox (hub proxy: prototype/hub) ----------
+async function hub(p, body) {
+  const r = await fetch(`${HUB}${p}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(`hub ${p} → ${r.status} (is the hub running? node prototype/hub/hub.mjs)`);
+  return r.json();
+}
+const hRef = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status });
+
 // ---------- tools ----------
 const TOOLS = [
   { name: 'search_agents', description: 'Search the agent index. Returns small refs (id/name/company/skill/tags) — token-light. Use get_agent for full detail.',
@@ -130,6 +139,22 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id'] } },
   { name: 'fire_event', description: 'ACT: feed a build-state event (e.g. {event:"review_completed",status:"green"}); returns the enabled automations whose build_state trigger matches, and fires them when confirm:true / --unattended. The build-state-triggered run.',
     inputSchema: { type: 'object', properties: { event: { type: 'object' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['event'] } },
+  // --- durable inbox (offline-tolerant handoffs via the hub). Unlike run_handoff (sync, recipient must be online),
+  //     send_handoff survives the recipient being offline — delivered + acted on (approve/auto) at its next poll. ---
+  { name: 'send_handoff', description: 'Durable handoff: enqueue work to an agent\'s inbox (hub). Survives the recipient being OFFLINE — delivered on its next poll. Does NOT need the recipient online (unlike run_handoff).',
+    inputSchema: { type: 'object', properties: { to: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, from: { type: 'string' } }, required: ['to', 'skill'] } },
+  { name: 'list_handoffs', description: 'List inbox handoffs (hub). Small refs (id/from/to/skill/status) — token-light. Optional agent/status/limit filter.',
+    inputSchema: { type: 'object', properties: { agent: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } } } },
+  { name: 'get_handoff', description: 'Get one handoff\'s full record (input/result/error/history) by id.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'poll_inbox', description: 'ACT as an agent coming online: heartbeat (presence) + claim its runnable (auto/approved) handoffs from the hub.',
+    inputSchema: { type: 'object', properties: { agent: { type: 'string' } }, required: ['agent'] } },
+  { name: 'approve_handoff', description: 'Approve an awaiting_approval handoff — it runs on the recipient\'s next poll.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'decline_handoff', description: 'Decline an awaiting_approval handoff.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'set_policy', description: 'Set an agent\'s inbox policy: "approval" (human gate) or "auto" (run on poll, automation-like).',
+    inputSchema: { type: 'object', properties: { agent: { type: 'string' }, policy: { type: 'string' } }, required: ['agent', 'policy'] } },
 ];
 
 async function callTool(name, args = {}) {
@@ -179,6 +204,19 @@ async function callTool(name, args = {}) {
       }
       return { event, fired };
     }
+    case 'send_handoff': return hRef(await hub('/api/handoffs', { to: args.to, skill: args.skill, input: args.input || '', from: args.from || 'mcp' }));
+    case 'list_handoffs': {
+      const { handoffs } = await hub('/api/state');
+      let hs = handoffs;
+      if (args.agent) hs = hs.filter((h) => h.to === args.agent || h.from === args.agent);
+      if (args.status) hs = hs.filter((h) => h.status === args.status);
+      return hs.slice(-(args.limit || 20)).map(hRef);
+    }
+    case 'get_handoff': { const { handoffs } = await hub('/api/state'); const h = handoffs.find((x) => x.id === args.id); if (!h) throw new Error(`no handoff "${args.id}"`); return h; }
+    case 'poll_inbox': { const { runnable } = await hub('/api/poll', { agent: args.agent }); return { runnable: runnable.map(hRef) }; }
+    case 'approve_handoff': return hRef(await hub(`/api/handoffs/${args.id}/approve`, {}));
+    case 'decline_handoff': return hRef(await hub(`/api/handoffs/${args.id}/decline`, {}));
+    case 'set_policy': return await hub(`/api/agents/${args.agent}/policy`, { policy: args.policy });
     default: throw new Error(`unknown tool: ${name}`);
   }
 }
