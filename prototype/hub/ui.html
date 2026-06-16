@@ -125,6 +125,8 @@
   .aud { font-size:11px; padding:5px 8px; border-left:2px solid var(--line); margin:3px 0; background:var(--panel2); border-radius:0 6px 6px 0; display:flex; gap:7px; }
   .aud .atype { font-weight:600; text-transform:uppercase; letter-spacing:.03em; font-size:10px; }
   .aud.redact { border-left-color:var(--amber); } .aud.redact .atype { color:var(--amber); }
+  .aud.route { border-left-color:var(--blue); } .aud.route .atype { color:var(--blue); }
+  .node.skipped { opacity:.32; filter:grayscale(1); }
   .aud.deny { border-left-color:var(--red); } .aud.deny .atype { color:var(--red); }
   .aud.send,.aud.approve { border-left-color:var(--green); } .aud.send .atype,.aud.approve .atype { color:var(--green); }
   .aud .adet { color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -270,6 +272,7 @@ const I18N = {
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
+  comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
   cap_always:{ja:'常時',en:'always'}, cap_note:{ja:'external_send は hub が強制。net / fs は宣言＋監査（実 sandbox は runner 側・将来）。',en:'external_send is hub-enforced. net / fs are declared + audited (real sandbox is runner-side · roadmap).'},
   h_presets:{ja:'信頼プリセット（1 クリック）',en:'trust preset (1-click)'}, preset_untrusted:{ja:'未信頼 3rd-party',en:'untrusted 3rd-party'}, preset_internal:{ja:'社内',en:'internal'}, preset_trusted:{ja:'信頼済',en:'trusted'}, preset_applied:{ja:'プリセット適用',en:'preset applied'},
@@ -280,6 +283,7 @@ const I18N = {
   insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
   edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
+  edge_branch:{ja:'router の分岐',en:'router branch'}, edge_pred_true:{ja:'条件が真',en:'predicate true'}, edge_pred_false:{ja:'条件が偽',en:'predicate false'},
   f_event:{ja:'build-state event',en:'build-state event'}, trig_custom:{ja:'— カスタム（JSON）',en:'— custom (JSON)'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
@@ -338,6 +342,9 @@ const COMP = {                                       // minimal component librar
   prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
   consensus: { label:'Consensus', icon:'⚖️', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
   output: { label:'Chat Output', icon:'📤', accepts:['*'], emits:[],           fields:[] },
+  router: { label:'Trust Router', icon:'🔀', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
+    { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
+    { key:'value', label:'substring (for "contains")', value:'' } ] },
 };
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -355,7 +362,9 @@ async function refresh() {
     $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
-function render(){ placeNodes(); renderNodes(); drawLinks(); renderPalette(); renderInspector(); renderCoach(); }
+function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach(); }
+function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
+  document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
 function conn(m){ const c=$('#conn'); c.textContent=m; c.style.color='var(--blue)'; }
 
@@ -524,6 +533,7 @@ function renderNodes(){
     const meta=COMP[c.kind]||{}; const res=c.kind==='output'?lastOutput(c.id):null;
     const ch=c.kind==='consensus'?state.handoffs.filter(h=>h.consensus&&h.node===c.id).pop():null;
     const sub=c.kind==='input'?(c.config?.text?esc(c.config.text).slice(0,42):t('comp_input_sub'))
+      :c.kind==='router'?`🔀 then if ${esc(c.config?.predicate||'redacted')}${c.config?.predicate==='contains'?` "${esc((c.config?.value||'').slice(0,16))}"`:''}`
       :c.kind==='prompt'?esc(c.config?.template||'{input}').slice(0,42)
       :c.kind==='consensus'?(ch&&ch.consensus.picked?`⚖️ ${esc(ch.consensus.picked)} · agree ${ch.consensus.agreement}`:esc((c.config?.vendors)||'claude,codex,gemini').slice(0,40))
       :(res!=null?`<span style="color:var(--green)">${esc(res).slice(0,64)}</span>`:t('comp_output_sub'));
@@ -600,7 +610,8 @@ function drawLinks(){
     const pw = tp ? tp[e.id] : null;
     const fenced = pw ? pw.fences.length>0 : !!(e.share&&((e.share.never||[]).length));        // Wave A/E1: this wire has a data-firewall policy
     const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
-    const lbl=(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':typeColor(e.type);
+    const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;                     // Wave E2: router branch label
+    const lbl=(br?(br+': '):'')+(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
@@ -678,9 +689,13 @@ const companyClient = (id) => { const a=(state.agents||[]).find(x=>x.id===id); r
 function inspEdge(e){
   const sc=companyClient(e.source), tc=companyClient(e.target), cross=!!sc&&!!tc&&sc!==tc;
   const never=((e.share&&e.share.never)||[]).join('\n');
+  const srcRouter=comp(e.source)?.kind==='router';   // Wave E2: edges out of a router carry a then/else branch label
   return `<div class="ins-h">${t('insp_edge')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('edge_help')}</b></div>
     <div class="field"><label>${t('edge_wire')}</label><div class="v">${esc(e.source)} <b>→</b> ${esc(e.target)}</div></div>
+    ${srcRouter?`<div class="field"><label>${t('edge_branch')}</label><select class="cin" id="edBranch">
+      <option value="then" ${(e.branch||'then')==='then'?'selected':''}>then (${t('edge_pred_true')})</option>
+      <option value="else" ${e.branch==='else'?'selected':''}>else (${t('edge_pred_false')})</option></select></div>`:''}
     ${cross?`<div class="field"><div style="color:var(--amber);font-size:12px">⚠ ${t('edge_cross')}${sc?` · ${esc(sc)}→${esc(tc)}`:''}</div></div>`:''}
     <div class="field"><label>${t('edge_never')}</label><textarea class="match" id="edNever" placeholder="${t('h_never_ph')}">${esc(never)}</textarea></div>
     <button class="ibtn" id="edSave">${t('edge_apply')}</button>
@@ -688,7 +703,9 @@ function inspEdge(e){
 }
 function bindEdge(e){
   const s=$('#edSave'); if(s) s.onclick=()=>{ const never=($('#edNever').value||'').split('\n').map(x=>x.trim()).filter(Boolean);
-    e.share = never.length ? { ...(e.share||{}), never } : undefined; toast(t('edge_saved')); drawLinks(); };
+    e.share = never.length ? { ...(e.share||{}), never } : undefined;
+    const br=$('#edBranch'); if(br) e.branch=br.value;                 // Wave E2: router branch label
+    toast(t('edge_saved')); drawLinks(); };
   const d=$('#edDel'); if(d) d.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==e.id); deselect(); };
 }
 function inspTrigger(tr){
@@ -739,6 +756,7 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{};
     return `<div class="field"><label>${esc(f.label)}</label>`
       +(f.type==='textarea'?`<textarea class="match" data-ck="${esc(f.key)}" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
         :f.type==='number'?`<input class="cin" type="number" data-ck="${esc(f.key)}" value="${esc(val)}">`
+        :f.type==='select'?`<select class="cin" data-ck="${esc(f.key)}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
         :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join('');
   const res=cn.kind==='output'?lastOutput(cn.id):null;
   return `<div class="ins-h">${meta.icon||'▦'} ${esc(meta.label||cn.kind)} <span class="back" onclick="deselect()">${t('close')}</span></div>
@@ -782,6 +800,7 @@ function auditDetail(e){
   if(e.type==='send') return `${e.server||''}.${e.tool||''}${e.redacted?` (redacted ${e.redacted})`:''}`;
   if(e.type==='approve') return `${e.to||''} · ${e.skill||''}`;
   if(e.type==='passport'){ const c=e.caps||{}; return `${e.agent||''} net:${c.net||'?'} fs:${c.fs||'?'} send:${c.external_send||'?'}`; }
+  if(e.type==='route') return `${e.node||''} ${e.predicate||''}=${e.result} → ${e.branch||''}`;
   return '';
 }
 
@@ -854,7 +873,7 @@ function buildFlow(){ if(!EDGES.length) return null;
     const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const cn=comp(id); if(cn) return { id, kind:cn.kind, config:cn.config||{}, x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) };
     const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:Math.round(POS[id]?.x||0), y:Math.round(POS[id]?.y||0) }; });
-  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target, ...(e.share&&(e.share.never||[]).length?{share:{never:e.share.never}}:{}) })) }; }
+  return { nodes, edges:EDGES.map(e=>({ id:e.id, source:e.source, target:e.target, ...(e.share&&(e.share.never||[]).length?{share:{never:e.share.never}}:{}), ...(e.branch?{branch:e.branch}:{}) })) }; }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); refresh(); } }); }
@@ -978,7 +997,7 @@ function loadFlow(flow){                          // materialize a generated/sav
     else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
     else if(COMP[n.kind]){ const m=COMP[n.kind]; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config:n.config||{} }); }
   }
-  EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}) }));
+  EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}), ...(e.branch?{branch:e.branch}:{}) }));
   deselect(); render();
 }
 function showAgentDraft(d){

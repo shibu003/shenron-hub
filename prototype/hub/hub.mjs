@@ -176,8 +176,9 @@ function runFlow({ id, nodes, edges, input }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
   const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));   // triggers are entry markers, not executable
   if (trg.size) { nodes = nodes.filter((n) => !trg.has(n.id)); edges = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)); }
+  edges.forEach((e, i) => { if (!e.id) e.id = 'e' + i; });   // Wave E2: dead-branch tracking keys on edge id
   const runId = randomUUID().slice(0, 8);
-  const run = (state.runs[runId] = { id: runId, flowId: id || null, nodes, edges, input: input || '', outputs: {}, status: 'running', createdAt: now() });
+  const run = (state.runs[runId] = { id: runId, flowId: id || null, nodes, edges, input: input || '', outputs: {}, dead: [], skipped: [], routerPick: {}, status: 'running', createdAt: now() });
   const entries = nodes.filter((n) => n.kind !== 'trigger' && !edges.some((e) => e.target === n.id));
   if (!entries.length) throw new Error('flow has no entry node (every node has an incoming edge — cycle?)');
   save();
@@ -191,6 +192,7 @@ function fireNode(run, node, input) {
   if (node.kind === 'output') { run.outputs[node.id] = input || ''; save(); return advanceFrom(run, node.id); }                                       // Wave K Chat Output: terminal display
   if (node.kind === 'prompt') return firePromptNode(run, node, input, from);   // Wave K: inline LLM template (in-process vendor, no approval)
   if (node.kind === 'consensus') return fireConsensusNode(run, node, input, from);   // Wave I: fan to N vendors → agree
+  if (node.kind === 'router') return fireRouterNode(run, node, input, from);   // Wave E2: trust-router — fire only the chosen branch
   if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id; save();
@@ -248,6 +250,22 @@ async function runConsensus(h) {
     postResult(h.id, { result: `[consensus ${c.picked} · agree ${c.agreement}]\n${c.text}` }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
   finally { running.delete(h.id); console.log(`✓ [hub] consensus ${h.id} done`); }
+}
+// Wave E2 — trust-router: conditional control flow that fires ONLY the chosen branch (true DAG capability =
+// Langflow If-Else parity), but with TRUST-NATIVE predicates the incumbent can't express: route on whether the
+// firewall flagged the data upstream (the redaction marker survives in the text). Internal compute, no handoff —
+// the routing decision lands in the tamper-evident audit so you can prove WHY the flow branched.
+const routerEval = (cfg, input) => { const s = String(input || ''); switch (cfg.predicate) {
+  case 'redacted': return s.includes('[redacted:');      // the data firewall stripped something on the way here
+  case 'clean':    return !s.includes('[redacted:');     // nothing was stripped
+  case 'contains': return !!cfg.value && s.includes(cfg.value);
+  default:         return true; } };                      // 'always'
+function fireRouterNode(run, node, input, from) {
+  const cfg = node.config || {}, result = routerEval(cfg, input);
+  run.outputs[node.id] = input;                           // pass-through (the router transforms nothing)
+  (run.routerPick ||= {})[node.id] = result ? 'then' : 'else';
+  trail('route', { runId: run.id, node: node.id, predicate: cfg.predicate || 'always', result, branch: result ? 'then' : 'else' });
+  save(); advanceFrom(run, node.id);
 }
 // Wave G — an mcp node is an external SIDE-EFFECT (Gmail/Slack…). Reuse the durable-inbox handoff so it
 // shows in the cockpit, has history, and rides the SAME approval fence as agents: blast-radius gate →
@@ -347,15 +365,33 @@ function fenceEdge(run, edge, value) {
   if (fw.removed.length) trail('redact', { runId: run.id, edge: edge.id || `${edge.source}→${edge.target}`, from: edge.source, to: edge.target, crossCompany: cross || undefined, removed: fw.removed });
   return fw.text;
 }
+// Wave E2 — dataflow with dead-branch elimination (so a router can fire ONE branch). An edge is "dead" if it's
+// a router branch not taken (or feeds from a skipped node); a node is "skipped" if EVERY incoming edge is dead.
+// A node fires once all its incoming edges have settled (each has an output, is dead, or its source is skipped)
+// and at least one is live. Completion = every non-trigger node has an output OR is skipped. dead/skipped are
+// arrays (run is persisted to inbox.json as JSON — Sets don't serialize).
+const settled = (run, x) => run.dead.includes(x.id) || run.skipped.includes(x.source) || (x.source in run.outputs);
+const live = (run, x) => (x.source in run.outputs) && !run.dead.includes(x.id) && !run.skipped.includes(x.source);
+function markDead(run, e) { if (run.dead.includes(e.id)) return; run.dead.push(e.id); tryFire(run, e.target); }   // a newly-dead branch may let its target skip
+function markSkipped(run, nodeId) { if (run.skipped.includes(nodeId)) return; run.skipped.push(nodeId); console.log(`↷ [hub] flow run ${run.id} skipped ${nodeId}`); for (const e of run.edges.filter((e) => e.source === nodeId)) markDead(run, e); }
+function tryFire(run, targetId) {
+  const tgt = nodeById(run, targetId);
+  if (!tgt || (targetId in run.outputs) || run.skipped.includes(targetId)) return;
+  if (state.handoffs.some((h) => h.runId === run.id && h.node === targetId)) return;   // already running
+  const incoming = run.edges.filter((x) => x.target === targetId);
+  if (!incoming.every((x) => settled(run, x))) return;                                  // wait until every input edge settles
+  const liveIn = incoming.filter((x) => live(run, x));
+  if (!liveIn.length) return markSkipped(run, targetId);                                // all inputs dead → node unreachable
+  fireNode(run, tgt, liveIn.map((x) => fenceEdge(run, x, run.outputs[x.source])).filter(Boolean).join('\n\n'));
+}
 function advanceFrom(run, nodeId) {
+  run.dead ||= []; run.skipped ||= []; run.routerPick ||= {};                           // tolerate runs created before Wave E2
+  const pick = run.routerPick[nodeId];                                                  // 'then'|'else' if nodeId is a router that decided
   for (const e of run.edges.filter((e) => e.source === nodeId)) {
-    const tgt = nodeById(run, e.target); if (!tgt || tgt.id in run.outputs) continue;
-    const incoming = run.edges.filter((x) => x.target === tgt.id);
-    if (incoming.every((x) => x.source in run.outputs) && !state.handoffs.some((x) => x.runId === run.id && x.node === tgt.id)) {
-      fireNode(run, tgt, incoming.map((x) => fenceEdge(run, x, run.outputs[x.source])).filter(Boolean).join('\n\n'));
-    }
+    if (pick !== undefined && (e.branch || 'then') !== pick) { markDead(run, e); continue; }   // router: prune the branch not taken
+    tryFire(run, e.target);
   }
-  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => n.id in run.outputs)) { run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); }
+  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) { run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); }
   save();
 }
 
@@ -534,7 +570,7 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })) });
+    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })) });
   if (req.method === 'GET' && p === '/api/workflows')
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   if (req.method === 'GET' && p === '/api/automations')
