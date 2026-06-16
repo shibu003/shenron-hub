@@ -455,14 +455,30 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
   return m;
 }
+const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
-  const matched = readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
+  const matched = matchingAutomations(event);
   const fired = [];
   for (const m of matched) {
     try { fired.push({ automation: m.id, ...runFlow({ id: m.workflow, input: input ?? m.input ?? '' }) }); }
     catch (e) { fired.push({ automation: m.id, error: e.message }); }
   }
   return { event, matched: matched.map((m) => m.id), fired };
+}
+// Wave 2 (usability): dry-run a build-state event — which enabled automations would fire and what each one runs —
+// so "⚡ Fire" can say in plain language what happens BEFORE it happens (no agents run, nothing is sent).
+const nodeLabel = (n) => n.kind === 'mcp' ? `🔌 ${n.tool || n.server || 'mcp'}` : n.kind === 'router' ? '◇ router'
+  : n.kind === 'input' ? 'Chat Input' : n.kind === 'output' ? 'Chat Output' : n.kind === 'prompt' ? 'Prompt' : (n.agent || n.id);
+const edgeFenced = (e) => !!(e && e.share && ((Array.isArray(e.share.never) && e.share.never.length) || (Array.isArray(e.share.classes) && e.share.classes.length)));
+function firePreview(event) {                               // read-only: same matcher as fireEvent, but describes instead of runs
+  const wfs = readWorkflows();
+  const matches = matchingAutomations(event).map((m) => {
+    const wf = wfs.find((w) => w.id === m.workflow);
+    const nodes = wf ? wf.nodes.filter((n) => n.kind !== 'trigger') : [];
+    const edges = wf ? wf.edges : [];
+    return { id: m.id, name: m.name || m.id, summary: m.summary || '', chain: toposort(nodes, edges).map(nodeLabel), fenced: edges.some(edgeFenced) };
+  });
+  return { event, matches };
 }
 
 // ---------- Ghost Writer (Wave L): NL → a validated, laid-out flow. Generation ≠ execution — the human
@@ -597,6 +613,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
+      if (p === '/api/fire/preview') return json(res, 200, firePreview(j.event || {})); // Wave 2: dry-run — what this event would fire (no run)
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
