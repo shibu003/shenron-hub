@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// server.mjs — B host (friend's machine). A2A-SHAPED, zero-dependency.
+// reviewer-server.mjs — B host (friend's machine). A2A-SHAPED, zero-dependency.
+// (Named to disambiguate from the MCP control plane at prototype/mcp/server.mjs — two same-named
+//  "server.mjs" files confused even a cross-vendor reviewer; see the Codex #1 false positive.)
 // Implements the Persona C 1-handoff receiver (docs/07, docs/09 M1+G3):
 //   - GET  /.well-known/agent-card.json   → Agent Card (skill: review-branch, bearer)
 //   - POST /                              → JSON-RPC message/send → attended approve → review → return
@@ -8,7 +10,7 @@
 // This is A2A-shaped (agent-card.json + message/send) so it can be swapped for the real `a2a-sdk` later.
 // NOT built: real auth (OBO/DPoP), unattended chains, multi-skill. Keep the fence (docs/07 §5).
 //
-//   A2A_SHARED_TOKEN=... node prototype/server.mjs [--config prototype/config.json]
+//   A2A_SHARED_TOKEN=... node prototype/reviewer-server.mjs [--config prototype/config.json]
 
 import http from 'node:http';
 import fs from 'node:fs';

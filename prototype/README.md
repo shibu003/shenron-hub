@@ -7,7 +7,7 @@ Trust is **faked** (shared bearer + repo allowlist + attended + `handoff.log`) �
 Zero dependencies (Node ≥ 18). A2A-**shaped** (Agent Card at `/.well-known/agent-card.json` + JSON-RPC `message/send` + bearer) so it swaps to the real `a2a-sdk` later (`docs/08 §1`).
 
 ```
-server.mjs   B host (friend): card + message/send + attended approve + reviewer (stub|codex|claude)
+reviewer-server.mjs  B host (friend): card + message/send + attended approve + reviewer (stub|codex|claude)
 send.mjs     A host (founder): diff branch → discover card → message/send → print review
 config.example.json   copy to config.json
 hooks/pre-push.sample M2 trigger
@@ -20,7 +20,7 @@ cp prototype/config.example.json prototype/config.json     # reviewer:"stub", au
 export A2A_SHARED_TOKEN=$(openssl rand -hex 16)
 
 # terminal 1 — B host:
-A2A_SHARED_TOKEN=$A2A_SHARED_TOKEN node prototype/server.mjs
+A2A_SHARED_TOKEN=$A2A_SHARED_TOKEN node prototype/reviewer-server.mjs
 # terminal 2 — A host (point at localhost):
 A2A_SHARED_TOKEN=$A2A_SHARED_TOKEN B_URL=http://localhost:8787 node prototype/send.mjs main
 ```
@@ -37,7 +37,7 @@ B runs Codex with `--ask-for-approval never --sandbox read-only` — the human g
 
 ```bash
 # B machine:
-A2A_SHARED_TOKEN=<shared> node prototype/server.mjs
+A2A_SHARED_TOKEN=<shared> node prototype/reviewer-server.mjs
 cloudflared tunnel --url http://localhost:8787      # → https://xxxx.trycloudflare.com
 #   put that URL in config.json "publicUrl" (so the card advertises it), restart server, share URL + token with A
 
@@ -49,7 +49,7 @@ A2A_SHARED_TOKEN=<shared> B_URL=https://xxxx.trycloudflare.com node prototype/se
 ## Fence (do NOT add here — `docs/07 §5`)
 real auth (OBO/DPoP) · multi-tenant · billing · arbitrary connections · unattended chains · auto-merge · multiple skills.
 The reviewer **returns a review (or a `REJECTED` decline) — never writes/merges**.
-A shared token is **required**: set `A2A_SHARED_TOKEN`, or pass `--dev` to both server.mjs and send.mjs for the insecure `dev-token` (localhost only).
+A shared token is **required**: set `A2A_SHARED_TOKEN`, or pass `--dev` to both reviewer-server.mjs and send.mjs for the insecure `dev-token` (localhost only).
 
 ## Success = `docs/07 §6`
 friend+repo+task named · a real A2A round-trip happened · both say "again" · `handoff.log` has the trace.
