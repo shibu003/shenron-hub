@@ -50,6 +50,7 @@ const find = (id) => { const h = state.handoffs.find((x) => x.id === id); if (!h
 const touch = (h, status, by) => { h.status = status; h.updatedAt = now(); (h.history ||= []).push({ ts: now(), status, by }); };
 const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a) || (!!a.local && autorunOn(a)), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'], local: !!a.local, autorun: a.autorun !== false, passport: normalizePassport(a.passport) }));
 const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status, createdAt: h.createdAt, updatedAt: h.updatedAt });
+const runCancelled = (h) => !!(h && h.runId && state.runs[h.runId] && state.runs[h.runId].status === 'cancelled');   // ⏹ a stopped run must not advance / resume
 
 // pre-register known agents (prototype/agents/*.json) so the canvas has nodes to drag between
 (function preseed() {
@@ -131,6 +132,7 @@ function runLocal(h) {
 setImmediate(sweep);                                       // defer to after module init (sweep → runMcp → readIntegrations const)
 function sweep() {
   for (const h of state.handoffs) {
+    if (runCancelled(h)) continue;                          // ⏹ never resume a handoff whose run was stopped
     if (h.mcp) {                                            // external side-effect node (Wave G)
       if (h.status === 'approved') runMcp(h);               // approved but never sent → safe to run
       else if (h.status === 'running')                      // sent-or-sending when we died → do NOT auto-resend (not idempotent)
@@ -349,7 +351,24 @@ function trustPreview({ nodes, edges, input }) {
 function advanceRun(h) {
   const run = state.runs[h.runId]; if (!run) return;
   if (!(h.node in run.outputs)) run.outputs[h.node] = h.error ? `[error] ${h.error}` : (h.result || '');
-  advanceFrom(run, h.node);
+  advanceFrom(run, h.node);                                 // no-ops if the run was cancelled (guard inside)
+}
+// ⏹ Stop a run. In-process agents already executing can't be aborted mid-flight (we don't own the vendor promise),
+// so the realistic stop = mark the run cancelled (advanceFrom then fires nothing more, it never reaches completed)
+// + reject this run's handoffs that haven't started or are paused at approval (so approve can't resume them).
+// A handoff still 'running' finishes, but its postResult→advanceRun is a no-op on the cancelled run.
+function stopRun(id) {
+  const run = state.runs[id]; if (!run) throw new Error(`no run "${id}"`);
+  if (run.status !== 'running') return { id, status: run.status, stopped: 0 };          // already terminal — nothing to stop
+  run.status = 'cancelled'; run.stoppedAt = now();
+  let stopped = 0;
+  for (const h of state.handoffs) {
+    if (h.runId !== id) continue;
+    if (h.status === 'submitted' || h.status === 'awaiting_approval' || h.status === 'approved') { touch(h, 'rejected', 'stopped'); stopped++; }
+  }
+  console.log(`⏹ [hub] flow run ${id} stopped (${stopped} pending handoff(s) cancelled)`);
+  save();
+  return { id, status: run.status, stopped };
 }
 // Wave A — per-edge Data Firewall: the productized granularity over the per-agent firewall in create().
 // Each EDGE may carry share.never (extra strings to strip on THIS wire); the built-in secret/PII firewall
@@ -385,6 +404,7 @@ function tryFire(run, targetId) {
   fireNode(run, tgt, liveIn.map((x) => fenceEdge(run, x, run.outputs[x.source])).filter(Boolean).join('\n\n'));
 }
 function advanceFrom(run, nodeId) {
+  if (run.status === 'cancelled') { save(); return; }                                   // ⏹ stopped run: record the result but fire nothing downstream (never completes)
   run.dead ||= []; run.skipped ||= []; run.routerPick ||= {};                           // tolerate runs created before Wave E2
   const pick = run.routerPick[nodeId];                                                  // 'then'|'else' if nodeId is a router that decided
   for (const e of run.edges.filter((e) => e.source === nodeId)) {
@@ -620,6 +640,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/ghostwrite') { ghostwrite(j).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }  // Wave L: NL → validated flow
       if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
       let m;
+      if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : ref(postResult(m[1], j)));

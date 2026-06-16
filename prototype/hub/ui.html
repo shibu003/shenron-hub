@@ -18,6 +18,7 @@
   .tb { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:7px 13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
   .tb:hover { border-color:var(--blue); }
   .tb.primary { border-color:var(--blue); color:var(--blue); } .tb.go { border-color:var(--green); color:var(--green); }
+  .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
   .menu { position:relative; }
   .menu-pop { position:absolute; top:38px; right:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:230px; z-index:30; box-shadow:0 12px 34px -12px #000; display:none; }
   .menu-pop.open { display:block; }
@@ -234,6 +235,7 @@
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
+    <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none"></button>
     <button class="tb" id="btnTrust" onclick="checkTrust()"></button>
     <div class="menu">
       <button class="tb" id="btnAuto" onclick="toggleMenu(event)"></button>
@@ -285,7 +287,8 @@
 /* ---------- i18n (JA/EN toggle, persisted) ---------- */
 let LANG = localStorage.getItem('bh_lang') || 'ja';
 const I18N = {
-  save:{ja:'💾 保存',en:'💾 Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, automate:{ja:'⚡ 自動化 ▾',en:'⚡ Automate ▾'},
+  save:{ja:'💾 保存',en:'💾 Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, stop:{ja:'⏹ 停止',en:'⏹ Stop'}, automate:{ja:'⚡ 自動化 ▾',en:'⚡ Automate ▾'},
+  t_stopped:{ja:'実行を停止しました',en:'run stopped'}, t_nostop:{ja:'実行中の flow はありません',en:'no run in progress'},
   mh_trig:{ja:'配線した trigger → chain から',en:'From the wired trigger → chain'},
   mi_auto:{ja:'📋 automation として保存…',en:'📋 Save as automation…'},
   mi_fire:{ja:'⚡ build-state イベントを発火…',en:'⚡ Fire build-state event…'},
@@ -445,7 +448,7 @@ function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.
 function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
-  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
+  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
@@ -489,7 +492,8 @@ async function refresh() {
     $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
-function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach(); }
+function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach();
+  const sb=$('#btnStop'); if(sb) sb.style.display=(state.runs||[]).some(r=>r.status==='running')?'inline-flex':'none'; }   // ⏹ visible only while a run is active
 function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
@@ -1161,6 +1165,14 @@ async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1')
 async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   openModal({ title:t('m_run_t'), submitLabel:t('m_run_b'), fields:[{key:'input',label:t('m_entry'),type:'textarea',value:'Target brief: Series A fintech VPs of Sales scaling outbound.'}],
     onSubmit:async v=>{ await api('/api/runflow',{ nodes:f.nodes, edges:f.edges, input:v.input }); conn(t('t_running')); refresh(); } }); }
+// ⏹ Stop every in-flight run: the hub cancels the run (no more downstream firing) and rejects its paused/queued
+// handoffs. In-process agents already mid-call can't be aborted, so they finish — but advance nothing further.
+async function stopRun(){
+  const active=(state.runs||[]).filter(r=>r.status==='running');
+  if(!active.length) return toast(t('t_nostop'));
+  for(const r of active){ try{ await api(`/api/runs/${encodeURIComponent(r.id)}/stop`,{}); }catch{} }
+  toast(t('t_stopped')); conn(t('t_stopped')); refresh();
+}
 // Wave E1 — trust-as-you-build: dry-run the firewall + capability gates over the current draft (no agents run,
 // nothing sent) and show, BEFORE Run, what the trust boundary will do. The differentiator Langflow can't show.
 async function checkTrust(){
