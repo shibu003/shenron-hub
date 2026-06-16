@@ -21,7 +21,7 @@ import url from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
-import { redact, auditAppend, auditVerify, DEFAULT_PASSPORT, hasCap } from '../trust.mjs';
+import { redact, auditAppend, auditVerify, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
@@ -43,12 +43,12 @@ function load() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); 
 function save() { try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch (e) { console.error('[hub] save failed', e.message); } }
 
 // ---------- helpers ----------
-const agent = (id) => { const a = (state.agents[id] ||= { id, policy: 'approval', autoFrom: [], lastSeen: 0 }); a.passport ||= structuredClone(DEFAULT_PASSPORT); return a; };   // Wave H: every agent carries a capability passport
+const agent = (id) => { const a = (state.agents[id] ||= { id, policy: 'approval', autoFrom: [], lastSeen: 0 }); a.passport = normalizePassport(a.passport); return a; };   // Wave H/B: every agent carries a (structured, migrated) capability passport
 const online = (a) => now() - (a.lastSeen || 0) < ONLINE_MS;
 const isAuto = (a, from) => a.policy === 'auto' || (a.autoFrom || []).includes(from);
 const find = (id) => { const h = state.handoffs.find((x) => x.id === id); if (!h) throw new Error(`no handoff "${id}"`); return h; };
 const touch = (h, status, by) => { h.status = status; h.updatedAt = now(); (h.history ||= []).push({ ts: now(), status, by }); };
-const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a) || (!!a.local && autorunOn(a)), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'], local: !!a.local, autorun: a.autorun !== false, passport: a.passport || structuredClone(DEFAULT_PASSPORT) }));
+const publicAgents = () => Object.values(state.agents).map((a) => ({ id: a.id, policy: a.policy, autoFrom: a.autoFrom || [], online: online(a) || (!!a.local && autorunOn(a)), lastSeen: a.lastSeen || 0, skill: a.skill || null, company: a.company || null, accepts: a.accepts || ['*'], emits: a.emits || ['*'], local: !!a.local, autorun: a.autorun !== false, passport: normalizePassport(a.passport) }));
 const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status, createdAt: h.createdAt, updatedAt: h.updatedAt });
 
 // pre-register known agents (prototype/agents/*.json) so the canvas has nodes to drag between
@@ -62,6 +62,8 @@ const ref = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: 
     save();
   } catch {}
 })();
+for (const a of Object.values(state.agents)) a.passport = normalizePassport(a.passport);   // Wave B: migrate legacy array passports on boot
+save();
 
 // ---------- core ops ----------
 function create({ from, to, skill, input }) {
@@ -258,7 +260,10 @@ function fireMcpNode(run, node, input, from) {
   touch(h, 'submitted', h.from); state.handoffs.push(h);
   if (!integ) return void postResult(h.id, { error: `no integration "${node.server}" (connect it in ⚙ Settings)` }, 'hub');
   if (integ.enabled === false) return void postResult(h.id, { error: `integration "${node.server}" is disabled` }, 'hub');
-  const auto = node.auto === true && AUTORUN;
+  const up = state.agents[from];                                  // Wave B: enforce the upstream agent's external_send capability
+  const mode = up ? sendMode(up.passport) : 'approval';          // unknown/non-agent upstream → still behind the approval fence
+  if (mode === 'deny') { trail('deny', { handoff: h.id, from, to: `${node.server}.${node.tool}`, why: 'external_send=deny' }); return void postResult(h.id, { error: `agent "${from}" external_send is denied` }, 'hub'); }
+  const auto = node.auto === true && AUTORUN && mode === 'allow'; // approval mode forces the human fence even if node.auto opts in
   touch(h, auto ? 'approved' : 'awaiting_approval', auto ? 'auto' : 'policy'); save();
   if (auto) runMcp(h);
 }
@@ -271,8 +276,8 @@ async function runMcp(h) {
     const integ = readIntegrations().find((x) => x.id === server);
     if (!integ) throw new Error(`no integration "${server}"`);
     if (integ.enabled === false) throw new Error(`integration "${server}" is disabled`);
-    const upstream = state.agents[h.from];                    // Wave H capability: a known upstream agent must hold external_send
-    if (upstream && !hasCap(upstream.passport, 'external_send')) { trail('deny', { handoff: h.id, from: h.from, to: `${server}.${tool}`, why: 'no external_send capability' }); throw new Error(`agent "${h.from}" lacks the external_send capability`); }
+    const upstream = state.agents[h.from];                    // Wave H/B capability: a known upstream must not be external_send=deny (defense in depth)
+    if (upstream && sendMode(upstream.passport) === 'deny') { trail('deny', { handoff: h.id, from: h.from, to: `${server}.${tool}`, why: 'external_send=deny' }); throw new Error(`agent "${h.from}" external_send is denied`); }
     const fw = redact(h.input, upstream?.passport?.share || {});   // data firewall at egress: scrub before it leaves to the external tool
     if (fw.removed.length) trail('redact', { handoff: h.id, to: `${server}.${tool}`, egress: true, removed: fw.removed });
     const out = await callMcpTool(integ, tool, { ...(config || {}), input: fw.text }, { cwd: REPO_ROOT });
@@ -281,10 +286,9 @@ async function runMcp(h) {
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
   finally { running.delete(h.id); console.log(`✓ [hub] MCP ${h.id} done`); }
 }
-function setPassport(id, { caps, share }) {                   // Wave H: edit an agent's capability passport
+function setPassport(id, { caps, share }) {                   // Wave H/B: edit an agent's structured capability passport
   const a = agent(id);
-  if (Array.isArray(caps)) a.passport.caps = caps.filter((c) => ['read', 'write', 'external_send'].includes(c));
-  if (share) a.passport.share = { never: Array.isArray(share.never) ? share.never : [], pass: Array.isArray(share.pass) ? share.pass : [] };
+  a.passport = normalizePassport({ caps: caps || a.passport.caps, share: share || a.passport.share });   // normalize clamps to CAP_VOCAB
   save(); trail('passport', { agent: id, caps: a.passport.caps, never: a.passport.share.never.length });
   return { id, passport: a.passport };
 }
@@ -505,6 +509,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
   if (req.method === 'GET' && p === '/api/buildstate')           // Wave J: the build-state IR vocabulary + match operators
     return json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) });
+  if (req.method === 'GET' && p === '/api/capvocab')             // Wave B: the capability-passport vocabulary (drives the passport editor)
+    return json(res, 200, CAP_VOCAB);
   if (req.method === 'GET' && p === '/api/mcp')                  // how to connect BuildHUD's MCP server (for "copy MCP call")
     return json(res, 200, { name: 'buildhud-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
   if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }

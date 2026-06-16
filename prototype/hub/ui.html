@@ -102,8 +102,9 @@
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
   textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
   input.cin, select.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
-  .capchip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:999px; padding:2px 9px; font-size:11px; cursor:pointer; }
-  .capchip input { accent-color:var(--green); margin:0; }
+  .caprow { display:flex; align-items:center; gap:8px; margin:4px 0; }
+  .caprow .capk { flex:0 0 92px; font-size:11px; color:var(--dim); font-family:ui-monospace,monospace; }
+  .caprow select.cin { flex:1; }
   .redbadge { color:var(--amber); border:1px solid var(--amber); border-radius:999px; padding:0 6px; font-size:10px; margin-left:6px; }
   .aud { font-size:11px; padding:5px 8px; border-left:2px solid var(--line); margin:3px 0; background:var(--panel2); border-radius:0 6px 6px 0; display:flex; gap:7px; }
   .aud .atype { font-weight:600; text-transform:uppercase; letter-spacing:.03em; font-size:10px; }
@@ -253,6 +254,7 @@ const I18N = {
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
+  cap_always:{ja:'常時',en:'always'}, cap_note:{ja:'external_send は hub が強制。net / fs は宣言＋監査（実 sandbox は runner 側・将来）。',en:'external_send is hub-enforced. net / fs are declared + audited (real sandbox is runner-side · roadmap).'},
   aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で「外に出さない」語を指定。秘密/PII は既定で常に除去。',en:'Strings never allowed to cross THIS wire. Secrets/PII are always stripped by default.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_never:{ja:'never（この配線で除去する語・パターン）',en:'never (strings to strip on this wire)'},
@@ -305,6 +307,7 @@ const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
+let CAPVOCAB = { net:['none','read','full'], fs:['none','diff-only','repo'], external_send:['deny','approval','allow'], secrets:['deny'] };   // Wave B: capability vocabulary (refreshed from /api/capvocab)
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
@@ -580,6 +583,9 @@ function renderInspector(){
   ins.querySelectorAll('[data-ok]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-ok'),'approve');});
   ins.querySelectorAll('[data-no]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-no'),'decline');});
 }
+function capRow(key,a){ const cur=(a.passport&&a.passport.caps&&a.passport.caps[key])||(CAPVOCAB[key]||[])[0];
+  const opts=(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('');
+  return `<div class="caprow"><span class="capk">${esc(key.replace('_',' '))}</span><select class="cin" data-cap="${key}">${opts}</select></div>`; }
 function inspAgent(a){
   return `<div class="ins-h">${t('insp_agent')} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('agent_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
@@ -593,9 +599,11 @@ function inspAgent(a){
       <button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
     ${a.local?`<div class="field"><label>${t('f_autorun')}</label>
       <button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button></div>`:''}
-    <div class="field"><label>🔒 ${t('h_caps')}</label><div class="chips">
-      ${['read','write','external_send'].map(c=>`<label class="capchip"><input type="checkbox" data-cap="${c}" ${((a.passport&&a.passport.caps)||[]).includes(c)?'checked':''}>${c}</label>`).join('')}
-    </div></div>
+    <div class="field"><label>🔒 ${t('h_caps')}</label>
+      ${capRow('net',a)}${capRow('fs',a)}${capRow('external_send',a)}
+      <div class="caprow"><span class="capk">secrets</span><span class="chip">deny · ${t('cap_always')}</span></div>
+      <div class="mini">${t('cap_note')}</div>
+    </div>
     <div class="field"><label>${t('h_never')}</label><textarea class="match" id="ppNever" placeholder="${t('h_never_ph')}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>
     <button class="ibtn" id="ppSave">${t('h_pp_apply')}</button>
     <button class="ibtn" onclick="sendHandoff('${esc(a.id)}')">${t('btn_send')}</button>
@@ -603,7 +611,7 @@ function inspAgent(a){
     <button class="ibtn danger" onclick="HIDDEN.add('${esc(a.id)}');deselect()">${t('btn_remove')}</button>`;
 }
 function bindAgent(a){ const b=$('#ppSave'); if(!b)return;
-  b.onclick=async()=>{ const caps=[...$('#inspector').querySelectorAll('[data-cap]')].filter(x=>x.checked).map(x=>x.dataset.cap);
+  b.onclick=async()=>{ const caps={ secrets:'deny' }; $('#inspector').querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
     const never=($('#ppNever').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
     await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }; }
 // Wave A — per-edge Data Firewall editor. The wire's `share.never` strips extra strings on THIS edge only;
@@ -716,7 +724,7 @@ function auditDetail(e){
   if(e.type==='deny') return `${e.from||''} → ${e.to||''} — ${e.why||''}`;
   if(e.type==='send') return `${e.server||''}.${e.tool||''}${e.redacted?` (redacted ${e.redacted})`:''}`;
   if(e.type==='approve') return `${e.to||''} · ${e.skill||''}`;
-  if(e.type==='passport') return `${e.agent||''} caps=${(e.caps||[]).join('/')}`;
+  if(e.type==='passport'){ const c=e.caps||{}; return `${e.agent||''} net:${c.net||'?'} fs:${c.fs||'?'} send:${c.external_send||'?'}`; }
   return '';
 }
 
@@ -924,5 +932,5 @@ document.addEventListener('keydown', e=>{
 function deleteSelected(){ const id=selected; if(!id)return;
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
-applyChrome(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); refresh(); fetchIntegrations(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
