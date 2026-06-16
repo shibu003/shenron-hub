@@ -178,7 +178,7 @@ function runFlow({ id, nodes, edges, input, parent }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
   const depth = parent ? ((state.runs[parent.runId]?.depth || 0) + 1) : 0;   // 📦 sub-flow nesting — bound it so a self-referential flow can't loop forever
   if (depth > 8) throw new Error('sub-flow nesting too deep (>8)');
-  const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));   // triggers are entry markers, not executable
+  const trg = new Set(nodes.filter((n) => n.kind === 'trigger' || n.kind === 'note').map((n) => n.id));   // triggers = entry markers, notes = annotations — neither is executable
   if (trg.size) { nodes = nodes.filter((n) => !trg.has(n.id)); edges = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)); }
   edges.forEach((e, i) => { if (!e.id) e.id = 'e' + i; });   // Wave E2: dead-branch tracking keys on edge id
   const runId = randomUUID().slice(0, 8);
@@ -339,7 +339,7 @@ function setPassport(id, { caps, share }) {                   // Wave H/B: edit 
 // runtime, so their outgoing edges report the wire POLICY (fenced categories) instead of counts — honest, no overclaim.
 function trustPreview({ nodes, edges, input }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
-  const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));
+  const trg = new Set(nodes.filter((n) => n.kind === 'trigger' || n.kind === 'note').map((n) => n.id));
   const N = nodes.filter((n) => !trg.has(n.id)), E = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target));
   const byId = new Map(N.map((n) => [n.id, n]));
   const companyOfNode = (n) => { const a = n && n.agent && state.agents[n.agent]; return a ? (a.company || null) : null; };

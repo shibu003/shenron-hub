@@ -97,6 +97,8 @@
   .node.trigger { width:188px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
   .node.mcp { width:200px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
   .node.comp { width:200px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
+  .node.note { width:250px; cursor:grab; } .node.note .notebody { padding:11px 13px; font-size:12px; line-height:1.55; color:#cdd9e5; white-space:normal; max-height:280px; overflow:auto; }
+  .node.note .notebody b { color:#fff; }
   .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
   .port.in { left:-11px; } .port.out { right:-11px; } .port:hover { transform:translateY(-50%) scale(1.2); box-shadow:0 0 0 4px rgba(230,237,243,.24); }
   .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#b8c7d8; font-size:9px; line-height:1; letter-spacing:.06em; background:#0d1117; border:1px solid #2f3d4c; border-radius:999px; padding:2px 5px; pointer-events:none; z-index:4; }
@@ -265,7 +267,7 @@
     <div id="palList"></div>
     <div class="pal-add">
       <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
-      <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button></div>
+      <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button><button id="btnAddNote" onclick="addNote()"></button></div>
     </div>
   </aside>
   <main id="canvas">
@@ -353,6 +355,7 @@ const I18N = {
   sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
   collapse:{ja:'📦 {n}個を畳む',en:'📦 Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
   t_collapse_linear:{ja:'入口/出口が複数です — 線形の選択にしてください',en:'Multiple entry/exit points — select a linear chain'}, t_collapsed:{ja:'選択を sub-flow に畳みました',en:'collapsed into a sub-flow'}, t_collapse_min:{ja:'2つ以上を Shift+クリックで選択してください',en:'Shift+click 2+ nodes first'},
+  add_note:{ja:'📝 メモ',en:'📝 Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
@@ -476,7 +479,7 @@ function applyChrome(){   // static (non-state) chrome strings
   $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
-  $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger');
+  $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger'); $('#btnAddNote').textContent=t('add_note');
   $('#hint').innerHTML=t('hint');
 }
 
@@ -491,6 +494,9 @@ let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP s
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
 let WORKFLOWS = [];                                  // saved workflows (for the 📦 Sub-flow node's picker)
+let NOTES = [], noidc = 0;                           // (b) Langflow-style annotation cards (markdown + color, not executable)
+const NOTE_COLORS = { amber:{bg:'#241b07',border:'#5c4a16'}, blue:{bg:'#10233a',border:'#274b73'}, green:{bg:'#0c1f12',border:'#1f5130'}, grey:{bg:'#161b22',border:'#30363d'} };
+const mdLite = (s) => esc(s).replace(/^### (.*)$/gm,'<b style="font-size:13px">$1</b>').replace(/^## (.*)$/gm,'<b style="font-size:14px">$1</b>').replace(/^# (.*)$/gm,'<b style="font-size:15px">$1</b>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^[-*] (.*)$/gm,'• $1').replace(/\n/g,'<br>');   // tiny safe markdown (escape first)
 const COMP = {                                       // minimal component library (per-field typed template). Agent stays our LLM unit.
   input:  { label:'Chat Input',  icon:'💬', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(empty → use the Run input)' }] },
   prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
@@ -531,7 +537,8 @@ const ag = (id) => state.agents.find(a=>a.id===id);
 const trig = (id) => TRIGGERS.find(t=>t.id===id);
 const mcpn = (id) => MCP_NODES.find(m=>m.id===id);
 const comp = (id) => COMPONENTS.find(c=>c.id===id);
-const nodeOf = (id) => ag(id) || trig(id) || mcpn(id) || comp(id);
+const noteOf = (id) => NOTES.find(n=>n.id===id);
+const nodeOf = (id) => ag(id) || trig(id) || mcpn(id) || comp(id) || noteOf(id);
 function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--){ const o=rs[i].outputs; if(o && id in o) return o[id]; } return null; }
 /* Langflow-style: color handles + edges by data type (stable hash → palette; "*"/unknown → gray). */
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
@@ -662,6 +669,8 @@ function rebindAgent(oldId, newId){ if(!newId||newId===oldId) return;
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
+function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', x:90, y:90+NOTES.length*24 }); selectNode(id); render(); }   // (b) annotation card
+function removeNote(id){ NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
 
 /* ---------- canvas nodes ---------- */
 function placeNodes(){
@@ -670,7 +679,7 @@ function placeNodes(){
 }
 function renderNodes(){
   const canvas=$('#world');
-  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length)?'none':'block';
+  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'block';
   const seen=new Set();
   for(const a of state.agents){
     if(HIDDEN.has(a.id)) continue;
@@ -735,6 +744,15 @@ function renderNodes(){
       +(c.accepts.length?portHtml('in',c.id,c.accepts[0]):'')
       +(c.emits.length?portHtml('out',c.id,c.emits[0]):'');
   }
+  for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
+    const nid='n_'+cssid(nt.id); seen.add(nid);
+    let n=document.getElementById(nid);
+    if(!n){ n=document.createElement('div'); n.className='node note'; n.id=nid; n.dataset.id=nt.id; canvas.appendChild(n); attachNode(n,nt.id); }
+    if(!POS[nt.id]) POS[nt.id]={x:nt.x||90,y:nt.y||90};
+    n.style.left=POS[nt.id].x+'px'; n.style.top=POS[nt.id].y+'px'; n.classList.toggle('selected',selected===nt.id);
+    const col=NOTE_COLORS[nt.color]||NOTE_COLORS.amber; n.style.background=col.bg; n.style.borderColor=col.border;
+    n.innerHTML=`<div class="notebody">${mdLite(nt.text||'')}</div>`;
+  }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
@@ -765,7 +783,7 @@ $('#canvas').addEventListener('wheel', e=>{                                     
 function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
 function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
-function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger')return false;
+function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger'||tn.kind==='note'||noteOf(src))return false;
   const e=nodeOf(src)?.emits||['*'], a=tn.accepts||['*']; return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }
 function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
   const c=e.find(x=>x!=='*'&&a.includes(x)); if(c)return c; if(a.includes('*')) return e.find(x=>x!=='*')||'*'; if(e.includes('*')) return a.find(x=>x!=='*')||'*'; return '*'; }
@@ -833,8 +851,9 @@ function drawLinks(){
 
 /* ---------- inspector ---------- */
 function renderInspector(){
-  const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected);
+  const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected); const nt = selected && noteOf(selected);
   if(ed) return void (ins.innerHTML = inspEdge(ed), bindEdge(ed));
+  if(nt) return void (ins.innerHTML = inspNote(nt), bindNote(nt));
   if(a) return void (ins.innerHTML = inspAgent(a), bindAgent(a));
   if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
   if(mn) return void (ins.innerHTML = inspMcp(mn), bindMcp(mn));
@@ -1062,6 +1081,8 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind]
         :f.type==='number'?`<input class="cin" type="number" data-ck="${esc(f.key)}" value="${esc(val)}">`
         :f.type==='select'?`<select class="cin" data-ck="${esc(f.key)}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
         :f.type==='workflow'?`<select class="cin" id="compRef"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)} · ${w.nodes}n</option>`).join('')}</select>`
+        :f.type==='bool'?`<input type="checkbox" data-ck="${esc(f.key)}" ${(val===true||val==='true')?'checked':''}>`
+        :f.type==='secret'?`<input class="cin" type="password" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}" autocomplete="off">`
         :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join(''):'';
   const res=cn.kind==='output'?lastOutput(cn.id):null;
   const title=(cn.config?.name||'').trim()||meta.label||(isSet?cn.kind:t('comp_unset'));
@@ -1080,10 +1101,18 @@ function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind]
     ${res!=null?`<div class="field"><label>${t('comp_result')}</label><div class="v" style="color:var(--green);white-space:pre-wrap;max-height:220px;overflow:auto">${esc(res).slice(0,2000)}</div></div>`:''}
     <button class="ibtn danger" onclick="removeComp('${esc(cn.id)}')">${t('btn_del_node')}</button>`;
 }
+function inspNote(nt){   // (b) annotation editor
+  return `<div class="ins-h">📝 ${t('note')} <span class="back" onclick="deselect()">${t('close')}</span></div>
+    <div class="field"><label>${t('note_text')}</label><textarea class="match" id="noteText" style="min-height:170px">${esc(nt.text||'')}</textarea></div>
+    <div class="field"><label>${t('note_color')}</label><select class="cin" id="noteColor">${Object.keys(NOTE_COLORS).map(c=>`<option value="${c}" ${nt.color===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <button class="ibtn" id="noteSave">${t('comp_save')}</button>
+    <button class="ibtn danger" onclick="removeNote('${esc(nt.id)}')">${t('btn_del_node')}</button>`;
+}
+function bindNote(nt){ const b=$('#noteSave'); if(b) b.onclick=()=>{ nt.text=$('#noteText').value; nt.color=$('#noteColor').value; toast(t('t_args_ok')); render(); }; }
 function bindComp(cn){
   const ks=$('#compKind'); if(ks) ks.onchange=()=>setCompKind(cn, ks.value);
   const rs=$('#compRef'); if(rs) rs.onchange=()=>{ cn.config.ref=rs.value; render(); };   // 📦 Sub-flow: bind which workflow (auto-applies)
-  const btn=$('#compSave'); if(btn) btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.value; }); toast(t('t_args_ok')); render(); }; }
+  const btn=$('#compSave'); if(btn) btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.type==='checkbox'?el.checked:el.value; }); toast(t('t_args_ok')); render(); }; }
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
   const onN=state.agents.filter(a=>a.online).length;
@@ -1243,11 +1272,12 @@ function nodeSpecOf(id){ const X=Math.round(POS[id]?.x||0), Y=Math.round(POS[id]
   const tr=trig(id); if(tr) return { id, kind:'trigger', trigger:{type:tr.type, match:tr.match}, x:X, y:Y };
   const mn=mcpn(id); if(mn) return { id, kind:'mcp', server:mn.server, tool:mn.tool, config:mn.config||{}, auto:!!mn.auto, x:X, y:Y };
   const cn=comp(id); if(cn) return { id, kind:cn.kind, ...(cn.kind==='workflow'?{ref:cn.config?.ref||''}:{}), config:cn.config||{}, x:X, y:Y };
+  const nt=noteOf(id); if(nt) return { id, kind:'note', text:nt.text||'', color:nt.color||'amber', x:X, y:Y };
   const a=ag(id); return { id, kind:'agent', agent:id, skill:a?.skill||'task', x:X, y:Y }; }
 const edgeSpecOf=(e)=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; };
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
-  return { nodes:[...ids].map(nodeSpecOf), edges:EDGES.map(edgeSpecOf) }; }
+  return { nodes:[...ids].map(nodeSpecOf).concat(NOTES.map(nt=>nodeSpecOf(nt.id))), edges:EDGES.map(edgeSpecOf) }; }   // notes are unwired → append them so they persist
 function buildSubflow(ids, edges){ return { nodes:ids.map(nodeSpecOf), edges:edges.map(edgeSpecOf) }; }   // ③b-2: serialize a selected subset
 // ③b-2 — collapse a (linear) multi-selection into one 📦 Sub-flow node: save the picked nodes + their internal
 // edges as a workflow, drop a workflow node in their place, and rewire the external edges to it. Linear only —
@@ -1403,13 +1433,14 @@ function ghostWrite(){
     } });
 }
 function loadFlow(flow){                          // materialize a generated/saved flow onto the canvas (fresh draft)
-  TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft
+  TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // hide all, then reveal the flow's agents
   for(const n of flow.nodes){
     POS[n.id]={ x:n.x||40, y:n.y||40 };
     if(n.kind==='agent'){ HIDDEN.delete(n.agent||n.id); }
     else if(n.kind==='trigger'){ TRIGGERS.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }
     else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
+    else if(n.kind==='note'){ NOTES.push({ id:n.id, text:n.text||'', color:n.color||'amber' }); }
     else if(COMP[n.kind]){ const m=COMP[n.kind]; const config=n.config||{}; if(n.kind==='workflow'&&n.ref&&!config.ref) config.ref=n.ref; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config }); }
   }
   EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}), ...(e.branch?{branch:e.branch}:{}) }));
@@ -1448,7 +1479,7 @@ document.addEventListener('keydown', e=>{
   if((e.key==='Delete'||e.key==='Backspace') && !typing && selected){ e.preventDefault(); deleteSelected(); }
 });
 function deleteSelected(){ const id=selected; if(!id)return;
-  if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id);
+  if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id); else if(noteOf(id)) removeNote(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
 applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
