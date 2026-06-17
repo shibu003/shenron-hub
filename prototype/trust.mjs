@@ -31,6 +31,17 @@ export function redact(text, { never = [] } = {}) {
   return { text: out, removed };
 }
 
+// Structured-args allowlist — the pass-list sibling of redact's deny-list, for the one genuinely structured
+// boundary (MCP egress config args). Empty/unset pass = allow-all (back-compat); else default-deny: keep ONLY
+// keys named in pass, report what was dropped (labels, never values — same discipline as redact).
+export function applyPass(obj, pass = []) {
+  const o = (obj && typeof obj === 'object') ? obj : {};
+  if (!Array.isArray(pass) || pass.length === 0) return { args: o, dropped: [] };
+  const allow = new Set(pass); const args = {}, dropped = [];
+  for (const k of Object.keys(o)) (allow.has(k) ? (args[k] = o[k]) : dropped.push(k));
+  return { args, dropped };
+}
+
 // Capability passport: declared per agent; the hub enforces it every hop. Wave B productizes the vocabulary
 // from a flat read/write/external_send list into a structured grant so a buyer can say "this 3rd-party agent
 // gets diff-only repo access, no network, and must ask before any external send" in one passport.

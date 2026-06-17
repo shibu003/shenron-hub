@@ -83,8 +83,12 @@
   /* per-node dynamic sizing — width fits content within [min,max]; height grows with the in-card settings */
   .node { position:absolute; width:fit-content; min-width:200px; max-width:340px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
           padding:0 0 9px; cursor:grab; user-select:none; box-shadow:0 2px 10px -3px rgba(0,0,0,.55); transition:border-color .12s, box-shadow .12s, transform .12s; }
-  .node:hover { border-color:#48515c; box-shadow:0 12px 30px -12px rgba(0,0,0,.8); transform:translateY(-1px); }
-  .node.selected { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 8px 22px -10px var(--blue); }
+  .node:hover { border-color:#48515c; box-shadow:0 12px 30px -12px rgba(0,0,0,.8); transform:translateY(-1px); z-index:7; }   /* overlap: raise the hovered node */
+  .node.selected { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 8px 22px -10px var(--blue); z-index:8; }
+  /* C1 floating wiring — drag from a node's rim to connect (any side); drop target highlights */
+  body:not(.wiring) .node:hover { outline:1px dashed rgba(88,166,255,.45); outline-offset:3px; }   /* hint: the rim is draggable to connect */
+  .node.wtarget { outline:2px solid var(--green); outline-offset:2px; }
+  .node.wbad { outline:2px solid var(--red); outline-offset:2px; }
   .node.multi { box-shadow:0 0 0 2px var(--amber), 0 8px 22px -10px rgba(210,153,34,.6); }   /* ③b-2 shift-click multi-select */
   .node.busy { border-color:var(--blue); animation:busy 1.1s ease-in-out infinite; }
   @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
@@ -184,6 +188,7 @@
   .aud { font-size:11px; padding:5px 8px; border-left:2px solid var(--line); margin:3px 0; background:var(--panel2); border-radius:0 6px 6px 0; display:flex; gap:7px; }
   .aud .atype { font-weight:600; text-transform:uppercase; letter-spacing:.03em; font-size:10px; }
   .aud.redact { border-left-color:var(--amber); } .aud.redact .atype { color:var(--amber); }
+  .aud.pass-drop { border-left-color:var(--amber); } .aud.pass-drop .atype { color:var(--amber); }
   .aud.route { border-left-color:var(--blue); } .aud.route .atype { color:var(--blue); }
   .node.skipped { opacity:.32; filter:grayscale(1); }
   .tsum { border:1px solid var(--green); border-radius:9px; padding:9px 11px; margin-bottom:12px; background:rgba(63,185,80,.07); }
@@ -387,6 +392,7 @@ const I18N = {
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
+  h_pass:{ja:'pass（許可する外部 action の引数 — allowlist）',en:'pass (allowed external-action args — allowlist)'}, h_pass_ph:{ja:'1 行 1 つ（空 = 全許可）',en:'one per line (empty = allow all)'}, h_pass_note:{ja:'MCP 送信の構造化引数だけを既定拒否で絞る。本文 input は対象外（秘密/never で別途除去済）。',en:'Default-deny on structured MCP args only; the text input still flows (already scrubbed by secrets/never).'}, aud_dropped:{ja:'除外',en:'dropped'}, aud_allow:{ja:'許可',en:'allow'}, tp_args:{ja:'引数',en:'args'},
   cap_always:{ja:'常時',en:'always'}, cap_note:{ja:'external_send は hub が強制。net / fs は宣言＋監査（実 sandbox は runner 側・将来）。',en:'external_send is hub-enforced. net / fs are declared + audited (real sandbox is runner-side · roadmap).'},
   h_presets:{ja:'信頼プリセット（1 クリック）',en:'trust preset (1-click)'}, preset_untrusted:{ja:'未信頼 3rd-party',en:'untrusted 3rd-party'}, preset_internal:{ja:'社内',en:'internal'}, preset_trusted:{ja:'信頼済',en:'trusted'}, preset_applied:{ja:'プリセット適用',en:'preset applied'},
   safe_btn:{ja:'🔒 Safe Handoff 例',en:'🔒 Safe Handoff example'}, safe_desc:{ja:'会社をまたぐ handoff を trust 境界つきで配置（秘密除去＋承認制送信）。',en:'Lays out a cross-company handoff fenced by the trust bundle (secret-stripped + approval-gated send).'}, safe_placed:{ja:'Safe Handoff を配置。配線 🔒 と passport を確認して ▶ Run。',en:'Safe Handoff placed. Check the 🔒 wire + passports, then ▶ Run.'},
@@ -592,7 +598,9 @@ function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--
 /* Langflow-style: color handles + edges by data type (stable hash → palette; "*"/unknown → gray). */
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
 function typeColor(tp){ if(!tp||tp==='*') return '#9ca3af'; let h=0; for(let i=0;i<tp.length;i++) h=(h*31+tp.charCodeAt(i))>>>0; return TYPE_PALETTE[h%TYPE_PALETTE.length]; }
-const portHtml=(side,id,type)=>`<span class="port ${side}" data-${side}="${esc(id)}" style="border-color:${typeColor(type)}" title="${side==='in'?t('legend_in'):t('legend_out')}"></span><span class="portlabel ${side}">${side==='in'?t('port_in_short'):t('port_out_short')}</span>`;
+// C1 — floating connections: no fixed left-in / right-out port dots. Wires ride the node border toward the
+// other end (borderPoint), and a wire is started by dragging from a node's edge. portHtml is now a no-op.
+const portHtml=(side,id,type)=>'';
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ---------- palette ---------- */
@@ -872,11 +880,17 @@ function renderNodes(){
     } else n.innerHTML=`<div class="notebody">${mdLite(nt.text||'')}</div>`;
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
-  canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
+const WIRE_EDGE=13;   // px-from-border zone that starts a wire instead of a move
 function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
-    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('input,textarea,select,label,button,.nf,.ntoggle'))return;   // in-node fields / chevron / buttons: don't start a drag when interacting with them
+    if(e.button!==0||e.target.closest('input,textarea,select,label,button,.nf,.ntoggle'))return;   // widgets handle themselves
+    // C1 — drag from ANY of the node's 4 edges to start a wire; the rendered wire floats to whichever border
+    // faces the target. Top rim is thin (7px) so the header title stays grabbable for moving the node.
+    const r=n.getBoundingClientRect();
+    const nearRim = (e.clientY-r.top<7)||(r.bottom-e.clientY<WIRE_EDGE)||(e.clientX-r.left<WIRE_EDGE)||(r.right-e.clientX<WIRE_EDGE);
+    if(!wiring && nearRim && !noteOf(id)) return startWire(e, id);
+    if(wiring) return;
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
   });
@@ -897,8 +911,14 @@ $('#canvas').addEventListener('wheel', e=>{                                     
   else { PANX-=e.deltaX; PANY-=e.deltaY; applyView(); drawLinks(); saveView(); }
 }, { passive:false });
 
-/* ---------- wiring ---------- */
-function portPos(id, side){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return { x: side==='out'? n.offsetLeft+n.offsetWidth : n.offsetLeft, y: n.offsetTop+n.offsetHeight/2 }; }
+/* ---------- wiring (floating: connection points are NOT fixed to a side — they ride the node border toward the other end) ---------- */
+function nodeRect(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return { x:n.offsetLeft, y:n.offsetTop, w:n.offsetWidth, h:n.offsetHeight, cx:n.offsetLeft+n.offsetWidth/2, cy:n.offsetTop+n.offsetHeight/2 }; }
+// the point on a node's bounding box where a ray from its centre toward (tx,ty) exits — so a wire attaches on
+// whichever side faces the other node (top/right/bottom/left), instead of a fixed left-in / right-out port.
+function borderPoint(id, tx, ty){ const r=nodeRect(id); if(!r)return null;
+  const dx=tx-r.cx, dy=ty-r.cy; if(!dx&&!dy) return { x:r.cx, y:r.cy };
+  const s=Math.min(dx?(r.w/2)/Math.abs(dx):Infinity, dy?(r.h/2)/Math.abs(dy):Infinity);
+  return { x:r.cx+dx*s, y:r.cy+dy*s }; }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
 function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
 function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger'||tn.kind==='note'||noteOf(src))return false;
@@ -906,7 +926,9 @@ function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=no
 function matchType(src,tgt){ const e=nodeOf(src)?.emits||['*'], a=nodeOf(tgt)?.accepts||['*'];
   const c=e.find(x=>x!=='*'&&a.includes(x)); if(c)return c; if(a.includes('*')) return e.find(x=>x!=='*')||'*'; if(e.includes('*')) return a.find(x=>x!=='*')||'*'; return '*'; }
 function updateTemp(){ const tw=$('#tempwire'); if(!wiring){ tw.removeAttribute('d'); return; }
-  const a=portPos(wiring.src,'out'); if(!a)return; const b=wiring.over?portPos(wiring.over,'in'):(wiring.pt||a);
+  const sc=center(wiring.src); const tip=wiring.over?center(wiring.over):(wiring.pt||sc);
+  const a=borderPoint(wiring.src, tip.x, tip.y); if(!a)return;
+  const b=wiring.over?borderPoint(wiring.over, sc.x, sc.y):(wiring.pt||a);
   const ok=wiring.over?canConnect(wiring.src,wiring.over):null;
   tw.setAttribute('d', fpath(a,b)); tw.setAttribute('stroke-width','2'); tw.setAttribute('stroke', ok===true?'var(--green)':ok===false?'var(--red)':'var(--blue)'); }
 function wireMessage(src,tgt){
@@ -927,15 +949,15 @@ function showWireTip(e){
 function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false; if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
   EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
 function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:canvasPt(e), over:null }; document.body.classList.add('wiring'); updateTemp(); showWireTip(e); }
+function clearWTarget(){ document.querySelectorAll('.node.wtarget,.node.wbad').forEach(p=>p.classList.remove('wtarget','wbad')); }
 function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
   wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d');
-  $('#wireTip').style.display='none';
-  document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid')); }
+  $('#wireTip').style.display='none'; clearWTarget(); }
 document.addEventListener('pointermove', e=>{
-  if(wiring){ wiring.pt=canvasPt(e);
-    document.querySelectorAll('.port.in').forEach(p=>p.classList.remove('valid','invalid'));
-    const inp=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.('.port.in');
-    if(inp){ const tt=inp.getAttribute('data-in'); wiring.over=tt; inp.classList.add(canConnect(wiring.src,tt)?'valid':'invalid'); } else wiring.over=null;
+  if(wiring){ wiring.pt=canvasPt(e); clearWTarget();
+    const el=document.elementFromPoint(e.clientX,e.clientY); const nd=el&&el.closest?.('.node');   // floating: the whole target node is the drop zone (no fixed in-port)
+    const tt=nd&&nd.dataset.id;
+    if(tt&&tt!==wiring.src){ wiring.over=tt; nd.classList.add(canConnect(wiring.src,tt)?'wtarget':'wbad'); } else wiring.over=null;
     updateTemp(); showWireTip(e); return; }
   if(nodeDrag){ const p=canvasPt(e); POS[nodeDrag.id]={ x:Math.max(0,p.x-nodeDrag.offX), y:Math.max(0,p.y-nodeDrag.offY) };
     nodeDrag.node.style.left=POS[nodeDrag.id].x+'px'; nodeDrag.node.style.top=POS[nodeDrag.id].y+'px'; nodeDrag.moved=true; drawLinks(); return; }
@@ -949,7 +971,8 @@ document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
 function drawLinks(){
   const tp = TRUSTPREVIEW ? Object.fromEntries(TRUSTPREVIEW.wires.map(w=>[w.id,w])) : null;   // Wave E1: annotate wires with the dry-run
-  const fe = EDGES.map(e=>{ const a=portPos(e.source,'out'), b=portPos(e.target,'in'); if(!a||!b)return '';
+  const fe = EDGES.map(e=>{ const sc=center(e.source), tc=center(e.target); if(!sc||!tc)return '';
+    const a=borderPoint(e.source, tc.x, tc.y), b=borderPoint(e.target, sc.x, sc.y); if(!a||!b)return '';
     const pw = tp ? tp[e.id] : null;
     const fenced = pw ? pw.fences.length>0 : !!(e.share&&((e.share.never||[]).length));        // Wave A/E1: this wire has a data-firewall policy
     const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
@@ -957,6 +980,7 @@ function drawLinks(){
     const lbl=(br?(br+': '):'')+(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+      +`<circle cx="${a.x}" cy="${a.y}" r="4" fill="#0d1117" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4.5" fill="${col}"/>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
@@ -1022,6 +1046,7 @@ function inspAgent(a){
       <div class="mini">${t('cap_note')}</div>
     </div>
     <div class="field"><label>${t('h_never')}</label><textarea class="match" id="ppNever" placeholder="${t('h_never_ph')}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>
+    <div class="field"><label>${t('h_pass')}</label><textarea class="match" id="ppPass" placeholder="${t('h_pass_ph')}">${esc(((a.passport&&a.passport.share&&a.passport.share.pass)||[]).join('\n'))}</textarea><div class="mini">${t('h_pass_note')}</div></div>
     <button class="ibtn" id="ppSave">${t('h_pp_apply')}</button>
     <button class="ibtn" onclick="sendHandoff('${esc(a.id)}')">${t('btn_send')}</button>
     <button class="ibtn" onclick="copyMcp('${esc(a.id)}')">${t('btn_copy_mcp')}</button>
@@ -1031,7 +1056,8 @@ function bindAgent(a){ const sel=$('#agSel'); if(sel) sel.onchange=()=>rebindAge
   const b=$('#ppSave'); if(!b)return;
   b.onclick=async()=>{ const caps={ secrets:'deny' }; $('#inspector').querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
     const never=($('#ppNever').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
-    await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }; }
+    const pass=($('#ppPass').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never, pass } }); toast(t('h_pp_saved')); refresh(); }; }
 // Wave A — per-edge Data Firewall editor. The wire's `share.never` strips extra strings on THIS edge only;
 // secrets/PII are stripped on every edge regardless. Cross-company edges (source/target differ in company)
 // are deny-by-default (firewall mandatory). Lives client-side in the flow draft; saved with the flow.
@@ -1224,6 +1250,7 @@ function auditPanel(){
 }
 function auditDetail(e){
   if(e.type==='redact') return `${e.egress?'→ ':''}${e.edge?'⟜'+e.edge+' ':''}${e.crossCompany?'⚠x-co ':''}${e.to||''}: ${(e.removed||[]).map(r=>r.label+'×'+r.count).join(', ')}`;
+  if(e.type==='pass-drop') return `⊘ ${e.to||''} ${t('aud_dropped')}: ${(e.dropped||[]).join(', ')} · ${t('aud_allow')}: ${(e.allowlist||[]).join(', ')||'—'}`;
   if(e.type==='deny') return `${e.from||''} → ${e.to||''} — ${e.why||''}`;
   if(e.type==='send') return `${e.server||''}.${e.tool||''}${e.redacted?` (redacted ${e.redacted})`:''}`;
   if(e.type==='approve') return `${e.to||''} · ${e.skill||''}`;
@@ -1422,7 +1449,7 @@ function renderTrustPanel(){
   }).join('');
   const gateRows=r.gates.map(g=> g.kind==='agent'
     ? `<div class="tp-row"><div class="tp-wire">🤖 ${esc(g.node)}</div><div class="tp-cap">net:${esc(g.caps.net)} · fs:${esc(g.caps.fs)} · send:${esc(g.caps.external_send)}</div></div>`
-    : `<div class="tp-row"><div class="tp-wire">🔌 ${esc(g.node)}</div><div class="tp-cap tp-gate-${esc(g.gate)}">${esc(g.server)}.${esc(g.tool)} → ${esc(g.gate)}</div></div>`).join('');
+    : `<div class="tp-row"><div class="tp-wire">🔌 ${esc(g.node)}</div><div class="tp-cap tp-gate-${esc(g.gate)}">${esc(g.server)}.${esc(g.tool)} → ${esc(g.gate)}${g.pass&&g.pass.length?` · ${t('tp_args')}: ${esc(g.pass.join(','))}`:''}</div></div>`).join('');
   el.innerHTML=`<div class="tp-h"><b>🔒 ${t('tp_title')}</b><span class="tp-x" onclick="clearTrust()">✕</span></div>
     <div class="tp-sum">${t('tp_before')} <b>${s.stripCount}</b> ${t('tp_strips')} · <b>${s.gatedSends}</b> ${t('tp_gates')}${s.deniedSends?` · <b style="color:var(--red)">${s.deniedSends}</b> ${t('tp_denied')}`:''}</div>
     ${renderTrustDiff(TRUST_DIFF)}

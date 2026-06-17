@@ -21,7 +21,7 @@ import url from 'node:url';
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
-import { redact, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
+import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
@@ -334,7 +334,10 @@ async function runMcp(h) {
     if (upstream && sendMode(upstream.passport) === 'deny') { trail('deny', { handoff: h.id, from: h.from, to: `${server}.${tool}`, why: 'external_send=deny' }); throw new Error(`agent "${h.from}" external_send is denied`); }
     const fw = redact(h.input, upstream?.passport?.share || {});   // data firewall at egress: scrub before it leaves to the external tool
     if (fw.removed.length) trail('redact', { handoff: h.id, to: `${server}.${tool}`, egress: true, removed: fw.removed });
-    const out = await callMcpTool(integ, tool, { ...(config || {}), input: fw.text }, { cwd: REPO_ROOT });
+    const pass = upstream?.passport?.share?.pass || [];            // capability passport: structured-args allowlist (default-deny when set)
+    const pf = applyPass(config || {}, pass);                      // gate the CONFIG fields only; the scrubbed `input` payload always flows
+    if (pf.dropped.length) trail('pass-drop', { handoff: h.id, to: `${server}.${tool}`, allowlist: pass, dropped: pf.dropped });
+    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT });
     trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length });
     postResult(h.id, { result: out }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
@@ -343,7 +346,7 @@ async function runMcp(h) {
 function setPassport(id, { caps, share }) {                   // Wave H/B: edit an agent's structured capability passport
   const a = agent(id);
   a.passport = normalizePassport({ caps: caps || a.passport.caps, share: share || a.passport.share });   // normalize clamps to CAP_VOCAB
-  save(); trail('passport', { agent: id, caps: a.passport.caps, never: a.passport.share.never.length });
+  save(); trail('passport', { agent: id, caps: a.passport.caps, never: a.passport.share.never.length, pass: a.passport.share.pass.length });
   return { id, passport: a.passport };
 }
 // Wave E1 — trust-as-you-build: dry-run the SAME firewall + capability enforcement over a draft flow WITHOUT
@@ -376,7 +379,8 @@ function trustPreview({ nodes, edges, input }) {
       const from = inc[0] ? (byId.get(inc[0].source)?.agent || inc[0].source) : null;
       const up = from && state.agents[from];
       const mode = up ? sendMode(up.passport) : 'approval';
-      gates.push({ node: n.id, kind: 'mcp', server: n.server, tool: n.tool, externalSend: mode, gate: mode === 'deny' ? 'denied' : mode === 'allow' ? (n.auto ? 'auto' : 'approval') : 'approval' });
+      const pass = up ? normalizePassport(up.passport).share.pass : [];   // structured-args allowlist on this send (empty = allow-all)
+      gates.push({ node: n.id, kind: 'mcp', server: n.server, tool: n.tool, externalSend: mode, gate: mode === 'deny' ? 'denied' : mode === 'allow' ? (n.auto ? 'auto' : 'approval') : 'approval', pass });
     }
   }
   const stripCount = wires.reduce((a, w) => a + (w.previewRemoved ? w.previewRemoved.reduce((x, r) => x + r.count, 0) : 0), 0);
