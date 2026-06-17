@@ -969,13 +969,11 @@ function drawLinks(){
 
 /* ---------- inspector ---------- */
 function renderInspector(){
-  const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge); const a = selected && ag(selected); const tr = selected && trig(selected); const mn = selected && mcpn(selected); const cn = selected && comp(selected); const nt = selected && noteOf(selected);
+  // B3 — every NODE kind now edits on its own card; the right panel is only the edge firewall (edges have no
+  // card) + the run/trust/audit dashboard. (inspAgent/bindAgent are kept below but unreferenced until the
+  // parallel pass-allowlist WIP living inside them lands — then they can be deleted too.)
+  const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge);
   if(ed) return void (ins.innerHTML = inspEdge(ed), bindEdge(ed));
-  if(nt) return void (ins.innerHTML = inspNote(nt), bindNote(nt));
-  if(a) return void (ins.innerHTML = inspAgent(a), bindAgent(a));
-  if(tr) return void (ins.innerHTML = inspTrigger(tr), bindMatch(tr));
-  if(mn) return void (ins.innerHTML = inspMcp(mn), bindMcp(mn));
-  if(cn) return void (ins.innerHTML = inspComp(cn), bindComp(cn));
   ins.innerHTML = inspDefault();
   ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
   ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
@@ -1139,92 +1137,12 @@ function triggerSummary(match){                              // plain-language o
   const extra=Object.entries(match).filter(([k])=>k!=='event'&&k!=='status').map(([k,v])=>`${k} = ${typeof v==='object'?JSON.stringify(v):v}`);
   return s+(extra.length?` · ${extra.join(' · ')}`:'');
 }
-function inspTrigger(tr){
-  const def=(BUILDSTATE.events||[]).find(e=>e.event===(tr.match&&tr.match.event));
-  const hasStatus=!!(def&&(def.fields||[]).includes('status'));     // only review_completed carries a status in the IR
-  return `<div class="ins-h">${t('insp_trigger')} <span class="back" onclick="deselect()">${t('close')}</span></div>
-    <div class="helpbox"><b>${t('trigger_help')}</b><div class="mini">${t('trig_hint')}</div></div>
-    <div class="trig-sum">⚡ ${esc(triggerSummary(tr.match))}</div>
-    <div class="field"><label>${t('fire_what')}</label><select class="cin" id="trigEvent">
-      <option value="">${t('trig_custom')}</option>
-      ${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(evLabel(e.event))}（${esc(e.event)}）</option>`).join('')}
-    </select></div>
-    ${hasStatus?`<div class="field"><label>${t('fire_result')}</label><select class="cin" id="trigStatus">
-      <option value="">—</option>
-      <option value="green" ${tr.match&&tr.match.status==='green'?'selected':''}>${esc(resultLabel('green'))}</option>
-      <option value="red" ${tr.match&&tr.match.status==='red'?'selected':''}>${esc(resultLabel('red'))}</option>
-      <option value="changes_requested" ${tr.match&&tr.match.status==='changes_requested'?'selected':''}>${esc(resultLabel('changes_requested'))}</option>
-    </select></div>`:''}
-    <details class="fadv"><summary>${t('f_match')}</summary>
-      <textarea class="match" id="matchEdit">${esc(JSON.stringify(tr.match||{}, null, 2))}</textarea>
-      <button class="ibtn" id="matchSave">${t('btn_apply')}</button></details>
-    <button class="ibtn danger" onclick="removeTrigger('${esc(tr.id)}')">${t('btn_del_trig')}</button>
-    <div class="empty">${t('trig_hint')}</div>`;
-}
-function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave');
-  if(btn) btn.onclick=()=>{ try{ tr.match=JSON.parse(ta.value); toast(t('t_match_ok')); render(); }catch{ toast(t('t_badjson')); } };
-  const sel=$('#trigEvent'); if(sel) sel.onchange=()=>{ tr.match=sel.value?{event:sel.value}:{}; render(); };   // switching event resets stale fields (e.g. status)
-  const st=$('#trigStatus'); if(st) st.onchange=()=>{ tr.match={ ...(tr.match||{}) }; if(st.value) tr.match.status=st.value; else delete tr.match.status; render(); };
-}
+// B3 — trigger settings now edit on the card (see renderNodes trigger loop + the [data-trig] change handler);
+// the inspector + match-JSON editor are retired. triggerSummary (kept above) is reused on the card.
 function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
-function inspMcp(mn){
-  const isSet=!!(mn.server&&mn.tool);
-  const cascade=`<div class="field">${mcpCascade(mn,'cin')}</div>`;   // A2: shared server→tool cascade
-  return `<div class="ins-h">🔌 ${esc(isSet?mn.tool:t('comp_unset'))} <span class="back" onclick="deselect()">${t('close')}</span></div>
-    <div class="helpbox"><b>${t('mcp_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
-    ${cascade}
-    ${isSet?`<div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(mn.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    <div class="field"><label>${t('f_mcp_auto')}</label>
-      <button class="ibtn toggle ${mn.auto?'auto':'approval'}" onclick="toggleMcpAuto('${esc(mn.id)}')">${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}${t('toggle_sfx')}</button></div>
-    <div class="field"><label>${t('f_args')}</label><textarea class="match" id="mcpArgs">${esc(JSON.stringify(mn.config||{}, null, 2))}</textarea></div>
-    <button class="ibtn" id="mcpArgsSave">${t('mcp_apply_args')}</button>
-    <div class="empty">${t('mcp_args_note')}</div>
-    <div class="empty">${t('mcp_node_note')}</div>`:''}
-    <button class="ibtn danger" onclick="removeMcpNode('${esc(mn.id)}')">${t('btn_del_mcp')}</button>`;
-}
-function bindMcp(mn){   // server/tool cascade routes through the delegated [data-mcpnf] change handler; only the args textarea needs explicit wiring
-  const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(btn) btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
-function toggleMcpAuto(id){ const m=mcpn(id); if(m){ m.auto=!m.auto; render(); } }
-function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind];
-  const fields=isSet?(meta.fields||[]).map(f=>{ const val=cn.config?.[f.key]??f.value??'';
-    return `<div class="field"><label>${esc(f.label)}</label>`
-      +(f.type==='textarea'?`<textarea class="match" data-ck="${esc(f.key)}" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
-        :f.type==='number'?`<input class="cin" type="number" data-ck="${esc(f.key)}" value="${esc(val)}">`
-        :f.type==='select'?`<select class="cin" data-ck="${esc(f.key)}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
-        :f.type==='workflow'?`<select class="cin" id="compRef"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)} · ${w.nodes}n</option>`).join('')}</select>`
-        :f.type==='bool'?`<input type="checkbox" data-ck="${esc(f.key)}" ${(val===true||val==='true')?'checked':''}>`
-        :f.type==='secret'?`<input class="cin" type="password" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}" autocomplete="off">`
-        :`<input class="cin" data-ck="${esc(f.key)}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`)+`</div>`; }).join(''):'';
-  const res=cn.kind==='output'?lastOutput(cn.id):null;
-  const title=(cn.config?.name||'').trim()||meta.label||(isSet?cn.kind:t('comp_unset'));
-  const kindSel=`<div class="field"><label>${t('comp_kind')}</label><select class="cin" id="compKind">
-      ${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}
-      ${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${cn.kind===k?'selected':''}>${esc(m.icon+' '+m.label)}</option>`).join('')}
-    </select></div>`;
-  return `<div class="ins-h">${meta.icon||'▦'} ${esc(title)} <span class="back" onclick="deselect()">${t('close')}</span></div>
-    <div class="helpbox"><b>${t('comp_help')}</b><div class="ports">${cn.accepts.length?`<div><i></i>${t('legend_in')}</div>`:''}${cn.emits.length?`<div><i class="out"></i>${t('legend_out')}</div>`:''}</div></div>
-    ${kindSel}
-    <div class="field"><label>${t('comp_name')}</label><input class="cin" data-ck="name" value="${esc(cn.config?.name||'')}" placeholder="${esc(t('comp_name_ph'))}"></div>
-    <div class="field"><label>${t('comp_desc')}</label><textarea class="match" data-ck="desc" placeholder="${esc(t('comp_desc_ph'))}">${esc(cn.config?.desc||'')}</textarea></div>
-    ${isSet?`<div class="field"><label>${t('f_accepts')}</label><div class="chips">${(cn.accepts.length?cn.accepts:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(cn.emits.length?cn.emits:['—']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>`:''}
-    ${fields}<button class="ibtn" id="compSave">${t('comp_save')}</button>
-    ${res!=null?`<div class="field"><label>${t('comp_result')}</label><div class="v" style="color:var(--green);white-space:pre-wrap;max-height:220px;overflow:auto">${esc(res).slice(0,2000)}</div></div>`:''}
-    <button class="ibtn danger" onclick="removeComp('${esc(cn.id)}')">${t('btn_del_node')}</button>`;
-}
-function inspNote(nt){   // (b) annotation editor
-  return `<div class="ins-h">📝 ${t('note')} <span class="back" onclick="deselect()">${t('close')}</span></div>
-    <div class="field"><label>${t('note_text')}</label><textarea class="match" id="noteText" style="min-height:170px">${esc(nt.text||'')}</textarea></div>
-    <div class="field"><label>${t('note_color')}</label><select class="cin" id="noteColor">${Object.keys(NOTE_COLORS).map(c=>`<option value="${c}" ${nt.color===c?'selected':''}>${c}</option>`).join('')}</select></div>
-    <button class="ibtn" id="noteSave">${t('comp_save')}</button>
-    <button class="ibtn danger" onclick="removeNote('${esc(nt.id)}')">${t('btn_del_node')}</button>`;
-}
-function bindNote(nt){ const b=$('#noteSave'); if(b) b.onclick=()=>{ nt.text=$('#noteText').value; nt.color=$('#noteColor').value; toast(t('t_args_ok')); render(); }; }
-function bindComp(cn){
-  const ks=$('#compKind'); if(ks) ks.onchange=()=>setCompKind(cn, ks.value);
-  const rs=$('#compRef'); if(rs) rs.onchange=()=>{ cn.config.ref=rs.value; render(); };   // 📦 Sub-flow: bind which workflow (auto-applies)
-  const btn=$('#compSave'); if(btn) btn.onclick=()=>{ $('#inspector').querySelectorAll('[data-ck]').forEach(el=>{ cn.config[el.dataset.ck]=el.type==='checkbox'?el.checked:el.value; }); toast(t('t_args_ok')); render(); }; }
+// B3 — mcp / component / note settings now edit on the card (renderNodes + inlineField + the delegated
+// input/change handlers); their right-panel inspectors are retired. The card paths cover everything the old
+// inspectors did (cascade, kind selector, per-kind fields, name/desc, auto/args, note text/colour).
 function inspDefault(){
   const c={}; for(const h of state.handoffs) c[h.status]=(c[h.status]||0)+1;
   const onN=state.agents.filter(a=>a.online).length;
