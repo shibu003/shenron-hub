@@ -102,7 +102,14 @@
   .ntoggle { cursor:pointer; color:var(--dim); font-size:11px; line-height:1; padding:0 1px; user-select:none; flex:none; }
   .ntoggle:hover { color:var(--txt); }
   .node.collapsed .nbody { display:none; }
-  .node.collapsed.mcp .name, .node.collapsed.comp .name { border-bottom:none; border-radius:13px; }
+  .node.collapsed.mcp .name, .node.collapsed.comp .name, .node.collapsed.agent .name { border-bottom:none; border-radius:13px; }
+  /* agent card holds the capability passport editor (B2) — fixed width (it's a form; only height is dynamic) */
+  .node.agent { width:248px; } .node.agent .name { color:#cdd9e5; background:rgba(255,255,255,.03); }
+  .node.agent .co { white-space:normal; }
+  .node.agent .nbody .presetrow { display:flex; gap:5px; flex-wrap:wrap; }
+  .node.agent .nbody .presetrow button { flex:1; min-width:62px; font-size:10px; padding:4px 5px; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); cursor:pointer; }
+  .node.agent .nbody .presetrow button:hover { border-color:var(--blue); }
+  .node.agent .nbody .ibtn { width:100%; box-sizing:border-box; }
   /* in-node settings — edit a component's fields directly on the card (Langflow-style) */
   .nbody { padding:8px 11px 2px; display:grid; gap:7px; }
   .nfrow { display:grid; gap:2px; }
@@ -766,16 +773,32 @@ function renderNodes(){
     if(HIDDEN.has(a.id)) continue;
     const nid='n_'+cssid(a.id); seen.add(nid);
     let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNode(n,a.id); }
+    if(!n){ n=document.createElement('div'); n.className='node agent'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNode(n,a.id); }
     n.style.left=POS[a.id].x+'px'; n.style.top=POS[a.id].y+'px';
     const mine=state.handoffs.filter(h=>h.to===a.id);
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy); n.classList.toggle('selected',selected===a.id);
-    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>
-      <div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}</div>
-      <div class="pol ${a.policy}">${a.policy==='auto'?'⚡ auto':'✋ approval'}${busy?' · ▶ running':a.online?'':' · offline'}</div>
-      ${portHtml('in',a.id,(a.accepts||[])[0])}${portHtml('out',a.id,(a.emits||[])[0])}`;
+    n.classList.toggle('collapsed',COLLAPSED.has(a.id));
+    if(n.contains(document.activeElement)) continue;   // B2: don't rebuild the card while its passport editor is focused (protects a half-typed never-list)
+    const rp=repOf(a.id), caps=(a.passport&&a.passport.caps)||{};
+    const capRowNf=(key)=>{ const cur=caps[key]||(CAPVOCAB[key]||[])[0]; return `<div class="nfrow"><label class="nflabel">${esc(key.replace('_',' '))}</label><select class="nf" data-cap="${key}" data-agcap="${esc(a.id)}">${(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('')}</select></div>`; };
+    const policyBtn=`<button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button>`;
+    const autorunBtn=a.local?`<button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button>`:'';
+    const presets=`<div class="presetrow">${['untrusted','internal','trusted'].map(p=>`<button data-agpreset="${esc(a.id)}" data-preset="${p}">${t('preset_'+p)}</button>`).join('')}</div>`;
+    n.innerHTML=`<div class="name">${collBtn(a.id)}<span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+      +`<div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${rp?` · 📇 ${esc(rp.label)}${rp.score!=null?' '+rp.score+'%':''}`:''}${busy?' · ▶ running':a.online?'':' · offline'}</div>`
+      +`<div class="nbody">`
+        +`<div class="nfrow"><label class="nflabel">${t('f_policy')}</label>${policyBtn}</div>`
+        +(autorunBtn?`<div class="nfrow"><label class="nflabel">${t('f_autorun')}</label>${autorunBtn}</div>`:'')
+        +`<div class="nfrow"><label class="nflabel">${t('h_presets')}</label>${presets}</div>`
+        +`<div class="nfrow"><label class="nflabel">🔒 ${t('h_caps')}</label></div>`
+        +capRowNf('net')+capRowNf('fs')+capRowNf('external_send')
+        +`<div class="nflabel">secrets: deny · ${t('cap_always')}</div>`
+        +`<div class="nfrow"><label class="nflabel">${t('h_never')}</label><textarea class="nf" data-agnever="${esc(a.id)}" rows="2" placeholder="${esc(t('h_never_ph'))}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>`
+        +`<button class="ibtn" data-ppsave="${esc(a.id)}">${t('h_pp_apply')}</button>`
+      +`</div>`
+      +`${portHtml('in',a.id,(a.accepts||[])[0])}${portHtml('out',a.id,(a.emits||[])[0])}`;
   }
   for(const tr of TRIGGERS){
     const nid='n_'+cssid(tr.id); seen.add(nid);
@@ -1638,10 +1661,18 @@ document.addEventListener('change', e=>{ const el=e.target; if(!el.matches)retur
   if(!el.matches('.nf[data-nf]'))return; const c=comp(el.dataset.nf); if(!c)return;
   if(el.dataset.kindsel){ return setCompKind(c, el.value); }                                   // inline kind selector → specialize the node
   c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; if(el.dataset.rerender||el.type==='checkbox') render(); });
-// B1 — card header chevron (fold settings) + note "done" (leave inline edit)
-document.addEventListener('click', e=>{ const el=e.target.closest('[data-collapse],[data-notedone]'); if(!el)return;
+// B1/B2 — card-level buttons: chevron (fold) · note done · agent passport apply / trust preset
+document.addEventListener('click', e=>{ const el=e.target.closest('[data-collapse],[data-notedone],[data-ppsave],[data-agpreset]'); if(!el)return;
   if(el.dataset.collapse!=null) toggleCollapse(el.dataset.collapse);
-  else if(el.dataset.notedone!=null){ noteEdit=null; render(); } });
+  else if(el.dataset.notedone!=null){ noteEdit=null; render(); }
+  else if(el.dataset.ppsave!=null) saveAgentPassport(el.dataset.ppsave);
+  else if(el.dataset.agpreset!=null) applyPreset(el.dataset.agpreset, el.dataset.preset); });
+// B2 — apply the agent card's passport editor (caps + never) to the hub. Caps commit on this button (not on
+// change) so each select doesn't fire an API round-trip + refresh that would fight the focus guard.
+async function saveAgentPassport(id){ const card=document.getElementById('n_'+cssid(id)); if(!card)return;
+  const caps={ secrets:'deny' }; card.querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
+  const never=(card.querySelector('textarea[data-agnever]')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  await api(`/api/agents/${id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }
 document.addEventListener('keydown', e=>{
   const tag=(e.target.tagName||'').toLowerCase(), typing=tag==='input'||tag==='textarea'||e.target.isContentEditable;
   if(e.key==='/' && !typing){ e.preventDefault(); $('#palSearch').focus(); return; }
