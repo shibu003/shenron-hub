@@ -15,6 +15,7 @@ import path from 'node:path';
 import url from 'node:url';
 import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
+import { triggerMatches } from '../match.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const AGENTS_DIR = path.join(HERE, '..', 'agents');
@@ -70,25 +71,7 @@ const searchIntegrations = (q, limit) => searchIndex(INTEGRATIONS,
   (it) => `${it.label} ${it.id} ${it.kind} ${(it.tools || []).map((tl) => tl.name).join(' ')} ${(it.tags || []).join(' ')}`,
   (it) => ({ id: it.id, label: it.label, kind: it.kind, enabled: it.enabled !== false, tools: (it.tools || []).length, tags: it.tags }), q, limit);
 
-// build_state trigger fires when trig.match is a DEEP SUBSET of the event (no eval): nested objects match
-// recursively, arrays match positionally, primitives match by ===. Keys absent from the event don't match.
-// Wave J: a match leaf may also be an operator object (all keys start with "$"): $in/$nin/$ne/$gt/$gte/$lt/$lte/$exists.
-const MATCH_OPS = {
-  $in: (v, a) => Array.isArray(a) && a.includes(v), $nin: (v, a) => Array.isArray(a) && !a.includes(v),
-  $ne: (v, x) => v !== x, $gt: (v, x) => v > x, $gte: (v, x) => v >= x, $lt: (v, x) => v < x, $lte: (v, x) => v <= x,
-  $exists: (v, b) => (v !== undefined) === !!b,
-};
-const isOps = (o) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length > 0 && Object.keys(o).every((k) => k[0] === '$');
-const deepMatch = (pat, val) => {
-  if (isOps(pat)) return Object.entries(pat).every(([op, arg]) => !!MATCH_OPS[op] && MATCH_OPS[op](val, arg));
-  if (pat !== null && typeof pat === 'object') {
-    if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
-    return val !== null && typeof val === 'object' && Object.entries(pat).every(([k, v]) => deepMatch(v, val[k]));
-  }
-  return pat === val;   // primitive leaf
-};
-const triggerMatches = (trig, event) =>
-  !!trig && trig.type === 'build_state' && !!trig.match && deepMatch(trig.match, event);
+// build_state trigger matching (deep-subset + $-operator DSL) → ../match.mjs, shared with hub.mjs.
 
 // ---------- A2A act helpers (run_*) ----------
 // Ad-hoc dispatch (run_handoff/run_workflow) is ALWAYS attended — `--unattended` does NOT loosen it.

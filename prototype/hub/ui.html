@@ -763,11 +763,9 @@ function placeNodes(){
 }
 // in-node settings: render one component field as a compact inline widget bound live to config (data-nf/data-fk)
 function inlineField(c,f){ const id=esc(c.id), k=esc(f.key), val=c.config?.[f.key]??f.value??'';
-  if(f.type==='bool') return `<label class="nfbool"><input type="checkbox" class="nf" data-nf="${id}" data-fk="${k}" ${(val===true||val==='true')?'checked':''}> ${esc(f.label)}</label>`;
   const w = f.type==='textarea'?`<textarea class="nf" data-nf="${id}" data-fk="${k}" rows="2" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
     : f.type==='select'?`<select class="nf" data-nf="${id}" data-fk="${k}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
     : f.type==='number'?`<input class="nf" type="number" data-nf="${id}" data-fk="${k}" value="${esc(val)}">`
-    : f.type==='secret'?`<input class="nf" type="password" data-nf="${id}" data-fk="${k}" value="${esc(val)}" autocomplete="off">`
     : f.type==='workflow'?`<select class="nf" data-nf="${id}" data-fk="ref" data-rerender="1"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)}</option>`).join('')}</select>`
     : `<input class="nf" data-nf="${id}" data-fk="${k}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`;
   return `<div class="nfrow"><label class="nflabel">${esc(f.label)}</label>${w}</div>`; }

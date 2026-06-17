@@ -22,6 +22,7 @@ import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } fr
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
+import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
@@ -499,19 +500,7 @@ const BUILD_EVENTS = [
   { event: 'issue_filed', fields: ['repo', 'issue', 'severity'] },
   { event: 'release_tagged', fields: ['repo', 'tag', 'version'] },
 ];
-const MATCH_OPS = {                                        // operators usable in a trigger.match leaf, e.g. {status:{$in:["green"]}}
-  $in: (v, a) => Array.isArray(a) && a.includes(v), $nin: (v, a) => Array.isArray(a) && !a.includes(v),
-  $ne: (v, x) => v !== x, $gt: (v, x) => v > x, $gte: (v, x) => v >= x, $lt: (v, x) => v < x, $lte: (v, x) => v <= x,
-  $exists: (v, b) => (v !== undefined) === !!b,
-};
-const isOps = (o) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length > 0 && Object.keys(o).every((k) => k[0] === '$');
-const deepMatch = (pat, val) => {                          // same semantics as mcp/server.mjs (shared trigger matching)
-  if (isOps(pat)) return Object.entries(pat).every(([op, arg]) => !!MATCH_OPS[op] && MATCH_OPS[op](val, arg));   // operator leaf
-  if (pat === null || typeof pat !== 'object') return pat === val;
-  if (Array.isArray(pat)) return Array.isArray(val) && pat.every((p, i) => deepMatch(p, val[i]));
-  return val !== null && typeof val === 'object' && Object.entries(pat).every(([k, v]) => deepMatch(v, val[k]));
-};
-const triggerMatches = (trig, event) => !!trig && trig.type === 'build_state' && !!trig.match && deepMatch(trig.match, event);
+// MATCH_OPS / deepMatch / triggerMatches → ../match.mjs (shared with mcp/server.mjs so they can't drift)
 function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workflow, input, enabled }) {
   if (!trigger || !trigger.type) throw new Error('trigger {type} required');
   let workflowId = workflow;
