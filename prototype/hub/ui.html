@@ -89,8 +89,6 @@
   body:not(.wiring) .node:hover { outline:1px dashed rgba(88,166,255,.45); outline-offset:3px; }   /* hint: the rim is draggable to connect */
   .node.wtarget { outline:2px solid var(--green); outline-offset:2px; }
   .node.wbad { outline:2px solid var(--red); outline-offset:2px; }
-  .handle { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); transform:translate(-50%,-50%); cursor:grab; z-index:12; box-shadow:0 0 0 2px var(--panel); transition:transform .1s, box-shadow .12s; }
-  .handle:hover { transform:translate(-50%,-50%) scale(1.4); box-shadow:0 0 0 4px rgba(88,166,255,.28); }
   .node.multi { box-shadow:0 0 0 2px var(--amber), 0 8px 22px -10px rgba(210,153,34,.6); }   /* ③b-2 shift-click multi-select */
   .node.busy { border-color:var(--blue); animation:busy 1.1s ease-in-out infinite; }
   @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
@@ -565,7 +563,7 @@ const COMP = {                                       // minimal component librar
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
   workflow: { label:'Sub-flow', icon:'📦', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
-  langflow: { label:'Langflow', icon:'🔗', accepts:['*'], emits:['*'], fields:[{ key:'_lfType', label:'Langflow component', value:'' }] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here
+  langflow: { label:'Langflow', icon:'🔗', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
 };
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
 const selSet = new Set();   // ③b-2: shift-click multi-selection (for collapse-into-sub-flow)
@@ -924,21 +922,9 @@ function borderPoint(id, tx, ty){ const r=nodeRect(id); if(!r)return null;
   const dx=tx-r.cx, dy=ty-r.cy; if(!dx&&!dy) return { x:r.cx, y:r.cy };
   const s=Math.min(dx?(r.w/2)/Math.abs(dx):Infinity, dy?(r.h/2)/Math.abs(dy):Infinity);
   return { x:r.cx+dx*s, y:r.cy+dy*s }; }
-// an edge endpoint: by default it floats toward the other node, but if the user has dragged it (e.srcAng/tgtAng
-// stored as an angle from the node centre) it sits where they pinned it on the border.
-function endpointPos(e, end){ const id=end==='src'?e.source:e.target, other=end==='src'?e.target:e.source;
-  const r=nodeRect(id); if(!r) return null;
-  const ang=e[end+'Ang'];
-  if(ang!=null) return borderPoint(id, r.cx+Math.cos(ang)*1e4, r.cy+Math.sin(ang)*1e4);
-  const oc=center(other); return oc?borderPoint(id, oc.x, oc.y):{x:r.cx,y:r.cy}; }
-// the draggable endpoint circles (one per edge end). Default = floating; drag = pin to a border angle.
-let handleDrag=null;
-function renderHandles(){ const w=$('#world'); w.querySelectorAll('.handle').forEach(h=>h.remove());
-  for(const e of EDGES){ for(const end of ['src','tgt']){ const p=endpointPos(e,end); if(!p)continue;
-    const h=document.createElement('div'); h.className='handle'; h.dataset.edge=e.id; h.dataset.end=end;
-    h.style.left=p.x+'px'; h.style.top=p.y+'px';
-    h.style.borderColor=(e.share&&(e.share.never||[]).length)?'var(--amber)':typeColor(e.type);
-    w.appendChild(h); } } }
+// an edge endpoint floats to the node border facing the other end (no fixed side).
+function endpointPos(e, end){ const id=end==='src'?e.source:e.target, oc=center(end==='src'?e.target:e.source);
+  return oc?borderPoint(id, oc.x, oc.y):center(id); }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
 function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
 function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger'||tn.kind==='note'||noteOf(src))return false;
@@ -973,12 +959,7 @@ function clearWTarget(){ document.querySelectorAll('.node.wtarget,.node.wbad').f
 function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
   wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d');
   $('#wireTip').style.display='none'; clearWTarget(); }
-// C1 — grab an endpoint circle to slide it around its node's border (pins e.srcAng/tgtAng); fires before node/canvas
-document.addEventListener('pointerdown', e=>{ const h=e.target.closest&&e.target.closest('.handle'); if(!h)return;
-  e.preventDefault(); e.stopPropagation(); handleDrag={ edge:h.dataset.edge, end:h.dataset.end, moved:false }; }, true);
 document.addEventListener('pointermove', e=>{
-  if(handleDrag){ const ed=edgeOf(handleDrag.edge); if(ed){ const id=handleDrag.end==='src'?ed.source:ed.target; const r=nodeRect(id);
-      if(r){ const p=canvasPt(e); ed[handleDrag.end+'Ang']=Math.atan2(p.y-r.cy, p.x-r.cx); handleDrag.moved=true; drawLinks(); } } return; }
   if(wiring){ wiring.pt=canvasPt(e); clearWTarget();
     const el=document.elementFromPoint(e.clientX,e.clientY); const nd=el&&el.closest?.('.node');   // floating: the whole target node is the drop zone (no fixed in-port)
     const tt=nd&&nd.dataset.id;
@@ -989,11 +970,11 @@ document.addEventListener('pointermove', e=>{
   if(panning){ const dx=e.clientX-panning.x, dy=e.clientY-panning.y; if(Math.abs(dx)+Math.abs(dy)>3) panning.moved=true;
     PANX=panning.px+dx; PANY=panning.py+dy; applyView(); drawLinks(); }
 });
-document.addEventListener('pointerup', ()=>{ if(handleDrag){ handleDrag=null; return; } if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } }
+document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } }
   if(panning){ const p=panning; panning=null; $('#canvas').classList.remove('panning'); if(!p.moved) deselect(); saveView(); } });
 
 /* ---------- edges ---------- */
-function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
+function center(id){ const r=nodeRect(id); return r&&{x:r.cx,y:r.cy}; }
 function drawLinks(){
   const tp = TRUSTPREVIEW ? Object.fromEntries(TRUSTPREVIEW.wires.map(w=>[w.id,w])) : null;   // Wave E1: annotate wires with the dry-run
   const fe = EDGES.map(e=>{ const a=endpointPos(e,'src'), b=endpointPos(e,'tgt'); if(!a||!b)return '';
@@ -1004,6 +985,7 @@ function drawLinks(){
     const lbl=(br?(br+': '):'')+(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+      +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0d1117" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4" fill="${col}"/>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
@@ -1012,7 +994,6 @@ function drawLinks(){
   }).join('');
   $('#staticlinks').innerHTML = fe + he;
   $('#staticlinks').querySelectorAll('.hit').forEach(el=> el.onclick=()=> selectEdge(el.dataset.edge));   // Wave A: edge click → firewall editor (delete moved into the inspector)
-  renderHandles();   // C1 — draggable endpoint circles
 }
 
 /* ---------- inspector ---------- */
