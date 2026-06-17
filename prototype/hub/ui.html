@@ -89,6 +89,8 @@
   body:not(.wiring) .node:hover { outline:1px dashed rgba(88,166,255,.45); outline-offset:3px; }   /* hint: the rim is draggable to connect */
   .node.wtarget { outline:2px solid var(--green); outline-offset:2px; }
   .node.wbad { outline:2px solid var(--red); outline-offset:2px; }
+  .handle { position:absolute; width:13px; height:13px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); transform:translate(-50%,-50%); cursor:grab; z-index:12; box-shadow:0 0 0 2px var(--panel); transition:transform .1s, box-shadow .12s; }
+  .handle:hover { transform:translate(-50%,-50%) scale(1.4); box-shadow:0 0 0 4px rgba(88,166,255,.28); }
   .node.multi { box-shadow:0 0 0 2px var(--amber), 0 8px 22px -10px rgba(210,153,34,.6); }   /* ③b-2 shift-click multi-select */
   .node.busy { border-color:var(--blue); animation:busy 1.1s ease-in-out infinite; }
   @keyframes busy { 50% { box-shadow:0 0 14px -2px var(--blue), 0 0 0 1px var(--blue) inset; } }
@@ -284,6 +286,7 @@
       </div>
     </div>
     <button class="tb" id="btnGhost" onclick="ghostWrite()"></button>
+    <button class="tb" id="btnLfImport" onclick="pickLangflowFile()"></button>
     <button class="tb" id="btnSettings" onclick="openSettings()"></button>
   </div>
   <button class="tb" id="lang" onclick="toggleLang()"></button>
@@ -426,6 +429,7 @@ const I18N = {
   edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_check:{ja:'🔎 trust を確認',en:'🔎 Check trust'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
   edge_branch:{ja:'router の分岐',en:'router branch'}, edge_pred_true:{ja:'条件が真',en:'predicate true'}, edge_pred_false:{ja:'条件が偽',en:'predicate false'},
   trig_custom:{ja:'— カスタム（JSON を表示）',en:'— custom (Show JSON)'},
+  lf_import:{ja:'🔗 Langflow 取込',en:'🔗 Import Langflow'}, lf_empty:{ja:'Langflow flow が空です',en:'empty Langflow flow'}, lf_bad:{ja:'Langflow JSON 解析失敗',en:'bad Langflow JSON'}, lf_imported:{ja:'Langflow flow を取込（{n} ノード・{e} 配線）— firewall/passport で fence 可',en:'imported Langflow flow ({n} nodes, {e} wires) — fence it with firewall/passport'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
@@ -516,7 +520,7 @@ function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
-  $('#btnGhost').textContent=t('ghost'); $('#btnSettings').textContent=t('settings');
+  $('#btnGhost').textContent=t('ghost'); $('#btnLfImport').textContent=t('lf_import'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger'); $('#btnAddNote').textContent=t('add_note');
@@ -561,6 +565,7 @@ const COMP = {                                       // minimal component librar
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
   workflow: { label:'Sub-flow', icon:'📦', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
+  langflow: { label:'Langflow', icon:'🔗', accepts:['*'], emits:['*'], fields:[{ key:'_lfType', label:'Langflow component', value:'' }] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here
 };
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
 const selSet = new Set();   // ③b-2: shift-click multi-selection (for collapse-into-sub-flow)
@@ -919,6 +924,21 @@ function borderPoint(id, tx, ty){ const r=nodeRect(id); if(!r)return null;
   const dx=tx-r.cx, dy=ty-r.cy; if(!dx&&!dy) return { x:r.cx, y:r.cy };
   const s=Math.min(dx?(r.w/2)/Math.abs(dx):Infinity, dy?(r.h/2)/Math.abs(dy):Infinity);
   return { x:r.cx+dx*s, y:r.cy+dy*s }; }
+// an edge endpoint: by default it floats toward the other node, but if the user has dragged it (e.srcAng/tgtAng
+// stored as an angle from the node centre) it sits where they pinned it on the border.
+function endpointPos(e, end){ const id=end==='src'?e.source:e.target, other=end==='src'?e.target:e.source;
+  const r=nodeRect(id); if(!r) return null;
+  const ang=e[end+'Ang'];
+  if(ang!=null) return borderPoint(id, r.cx+Math.cos(ang)*1e4, r.cy+Math.sin(ang)*1e4);
+  const oc=center(other); return oc?borderPoint(id, oc.x, oc.y):{x:r.cx,y:r.cy}; }
+// the draggable endpoint circles (one per edge end). Default = floating; drag = pin to a border angle.
+let handleDrag=null;
+function renderHandles(){ const w=$('#world'); w.querySelectorAll('.handle').forEach(h=>h.remove());
+  for(const e of EDGES){ for(const end of ['src','tgt']){ const p=endpointPos(e,end); if(!p)continue;
+    const h=document.createElement('div'); h.className='handle'; h.dataset.edge=e.id; h.dataset.end=end;
+    h.style.left=p.x+'px'; h.style.top=p.y+'px';
+    h.style.borderColor=(e.share&&(e.share.never||[]).length)?'var(--amber)':typeColor(e.type);
+    w.appendChild(h); } } }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
 function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
 function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger'||tn.kind==='note'||noteOf(src))return false;
@@ -953,7 +973,12 @@ function clearWTarget(){ document.querySelectorAll('.node.wtarget,.node.wbad').f
 function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
   wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d');
   $('#wireTip').style.display='none'; clearWTarget(); }
+// C1 — grab an endpoint circle to slide it around its node's border (pins e.srcAng/tgtAng); fires before node/canvas
+document.addEventListener('pointerdown', e=>{ const h=e.target.closest&&e.target.closest('.handle'); if(!h)return;
+  e.preventDefault(); e.stopPropagation(); handleDrag={ edge:h.dataset.edge, end:h.dataset.end, moved:false }; }, true);
 document.addEventListener('pointermove', e=>{
+  if(handleDrag){ const ed=edgeOf(handleDrag.edge); if(ed){ const id=handleDrag.end==='src'?ed.source:ed.target; const r=nodeRect(id);
+      if(r){ const p=canvasPt(e); ed[handleDrag.end+'Ang']=Math.atan2(p.y-r.cy, p.x-r.cx); handleDrag.moved=true; drawLinks(); } } return; }
   if(wiring){ wiring.pt=canvasPt(e); clearWTarget();
     const el=document.elementFromPoint(e.clientX,e.clientY); const nd=el&&el.closest?.('.node');   // floating: the whole target node is the drop zone (no fixed in-port)
     const tt=nd&&nd.dataset.id;
@@ -964,15 +989,14 @@ document.addEventListener('pointermove', e=>{
   if(panning){ const dx=e.clientX-panning.x, dy=e.clientY-panning.y; if(Math.abs(dx)+Math.abs(dy)>3) panning.moved=true;
     PANX=panning.px+dx; PANY=panning.py+dy; applyView(); drawLinks(); }
 });
-document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } }
+document.addEventListener('pointerup', ()=>{ if(handleDrag){ handleDrag=null; return; } if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } }
   if(panning){ const p=panning; panning=null; $('#canvas').classList.remove('panning'); if(!p.moved) deselect(); saveView(); } });
 
 /* ---------- edges ---------- */
 function center(id){ const n=document.getElementById('n_'+cssid(id)); if(!n)return null; return {x:n.offsetLeft+n.offsetWidth/2,y:n.offsetTop+n.offsetHeight/2}; }
 function drawLinks(){
   const tp = TRUSTPREVIEW ? Object.fromEntries(TRUSTPREVIEW.wires.map(w=>[w.id,w])) : null;   // Wave E1: annotate wires with the dry-run
-  const fe = EDGES.map(e=>{ const sc=center(e.source), tc=center(e.target); if(!sc||!tc)return '';
-    const a=borderPoint(e.source, tc.x, tc.y), b=borderPoint(e.target, sc.x, sc.y); if(!a||!b)return '';
+  const fe = EDGES.map(e=>{ const a=endpointPos(e,'src'), b=endpointPos(e,'tgt'); if(!a||!b)return '';
     const pw = tp ? tp[e.id] : null;
     const fenced = pw ? pw.fences.length>0 : !!(e.share&&((e.share.never||[]).length));        // Wave A/E1: this wire has a data-firewall policy
     const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
@@ -980,7 +1004,6 @@ function drawLinks(){
     const lbl=(br?(br+': '):'')+(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
-      +`<circle cx="${a.x}" cy="${a.y}" r="4" fill="#0d1117" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4.5" fill="${col}"/>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
@@ -989,6 +1012,7 @@ function drawLinks(){
   }).join('');
   $('#staticlinks').innerHTML = fe + he;
   $('#staticlinks').querySelectorAll('.hit').forEach(el=> el.onclick=()=> selectEdge(el.dataset.edge));   // Wave A: edge click → firewall editor (delete moved into the inspector)
+  renderHandles();   // C1 — draggable endpoint circles
 }
 
 /* ---------- inspector ---------- */
@@ -1562,6 +1586,39 @@ function loadFlow(flow){                          // materialize a generated/sav
   EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}), ...(e.branch?{branch:e.branch}:{}) }));
   deselect(); render();
 }
+// ---- Wave B: import a Langflow flow export (.json) → cockpit nodes/edges, so any Langflow flow lands here and
+// gets the trust dimension Langflow lacks (per-edge firewall + per-agent passport + audit). Langflow node:
+// { id, position:{x,y}, data:{ type:<Component>, display_name, node:{ outputs/base_classes, template } } }.
+// Edge: { source, target, data:{ sourceHandle:{output_types[]}, targetHandle:{inputTypes[]} } } — typed.
+const LF_KIND = { ChatInput:'input', TextInput:'input', ChatOutput:'output', TextOutput:'output', Prompt:'prompt', PromptComponent:'prompt', PromptTemplate:'prompt',
+  LanguageModelComponent:'languagemodel', OpenAIModel:'languagemodel', AnthropicModel:'languagemodel', GroqModel:'languagemodel', GoogleGenerativeAIModel:'languagemodel', Agent:'languagemodel',
+  StructuredOutput:'structured', ParseData:'parser', note:'note' };
+const lfVal=(tmpl,k)=>{ const f=tmpl&&tmpl[k]; return f&&typeof f==='object'?f.value:f; };
+function importLangflowFlow(lf){
+  const d=(lf&&lf.data)||lf||{}; const lns=d.nodes||[], les=d.edges||[];
+  if(!lns.length) return toast(t('lf_empty'));
+  const xs=lns.map(n=>n.position?.x||0), ys=lns.map(n=>n.position?.y||0), minx=Math.min(...xs), miny=Math.min(...ys), S=0.55;   // Langflow coords are large/spread → normalize into the canvas
+  const nodes=lns.map(ln=>{ const dt=(ln.data&&ln.data.type)||(ln.type==='noteNode'?'note':''); const tmpl=(ln.data&&ln.data.node&&ln.data.node.template)||{};
+    const kind=LF_KIND[dt]||'langflow', x=Math.round(((ln.position?.x||0)-minx)*S)+60, y=Math.round(((ln.position?.y||0)-miny)*S)+40;
+    if(kind==='note') return { id:ln.id, kind:'note', text:lfVal(tmpl,'text')||(ln.data&&ln.data.node&&ln.data.node.template&&ln.data.node.template.note)||'📝', color:'blue', x, y };
+    const config={ name:(ln.data&&ln.data.display_name)||dt };
+    if(kind==='input') config.text=lfVal(tmpl,'input_value')||'';
+    else if(kind==='prompt') config.template=lfVal(tmpl,'template')||'{input}';
+    else if(kind==='languagemodel'){ config.model='stub'; config.system=lfVal(tmpl,'system_message')||lfVal(tmpl,'system')||''; }
+    else if(kind==='langflow'){ config._lfType=dt; config.desc=(ln.data&&ln.data.description)||''; }
+    return { id:ln.id, kind, config, x, y };
+  });
+  const have=new Set(nodes.map(n=>n.id));
+  const edges=les.map(le=>{ const so=(le.data&&le.data.sourceHandle&&le.data.sourceHandle.output_types)||[], ti=(le.data&&le.data.targetHandle&&le.data.targetHandle.inputTypes)||[];
+    return { id:le.id||('fe_'+(++eidc)), source:le.source, target:le.target, type:so.find(x=>ti.includes(x))||so[0]||ti[0]||'*' };
+  }).filter(e=>have.has(e.source)&&have.has(e.target));
+  loadFlow({ nodes, edges });
+  toast(t('lf_imported').replace('{n}',nodes.length).replace('{e}',edges.length));
+}
+function pickLangflowFile(){ const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=()=>{ const f=inp.files[0]; if(!f)return; const r=new FileReader();
+    r.onload=()=>{ try{ importLangflowFlow(JSON.parse(r.result)); }catch(e){ toast(t('lf_bad')+': '+e.message); } }; r.readAsText(f); };
+  inp.click(); }
 function showAgentDraft(d){
   openModal({ title:t('gw_draft'), info:t('gw_addagent'), submitLabel:t('gw_addagent'),
     fields:[ {key:'name',label:'name',value:d.name||''}, {key:'skill',label:'skill',value:d.skill||'task'}, {key:'systemPrompt',label:'systemPrompt',type:'textarea',value:d.systemPrompt||''} ],
