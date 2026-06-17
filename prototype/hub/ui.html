@@ -356,6 +356,7 @@ const I18N = {
   mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（⚙設定で on）',en:'no enabled MCP server (turn on in ⚙ Settings)'},
   mcp_generic:{ja:'MCP アクション',en:'MCP action'}, mcp_generic_sub:{ja:'空の外部アクション（tool は後で）',en:'blank external action (pick tool later)'},
   mcp_tool_sel:{ja:'tool（外部アクション）',en:'tool (external action)'}, mcp_tool_none:{ja:'— tool を選択 —',en:'— choose a tool —'}, mcp_pick_tool:{ja:'tool を選んでください',en:'choose a tool'}, mcp_no_tools:{ja:'enabled な MCP server がありません — ⚙ 設定で接続',en:'no enabled MCP server — connect one in ⚙ Settings'},
+  mcp_server_sel:{ja:'server（接続先）',en:'server (connection)'}, mcp_server_none:{ja:'— server を選択 —',en:'— choose a server —'}, mcp_tools_word:{ja:'tools',en:'tools'}, mcp_loading:{ja:'読み込み中…',en:'loading…'},
   insp_mcp:{ja:'MCP tool node',en:'MCP tool node'}, f_server:{ja:'server',en:'server'}, f_tool:{ja:'tool',en:'tool'},
   mcp_node_note:{ja:'実呼び出し：接続済み MCP server の tool を承認フェンス越しに実行（外部副作用）。',en:'Real call: runs the connected MCP server\'s tool behind the approval fence (external side-effect).'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
   f_args:{ja:'引数（JSON・任意）',en:'arguments (JSON, optional)'}, mcp_args_note:{ja:'上流の出力は input として渡されます。to / subject / channel 等はここで追加。',en:'Upstream output is passed as `input`. Add fields like to / subject / channel here.'}, mcp_apply_args:{ja:'引数を適用',en:'apply args'}, t_args_ok:{ja:'引数を更新しました',en:'arguments updated'},
@@ -510,7 +511,16 @@ let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BU
 let CAPVOCAB = { net:['none','read','full'], fs:['none','diff-only','repo'], external_send:['deny','approval','allow'], secrets:['deny'] };   // Wave B: capability vocabulary (refreshed from /api/capvocab)
 let TRUSTPREVIEW = null;   // Wave E1: last "🔒 Check trust" dry-run (wires + gates); annotates the canvas + panel
 let TRUST_BASELINE = null, TRUST_DIFF = null, PREDICTED = {};   // Wave ④: baseline posture (last save/run/first-check), last diff, per-run predicted summary (audit closed-loop)
-let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes
+let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes (INTEGRATIONS = token-light refs; tools = a COUNT, not the array)
+// Wave A2 — clean-mcp lazy index: the picker is a server→tool cascade. INTEGRATIONS holds refs (search index);
+// a server's full tool list is fetched on demand (get_integration) and cached here. Cleared whenever refs refetch.
+let INTEG_FULL = {};   // server id → full integration object { ..., tools:[{name,accepts,emits}] }
+async function getIntegration(id){ if(!id) return null; if(INTEG_FULL[id]) return INTEG_FULL[id];
+  try{ const it=await api('/api/integrations/'+encodeURIComponent(id)); INTEG_FULL[id] = (it&&it.tools)?it:{ id, tools:[] }; }   // 404 returns {error} (no .tools) → cache empty to stop refetch loops
+  catch{ INTEG_FULL[id]={ id, tools:[] }; }
+  return INTEG_FULL[id]; }
+const ensureServers = (ids) => Promise.all([...new Set((ids||[]).filter(Boolean))].map(getIntegration));
+const toolsOf = (server) => (INTEG_FULL[server]&&INTEG_FULL[server].tools)||[];   // sync read — caller must have awaited getIntegration(server)
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
 let WORKFLOWS = [];                                  // saved workflows (for the 📦 Sub-flow node's picker)
@@ -643,10 +653,12 @@ function placeExampleFlow(){
 // Wave C — the SKU's representative flow: a cross-owner handoff fenced by the trust bundle.
 // Chat Input (with a secret + codename baked in) → upstream agent → [🔒 cross-company wire: never=codename]
 // → downstream agent → approval-gated external send → Chat Output. Run it to see the firewall + audit fire.
-function placeSafeHandoff(){
+async function placeSafeHandoff(){
   const pair=exampleChain(); if(pair.length<2) return toast(t('pal_empty'));
   const [a,b]=pair;
-  const send=[].concat(...(INTEGRATIONS||[]).filter(i=>i.enabled!==false).map(i=>(i.tools||[]).map(tl=>({server:i.id,tool:tl.name})))).find(x=>/send|email|message|post/i.test(x.tool));
+  const enabled=(INTEGRATIONS||[]).filter(i=>i.enabled!==false).map(i=>i.id);   // A2: refs only → load each enabled server's tools, then scan for a "send"-like one
+  await ensureServers(enabled);
+  const send=enabled.flatMap(id=>toolsOf(id).map(tl=>({server:id,tool:tl.name}))).find(x=>/send|email|message|post/i.test(x.tool));
   const baked='Draft outreach for our top prospect. Internal note: OPENAI_API_KEY=sk-live-DEMO1234567890ABCD; codename PROJECT-FALCON — do not share externally.';
   const nodes=[{id:'in1',kind:'input',config:{text:baked},x:30,y:90},
                {id:a.id,kind:'agent',agent:a.id,skill:a.skill,x:250,y:90},
@@ -681,10 +693,32 @@ function addMcpNode(tl){ const id='mcp-'+(++mnidc); const y=40+MCP_NODES.length*
   selectNode(id); render(); }
 // an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
 const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool)) || (n.kind==='workflow' && !n.ref);
-function setMcpTool(mn, val){ if(!val) return;
-  const [server,name]=val.split('::'); const it=(INTEGRATIONS||[]).find(x=>x.id===server); const tl=((it&&it.tools)||[]).find(x=>x.name===name);
-  mn.server=server; mn.tool=name; mn.accepts=(tl&&tl.accepts)||['*']; mn.emits=(tl&&tl.emits)||['*'];
+// A2 cascade: pick a server first (loads its tools), then a tool. accepts/emits come from the cached full server.
+async function onMcpServer(mn, server){ mn.server=server||''; mn.tool=''; mn.accepts=['*']; mn.emits=['*']; await getIntegration(server); revalidateEdges(mn.id); render(); }
+function setMcpTool(mn, server, tool){ if(!tool){ mn.tool=''; return; }
+  const tl=toolsOf(server).find(x=>x.name===tool);
+  mn.server=server; mn.tool=tool; mn.accepts=(tl&&tl.accepts)||['*']; mn.emits=(tl&&tl.emits)||['*'];
   revalidateEdges(mn.id); selectNode(mn.id); }
+// the shared server→tool cascade, used by both the in-card picker (cls='nf') and the inspector (cls='cin').
+// the tool <select> only populates once that server's full list is cached (onMcpServer awaits + re-renders).
+function mcpCascade(mn, cls){
+  const servers=(INTEGRATIONS||[]).filter(it=>it.enabled!==false);
+  const tools=mn.server?toolsOf(mn.server):[];
+  const loading=mn.server&&!INTEG_FULL[mn.server];
+  const a=(k,v)=>`data-mcpnf="${esc(mn.id)}" data-${k}="${v}"`;
+  const srvSel=`<select class="${cls}${cls==='nf'?' nkind':''}" ${a('mcpserver','1')}>`
+    +`<option value="" ${mn.server?'':'selected'}>${esc(t('mcp_server_none'))}</option>`
+    +servers.map(it=>`<option value="${esc(it.id)}" ${mn.server===it.id?'selected':''}>🔌 ${esc(it.label||it.id)}${it.tools?` · ${it.tools} ${t('mcp_tools_word')}`:''}</option>`).join('')
+    +`</select>`;
+  const toolSel=mn.server?`<select class="${cls}${cls==='nf'?' nkind':''}" ${a('mcptool','1')} ${loading?'disabled':''}>`
+    +(loading?`<option selected>${esc(t('mcp_loading'))}</option>`
+      :`<option value="" ${mn.tool?'':'selected'}>${esc(t('mcp_tool_none'))}</option>`
+        +tools.map(x=>`<option value="${esc(x.name)}" ${mn.tool===x.name?'selected':''}>${esc(x.name)}</option>`).join(''))
+    +`</select>${(!loading&&!tools.length)?`<div class="${cls==='nf'?'nflabel':'mini'}" style="color:var(--amber)">${t('mcp_no_tools')}</div>`:''}`:'';
+  const lbl=(k)=>cls==='nf'?`<label class="nflabel">${t(k)}</label>`:`<label>${t(k)}</label>`;
+  const wrap=(inner)=>cls==='nf'?`<div class="nfrow">${inner}</div>`:`<div class="field">${inner}</div>`;
+  return wrap(lbl('mcp_server_sel')+srvSel)+(mn.server?wrap(lbl('mcp_tool_sel')+toolSel):'');
+}
 // rebind an agent node to a different registry agent, in place: keep this canvas slot's position + wiring,
 // swap which agent it points at (hide the old, reveal the new), then re-validate ports. ("agent の中身変更")
 function rebindAgent(oldId, newId){ if(!newId||newId===oldId) return;
@@ -752,12 +786,10 @@ function renderNodes(){
     n.classList.toggle('busy',busy);
     if(n.contains(document.activeElement)) continue;   // in-node editing: don't rebuild while a field here is focused (would kill the caret)
     const mset=!!(mn.server&&mn.tool);
-    const tools=(INTEGRATIONS||[]).filter(it=>it.enabled!==false).flatMap(it=>(it.tools||[]).map(x=>({server:it.id,name:x.name})));
-    const cur=mset?`${mn.server}::${mn.tool}`:'';
-    const toolSel=`<select class="nf nkind" data-mcpnf="${esc(mn.id)}" data-mcpsel="1">${mset?'':`<option value="" selected>${esc(t('mcp_tool_none'))}</option>`}${tools.map(x=>`<option value="${esc(x.server+'::'+x.name)}" ${cur===x.server+'::'+x.name?'selected':''}>🔌 ${esc(x.name)} · ${esc(x.server)}</option>`).join('')}</select>${tools.length?'':`<div class="nflabel" style="color:var(--amber)">${t('mcp_no_tools')}</div>`}`;
+    const cascade=mcpCascade(mn,'nf');   // A2: server→tool cascade (lazy-loads the picked server's tools)
     const body=mset
-      ? `${toolSel}<label class="nfbool"><input type="checkbox" class="nf" data-mcpnf="${esc(mn.id)}" data-mcpauto="1" ${mn.auto?'checked':''}> ${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}</label><div class="nfrow"><label class="nflabel">${t('f_args')}</label><textarea class="nf" data-mcpnf="${esc(mn.id)}" data-mcpargs="1" rows="2">${esc(JSON.stringify(mn.config||{}))}</textarea></div>${awaiting?`<div class="nflabel" style="color:var(--amber)">⏳ awaiting approval</div>`:busy?`<div class="nflabel" style="color:var(--blue)">▶ running</div>`:''}`
-      : toolSel;
+      ? `${cascade}<label class="nfbool"><input type="checkbox" class="nf" data-mcpnf="${esc(mn.id)}" data-mcpauto="1" ${mn.auto?'checked':''}> ${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}</label><div class="nfrow"><label class="nflabel">${t('f_args')}</label><textarea class="nf" data-mcpnf="${esc(mn.id)}" data-mcpargs="1" rows="2">${esc(JSON.stringify(mn.config||{}))}</textarea></div>${awaiting?`<div class="nflabel" style="color:var(--amber)">⏳ awaiting approval</div>`:busy?`<div class="nflabel" style="color:var(--blue)">▶ running</div>`:''}`
+      : cascade;
     n.innerHTML=`<div class="name">🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="nbody">${body}</div>`
       +`${portHtml('in',mn.id,(mn.accepts||[])[0])}${portHtml('out',mn.id,(mn.emits||[])[0])}`;
@@ -1086,16 +1118,11 @@ function bindMatch(tr){ const ta=$('#matchEdit'), btn=$('#matchSave');
 }
 function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 function inspMcp(mn){
-  const tools=(INTEGRATIONS||[]).filter(it=>it.enabled!==false).flatMap(it=>(it.tools||[]).map(x=>({server:it.id,name:x.name})));
-  const cur=mn.tool?`${mn.server}::${mn.tool}`:'';
   const isSet=!!(mn.server&&mn.tool);
-  const toolSel=`<div class="field"><label>${t('mcp_tool_sel')}</label><select class="cin" id="mcpTool">
-      ${isSet?'':`<option value="" selected>${esc(t('mcp_tool_none'))}</option>`}
-      ${tools.map(x=>`<option value="${esc(x.server+'::'+x.name)}" ${cur===x.server+'::'+x.name?'selected':''}>🔌 ${esc(x.name)} · ${esc(x.server)}</option>`).join('')}
-    </select>${tools.length?'':`<div class="mini" style="color:var(--amber)">${t('mcp_no_tools')}</div>`}</div>`;
+  const cascade=`<div class="field">${mcpCascade(mn,'cin')}</div>`;   // A2: shared server→tool cascade
   return `<div class="ins-h">🔌 ${esc(isSet?mn.tool:t('comp_unset'))} <span class="back" onclick="deselect()">${t('close')}</span></div>
     <div class="helpbox"><b>${t('mcp_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
-    ${toolSel}
+    ${cascade}
     ${isSet?`<div class="field"><label>${t('f_accepts')}</label><div class="chips">${(mn.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_emits')}</label><div class="chips">${(mn.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
     <div class="field"><label>${t('f_mcp_auto')}</label>
@@ -1106,8 +1133,7 @@ function inspMcp(mn){
     <div class="empty">${t('mcp_node_note')}</div>`:''}
     <button class="ibtn danger" onclick="removeMcpNode('${esc(mn.id)}')">${t('btn_del_mcp')}</button>`;
 }
-function bindMcp(mn){
-  const sel=$('#mcpTool'); if(sel) sel.onchange=()=>setMcpTool(mn, sel.value);
+function bindMcp(mn){   // server/tool cascade routes through the delegated [data-mcpnf] change handler; only the args textarea needs explicit wiring
   const ta=$('#mcpArgs'), btn=$('#mcpArgsSave'); if(btn) btn.onclick=()=>{ try{ mn.config=JSON.parse(ta.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } }; }
 function toggleMcpAuto(id){ const m=mcpn(id); if(m){ m.auto=!m.auto; render(); } }
 function inspComp(cn){ const meta=COMP[cn.kind]||{}; const isSet=!!COMP[cn.kind];
@@ -1241,7 +1267,7 @@ function auditDetail(e){
 /* ---------- actions ---------- */
 async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/policy`,{policy:a?.policy==='auto'?'approval':'auto'}); refresh(); }
 async function toggleAutorun(id){ const a=ag(id); await api(`/api/agents/${id}/autorun`,{on:!(a?.autorun!==false)}); refresh(); }
-async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integrations'); }catch{ INTEGRATIONS=[]; } }
+async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integrations/search'); }catch{ INTEGRATIONS=[]; } INTEG_FULL={}; }   // A2: refs only; drop stale full-tool cache (also runs after a toggle/add)
 async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the 📦 Sub-flow picker
 const sfName=(id)=>{ const w=WORKFLOWS.find(x=>x.id===id); return w?(w.name||w.id):id; };
 function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
@@ -1251,7 +1277,7 @@ function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
     <div class="minfo">${t('autorun_info')}</div>
     <label style="margin-top:6px">${t('integrations')}</label>
     ${INTEGRATIONS.map(it=>`<div class="palrow" style="border:1px solid var(--line);border-radius:7px">
-      <div class="pm"><b>${esc(it.label)}</b><span>${esc(it.command||it.url||'')} · ${(it.tools||[]).map(x=>esc(x.name)).join(', ')||'—'}</span></div>
+      <div class="pm"><b>${esc(it.label)}</b><span>${esc(it.kind||'mcp')} · ${it.tools||0} ${t('mcp_tools_word')}</span></div>
       <span class="pb" data-ittoggle="${esc(it.id)}">${it.enabled?'⚡ ON':'⏸ OFF'}</span></div>`).join('')||`<div class="minfo">—</div>`}
     <div class="row2" style="display:flex;gap:6px;margin-top:4px">
       <input id="itLabel" placeholder="${t('it_label')}" style="flex:1"><input id="itConn" placeholder="${t('it_conn')}" style="flex:1"></div>
@@ -1571,8 +1597,9 @@ document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu
 // re-render (the focused element survives); selects/checkboxes commit on 'change' (kind switch / sub-flow ref / bool).
 document.addEventListener('input', e=>{ const el=e.target; if(!el.matches||!el.matches('.nf[data-fk]')||el.tagName==='SELECT')return; const c=comp(el.dataset.nf); if(c) c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; });
 document.addEventListener('change', e=>{ const el=e.target; if(!el.matches)return;
-  if(el.matches('.nf[data-mcpnf]')){ const m=mcpn(el.dataset.mcpnf); if(!m)return;             // MCP action in-node settings (tool / auto / args)
-    if(el.dataset.mcpsel) return setMcpTool(m, el.value);
+  if(el.matches('[data-mcpnf]')){ const m=mcpn(el.dataset.mcpnf); if(!m)return;                // MCP server/tool cascade — shared by the card (.nf) and inspector (.cin)
+    if(el.dataset.mcpserver){ el.blur(); return void onMcpServer(m, el.value); }               // A2: server picked → lazy-load its tools, re-render (blur first so the focus guard lets the tool select appear)
+    if(el.dataset.mcptool) return setMcpTool(m, m.server, el.value);
     if(el.dataset.mcpauto){ m.auto=el.checked; return render(); }
     if(el.dataset.mcpargs){ try{ m.config=JSON.parse(el.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } return; } return; }
   if(!el.matches('.nf[data-nf]'))return; const c=comp(el.dataset.nf); if(!c)return;
