@@ -463,6 +463,16 @@ const readAutomations = () => { try { return JSON.parse(fs.readFileSync(AUTO_FIL
 const INTEG_FILE = path.join(HERE, '..', 'mcp', 'integrations.json');
 const readIntegrations = () => { try { return JSON.parse(fs.readFileSync(INTEG_FILE, 'utf8')); } catch { return []; } };
 const writeIntegrations = (arr) => fs.writeFileSync(INTEG_FILE, JSON.stringify(arr, null, 2));
+// clean-mcp token-light index for integrations (mirrors server.mjs search_integrations): keyword score → SMALL refs.
+// The cockpit/AI search the index and get_integration ONE for its full tool list (vs the old /api/integrations dump).
+const searchIntegrationsRefs = (q = '', limit = 999) => {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hayOf = (it) => `${it.label} ${it.id} ${it.kind} ${(it.tools || []).map((tl) => tl.name).join(' ')} ${(it.tags || []).join(' ')}`.toLowerCase();
+  return readIntegrations()
+    .map((it) => ({ it, s: terms.reduce((n, t) => n + (hayOf(it).includes(t) ? 1 : 0), 0) }))
+    .filter((x) => x.s > 0 || !terms.length).sort((x, y) => y.s - x.s).slice(0, limit)
+    .map(({ it }) => ({ id: it.id, label: it.label, kind: it.kind, enabled: it.enabled !== false, tools: (it.tools || []).length, tags: it.tags }));
+};
 function saveIntegration({ id, label, kind, command, url, enabled, tools }) {
   id = id || (label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mcp-' + randomUUID().slice(0, 4);
   const it = { id, label: label || id, kind: kind || 'mcp', command: command || '', url: url || '', enabled: enabled !== false, tools: Array.isArray(tools) ? tools : [] };
@@ -652,6 +662,10 @@ const server = http.createServer((req, res) => {
     return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false })));
   if (req.method === 'GET' && p === '/api/integrations')         // connected MCP servers (Wave F.2)
     return json(res, 200, readIntegrations());
+  if (req.method === 'GET' && p === '/api/integrations/search')  // clean-mcp token-light index: SMALL refs (id/label/kind/enabled/toolCount/tags)
+    return json(res, 200, searchIntegrationsRefs(u.searchParams.get('q') || '', Number(u.searchParams.get('limit')) || 999));
+  if (req.method === 'GET') { const im = p.match(/^\/api\/integrations\/([^/]+)$/);   // get ONE integration's full tool list on demand
+    if (im) { const it = readIntegrations().find((x) => x.id === decodeURIComponent(im[1])); return it ? json(res, 200, it) : json(res, 404, { error: `no integration "${im[1]}"` }); } }
   if (req.method === 'GET' && p === '/api/audit')                // Wave H: tamper-evident trust trail + chain verification
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
   if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt

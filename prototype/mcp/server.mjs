@@ -42,7 +42,8 @@ const loadJson = (file, fallback) => { try { return JSON.parse(fs.readFileSync(p
 let AGENTS = loadAgents();
 let WORKFLOWS = loadJson('workflows.json', []);
 let AUTOMATIONS = loadJson('automations.json', []);
-log(`indexed ${Object.keys(AGENTS).length} agents, ${WORKFLOWS.length} workflows, ${AUTOMATIONS.length} automations${UNATTENDED ? ' [UNATTENDED]' : ''}`);
+let INTEGRATIONS = loadJson('integrations.json', []);
+log(`indexed ${Object.keys(AGENTS).length} agents, ${WORKFLOWS.length} workflows, ${AUTOMATIONS.length} automations, ${INTEGRATIONS.length} integrations${UNATTENDED ? ' [UNATTENDED]' : ''}`);
 
 // keyword scorer (MVP; swap for embeddings later) + one generic searcher over any index
 function score(text, query) {
@@ -65,6 +66,9 @@ const searchWorkflows = (q, limit) => searchIndex(WORKFLOWS,
 const searchAutomations = (q, limit) => searchIndex(AUTOMATIONS,
   (m) => `${m.name} ${m.summary} ${(m.tags || []).join(' ')} ${m.trigger?.type || ''} ${m.workflow}`,
   (m) => ({ id: m.id, name: m.name, summary: m.summary, trigger: m.trigger?.type, workflow: m.workflow, enabled: m.enabled !== false, tags: m.tags }), q, limit);
+const searchIntegrations = (q, limit) => searchIndex(INTEGRATIONS,
+  (it) => `${it.label} ${it.id} ${it.kind} ${(it.tools || []).map((tl) => tl.name).join(' ')} ${(it.tags || []).join(' ')}`,
+  (it) => ({ id: it.id, label: it.label, kind: it.kind, enabled: it.enabled !== false, tools: (it.tools || []).length, tags: it.tags }), q, limit);
 
 // build_state trigger fires when trig.match is a DEEP SUBSET of the event (no eval): nested objects match
 // recursively, arrays match positionally, primitives match by ===. Keys absent from the event don't match.
@@ -137,6 +141,10 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
   { name: 'get_automation', description: 'Get one automation\'s full definition (trigger + bound workflow + default input) by id.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'search_integrations', description: 'Search the integration index (connected MCP servers + their external-action tools: email/post/etc). Returns small refs (id/label/kind/enabled/toolCount/tags) — token-light. Use get_integration for the full tool list.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
+  { name: 'get_integration', description: 'Get one integration\'s full definition (kind + command/url + tools with accepts/emits) by id.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'build_state', description: 'Summary of the BuildHUD state (counts, ids, attended/unattended). Summary only — not a full dump.',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'run_handoff', description: 'ACT: send one handoff to an agent skill (A2A). confirm:true to execute; otherwise returns a dry-run plan (attended).',
@@ -173,7 +181,9 @@ async function callTool(name, args = {}) {
     case 'get_workflow': { const w = WORKFLOWS.find((x) => x.id === args.id); if (!w) throw new Error(`no workflow "${args.id}"`); return w; }
     case 'search_automations': return searchAutomations(args.query || '', args.limit);
     case 'get_automation': { const m = AUTOMATIONS.find((x) => x.id === args.id); if (!m) throw new Error(`no automation "${args.id}"`); return m; }
-    case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, unattended: UNATTENDED,
+    case 'search_integrations': return searchIntegrations(args.query || '', args.limit);
+    case 'get_integration': { const it = INTEGRATIONS.find((x) => x.id === args.id); if (!it) throw new Error(`no integration "${args.id}"`); return it; }
+    case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,
       agentIds: Object.keys(AGENTS), workflowIds: WORKFLOWS.map((w) => w.id), automationIds: AUTOMATIONS.map((m) => m.id) };
     case 'run_handoff': {
       const a = AGENTS[args.toAgentId]; if (!a) throw new Error(`no agent "${args.toAgentId}"`);
@@ -236,6 +246,7 @@ const RESOURCES = [
   { uri: 'buildhud://agents', name: 'Agent index', description: 'Agent refs (token-light)', mimeType: 'application/json' },
   { uri: 'buildhud://workflows', name: 'Workflow index', description: 'Workflow refs', mimeType: 'application/json' },
   { uri: 'buildhud://automations', name: 'Automation index', description: 'Automation refs (trigger-bound)', mimeType: 'application/json' },
+  { uri: 'buildhud://integrations', name: 'Integration index', description: 'Integration refs (MCP servers + tool counts)', mimeType: 'application/json' },
   { uri: 'buildhud://state', name: 'Build state summary', description: 'Counts/summary', mimeType: 'application/json' },
 ];
 
@@ -268,6 +279,7 @@ rl.on('line', async (line) => {
         const body = uri === 'buildhud://agents' ? searchAgents('', 999)
           : uri === 'buildhud://workflows' ? searchWorkflows('', 999)
           : uri === 'buildhud://automations' ? searchAutomations('', 999)
+          : uri === 'buildhud://integrations' ? searchIntegrations('', 999)
           : uri === 'buildhud://state' ? await callTool('build_state')
           : null;
         if (body == null) return err(id, -32602, `unknown resource: ${uri}`);
