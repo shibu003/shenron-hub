@@ -80,7 +80,8 @@
   #wireTip { position:absolute; z-index:20; display:none; max-width:320px; pointer-events:none; background:#0d1117; border:1px solid var(--blue); border-radius:9px; color:var(--txt); padding:8px 10px; font-size:12px; box-shadow:0 12px 28px -18px #000; }
   #wireTip.ok { border-color:var(--green); color:#bdf6c9; }
   #wireTip.bad { border-color:var(--red); color:#ffc2be; }
-  .node { position:absolute; width:200px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  /* per-node dynamic sizing — width fits content within [min,max]; height grows with the in-card settings */
+  .node { position:absolute; width:fit-content; min-width:200px; max-width:340px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
           padding:0 0 9px; cursor:grab; user-select:none; box-shadow:0 2px 10px -3px rgba(0,0,0,.55); transition:border-color .12s, box-shadow .12s, transform .12s; }
   .node:hover { border-color:#48515c; box-shadow:0 12px 30px -12px rgba(0,0,0,.8); transform:translateY(-1px); }
   .node.selected { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 8px 22px -10px var(--blue); }
@@ -94,9 +95,14 @@
   .node .co { color:var(--dim); font-size:11px; margin:0; padding:6px 12px 0; }
   .node .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; padding:0 12px; } .node .pol.auto { color:var(--amber); }
-  .node.trigger { width:188px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
-  .node.mcp { width:240px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
-  .node.comp { width:244px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
+  .node.trigger { min-width:204px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
+  .node.mcp { min-width:240px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
+  .node.comp { min-width:244px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
+  /* per-node collapse (B1): fold the settings body via the header chevron */
+  .ntoggle { cursor:pointer; color:var(--dim); font-size:11px; line-height:1; padding:0 1px; user-select:none; flex:none; }
+  .ntoggle:hover { color:var(--txt); }
+  .node.collapsed .nbody { display:none; }
+  .node.collapsed.mcp .name, .node.collapsed.comp .name { border-bottom:none; border-radius:13px; }
   /* in-node settings — edit a component's fields directly on the card (Langflow-style) */
   .nbody { padding:8px 11px 2px; display:grid; gap:7px; }
   .nfrow { display:grid; gap:2px; }
@@ -107,7 +113,7 @@
   select.nf.nkind { font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:600; }
   .nfbool { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--txt); cursor:pointer; } .nfbool input { width:auto; }
   .nfres { font-size:11px; color:var(--green); white-space:pre-wrap; max-height:96px; overflow:auto; border-top:1px solid var(--line); padding-top:5px; }
-  .node.note { width:250px; cursor:grab; } .node.note .notebody { padding:11px 13px; font-size:12px; line-height:1.55; color:#cdd9e5; white-space:normal; max-height:280px; overflow:auto; }
+  .node.note { min-width:230px; max-width:300px; cursor:grab; } .node.note .notebody { padding:11px 13px; font-size:12px; line-height:1.55; color:#cdd9e5; white-space:normal; max-height:280px; overflow:auto; }
   .node.note .notebody b { color:#fff; }
   .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
   .port.in { left:-11px; } .port.out { right:-11px; } .port:hover { transform:translateY(-50%) scale(1.2); box-shadow:0 0 0 4px rgba(230,237,243,.24); }
@@ -369,7 +375,8 @@ const I18N = {
   sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
   collapse:{ja:'📦 {n}個を畳む',en:'📦 Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
   t_collapse_linear:{ja:'入口/出口が複数です — 線形の選択にしてください',en:'Multiple entry/exit points — select a linear chain'}, t_collapsed:{ja:'選択を sub-flow に畳みました',en:'collapsed into a sub-flow'}, t_collapse_min:{ja:'2つ以上を Shift+クリックで選択してください',en:'Shift+click 2+ nodes first'},
-  add_note:{ja:'📝 メモ',en:'📝 Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'},
+  add_note:{ja:'📝 メモ',en:'📝 Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'}, note_done:{ja:'✓ 完了',en:'✓ Done'},
+  card_fold:{ja:'設定を畳む / 開く',en:'fold / unfold settings'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
   h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
@@ -746,6 +753,11 @@ function inlineField(c,f){ const id=esc(c.id), k=esc(f.key), val=c.config?.[f.ke
     : f.type==='workflow'?`<select class="nf" data-nf="${id}" data-fk="ref" data-rerender="1"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)}</option>`).join('')}</select>`
     : `<input class="nf" data-nf="${id}" data-fk="${k}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`;
   return `<div class="nfrow"><label class="nflabel">${esc(f.label)}</label>${w}</div>`; }
+// B1 — per-node collapse: fold a card's settings body to keep the canvas readable. State persists.
+let COLLAPSED = new Set(JSON.parse(localStorage.getItem('bh_collapsed')||'[]'));
+const toggleCollapse = (id) => { COLLAPSED.has(id)?COLLAPSED.delete(id):COLLAPSED.add(id); localStorage.setItem('bh_collapsed',JSON.stringify([...COLLAPSED])); render(); };
+const collBtn = (id) => `<span class="ntoggle" data-collapse="${esc(id)}" title="${t('card_fold')}">${COLLAPSED.has(id)?'▸':'▾'}</span>`;
+let noteEdit = null;   // id of the note in inline-edit mode (double-click to enter)
 function renderNodes(){
   const canvas=$('#world');
   $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'block';
@@ -771,8 +783,16 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=tr.id; canvas.appendChild(n); attachNode(n,tr.id); }
     if(!POS[tr.id]) POS[tr.id]={x:tr.x||30,y:tr.y||30};
     n.style.left=POS[tr.id].x+'px'; n.style.top=POS[tr.id].y+'px'; n.classList.toggle('selected',selected===tr.id);
-    n.innerHTML=`<div class="name">⚡ trigger</div><div class="co">${esc(tr.type)}</div>
-      <div class="pol">${esc(matchStr(tr)||t('trig_set'))}</div>${portHtml('out',tr.id,'*')}`;
+    n.classList.toggle('collapsed',COLLAPSED.has(tr.id));
+    if(n.contains(document.activeElement)) continue;   // in-node editing: don't rebuild while a select here is focused
+    const tdef=(BUILDSTATE.events||[]).find(e=>e.event===(tr.match&&tr.match.event));
+    const tHasStatus=!!(tdef&&(tdef.fields||[]).includes('status'));   // only review_completed carries a status in the IR
+    const evSel=`<select class="nf nkind" data-trig="${esc(tr.id)}" data-trigfield="event"><option value="" ${tr.match&&tr.match.event?'':'selected'}>${esc(t('trig_custom'))}</option>${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(evLabel(e.event))}</option>`).join('')}</select>`;
+    const stSel=tHasStatus?`<div class="nfrow"><label class="nflabel">${t('fire_result')}</label><select class="nf" data-trig="${esc(tr.id)}" data-trigfield="status"><option value="">—</option>${['green','red','changes_requested'].map(s=>`<option value="${s}" ${tr.match&&tr.match.status===s?'selected':''}>${esc(resultLabel(s))}</option>`).join('')}</select></div>`:'';
+    n.innerHTML=`<div class="name">${collBtn(tr.id)}⚡ trigger</div>`
+      +`<div class="co">${esc(triggerSummary(tr.match))}</div>`
+      +`<div class="nbody"><div class="nfrow"><label class="nflabel">${t('fire_what')}</label>${evSel}</div>${stSel}</div>`
+      +portHtml('out',tr.id,'*');
   }
   for(const mn of MCP_NODES){
     const nid='n_'+cssid(mn.id); seen.add(nid);
@@ -783,14 +803,14 @@ function renderNodes(){
     const mine=state.handoffs.filter(h=>h.mcp&&h.node===mn.id);
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
-    n.classList.toggle('busy',busy);
+    n.classList.toggle('busy',busy); n.classList.toggle('collapsed',COLLAPSED.has(mn.id));
     if(n.contains(document.activeElement)) continue;   // in-node editing: don't rebuild while a field here is focused (would kill the caret)
     const mset=!!(mn.server&&mn.tool);
     const cascade=mcpCascade(mn,'nf');   // A2: server→tool cascade (lazy-loads the picked server's tools)
     const body=mset
       ? `${cascade}<label class="nfbool"><input type="checkbox" class="nf" data-mcpnf="${esc(mn.id)}" data-mcpauto="1" ${mn.auto?'checked':''}> ${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}</label><div class="nfrow"><label class="nflabel">${t('f_args')}</label><textarea class="nf" data-mcpnf="${esc(mn.id)}" data-mcpargs="1" rows="2">${esc(JSON.stringify(mn.config||{}))}</textarea></div>${awaiting?`<div class="nflabel" style="color:var(--amber)">⏳ awaiting approval</div>`:busy?`<div class="nflabel" style="color:var(--blue)">▶ running</div>`:''}`
       : cascade;
-    n.innerHTML=`<div class="name">🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+    n.innerHTML=`<div class="name">${collBtn(mn.id)}🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="nbody">${body}</div>`
       +`${portHtml('in',mn.id,(mn.accepts||[])[0])}${portHtml('out',mn.id,(mn.emits||[])[0])}`;
   }
@@ -800,15 +820,16 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node comp'; n.id=nid; n.dataset.id=c.id; canvas.appendChild(n); attachNode(n,c.id); }
     if(!POS[c.id]) POS[c.id]={x:c.x||200,y:c.y||40};
     n.style.left=POS[c.id].x+'px'; n.style.top=POS[c.id].y+'px'; n.classList.toggle('selected',selected===c.id);
+    n.classList.toggle('collapsed',COLLAPSED.has(c.id));
     if(n.contains(document.activeElement)) continue;   // in-node editing: skip rebuild while a field here is focused (would kill the caret); config is already live-updated
     const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
     const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));   // per-component custom name (falls back to the kind label)
-    const cdesc=(c.config?.desc||'').trim();
     const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.icon+' '+m.label)}</option>`).join('')}</select>`;
+    // B1 — name + desc now edit on the card (was inspector-only); reuse inlineField so the delegated input listener live-binds config.name/desc
+    const nameDesc=inlineField(c,{key:'name',label:t('comp_name'),ph:t('comp_name_ph')})+inlineField(c,{key:'desc',label:t('comp_desc'),type:'textarea',ph:t('comp_desc_ph')});
     const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
-    n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(cname)}</div>`
-      +(cdesc?`<div class="co" style="color:#b8c7d8">${esc(cdesc).slice(0,72)}</div>`:'')
-      +`<div class="nbody">${kindSel}${fieldsHtml}${res!=null?`<div class="nfres">${esc(res).slice(0,240)}</div>`:''}</div>`
+    n.innerHTML=`<div class="name">${collBtn(c.id)}${meta.icon||'▦'} ${esc(cname)}</div>`
+      +`<div class="nbody">${kindSel}${nameDesc}${fieldsHtml}${res!=null?`<div class="nfres">${esc(res).slice(0,240)}</div>`:''}</div>`
       +(c.accepts.length?portHtml('in',c.id,c.accepts[0]):'')
       +(c.emits.length?portHtml('out',c.id,c.emits[0]):'');
   }
@@ -818,15 +839,21 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node note'; n.id=nid; n.dataset.id=nt.id; canvas.appendChild(n); attachNode(n,nt.id); }
     if(!POS[nt.id]) POS[nt.id]={x:nt.x||90,y:nt.y||90};
     n.style.left=POS[nt.id].x+'px'; n.style.top=POS[nt.id].y+'px'; n.classList.toggle('selected',selected===nt.id);
+    n.ondblclick=()=>{ noteEdit=nt.id; render(); setTimeout(()=>{ const ta=document.getElementById(nid)?.querySelector('textarea'); ta&&ta.focus(); },0); };   // B1 — double-click to edit
     const col=NOTE_COLORS[nt.color]||NOTE_COLORS.amber; n.style.background=col.bg; n.style.borderColor=col.border;
-    n.innerHTML=`<div class="notebody">${mdLite(nt.text||'')}</div>`;
+    if(noteEdit===nt.id){
+      if(n.contains(document.activeElement)) continue;   // don't rebuild while typing
+      n.innerHTML=`<div class="nbody"><textarea class="nf" data-noteid="${esc(nt.id)}" data-notefield="text" rows="4" placeholder="${esc(t('note_text'))}">${esc(nt.text||'')}</textarea>`
+        +`<div class="nfrow"><label class="nflabel">${t('note_color')}</label><select class="nf" data-noteid="${esc(nt.id)}" data-notefield="color">${Object.keys(NOTE_COLORS).map(c=>`<option value="${c}" ${nt.color===c?'selected':''}>${c}</option>`).join('')}</select></div>`
+        +`<button class="ibtn" data-notedone="${esc(nt.id)}">${t('note_done')}</button></div>`;
+    } else n.innerHTML=`<div class="notebody">${mdLite(nt.text||'')}</div>`;
   }
   for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
   canvas.querySelectorAll('[data-out]').forEach(el=> el.onpointerdown = ev=>startWire(ev, el.getAttribute('data-out')));
 }
 function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
-    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('input,textarea,select,label,.nf'))return;   // in-node fields: don't start a drag when interacting with a widget
+    if(wiring||e.button!==0||e.target.closest('.port')||e.target.closest('input,textarea,select,label,button,.nf,.ntoggle'))return;   // in-node fields / chevron / buttons: don't start a drag when interacting with them
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
   });
@@ -1595,16 +1622,26 @@ document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu
 /* Langflow-style keyboard shortcuts */
 // in-node settings: live-bind inline field widgets → component config. Text 'input' updates config WITHOUT a
 // re-render (the focused element survives); selects/checkboxes commit on 'change' (kind switch / sub-flow ref / bool).
-document.addEventListener('input', e=>{ const el=e.target; if(!el.matches||!el.matches('.nf[data-fk]')||el.tagName==='SELECT')return; const c=comp(el.dataset.nf); if(c) c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; });
+document.addEventListener('input', e=>{ const el=e.target; if(!el.matches)return;
+  if(el.matches('textarea[data-noteid][data-notefield="text"]')){ const nt=noteOf(el.dataset.noteid); if(nt) nt.text=el.value; return; }   // B1 note text: live-bind while typing
+  if(!el.matches('.nf[data-fk]')||el.tagName==='SELECT')return; const c=comp(el.dataset.nf); if(c) c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; });
 document.addEventListener('change', e=>{ const el=e.target; if(!el.matches)return;
   if(el.matches('[data-mcpnf]')){ const m=mcpn(el.dataset.mcpnf); if(!m)return;                // MCP server/tool cascade — shared by the card (.nf) and inspector (.cin)
     if(el.dataset.mcpserver){ el.blur(); return void onMcpServer(m, el.value); }               // A2: server picked → lazy-load its tools, re-render (blur first so the focus guard lets the tool select appear)
     if(el.dataset.mcptool) return setMcpTool(m, m.server, el.value);
     if(el.dataset.mcpauto){ m.auto=el.checked; return render(); }
     if(el.dataset.mcpargs){ try{ m.config=JSON.parse(el.value||'{}'); toast(t('t_args_ok')); }catch{ toast(t('t_badjson')); } return; } return; }
+  if(el.matches('[data-trig]')){ const tr=trig(el.dataset.trig); if(!tr)return;                // B1 trigger card: event / status selects (drive tr.match like the old inspector)
+    if(el.dataset.trigfield==='event'){ tr.match=el.value?{event:el.value}:{}; return render(); }   // switching the event resets stale fields (e.g. status)
+    if(el.dataset.trigfield==='status'){ tr.match={...(tr.match||{})}; if(el.value) tr.match.status=el.value; else delete tr.match.status; return render(); } return; }
+  if(el.matches('select[data-noteid][data-notefield="color"]')){ const nt=noteOf(el.dataset.noteid); if(nt){ nt.color=el.value; render(); } return; }   // B1 note color
   if(!el.matches('.nf[data-nf]'))return; const c=comp(el.dataset.nf); if(!c)return;
   if(el.dataset.kindsel){ return setCompKind(c, el.value); }                                   // inline kind selector → specialize the node
   c.config[el.dataset.fk]=el.type==='checkbox'?el.checked:el.value; if(el.dataset.rerender||el.type==='checkbox') render(); });
+// B1 — card header chevron (fold settings) + note "done" (leave inline edit)
+document.addEventListener('click', e=>{ const el=e.target.closest('[data-collapse],[data-notedone]'); if(!el)return;
+  if(el.dataset.collapse!=null) toggleCollapse(el.dataset.collapse);
+  else if(el.dataset.notedone!=null){ noteEdit=null; render(); } });
 document.addEventListener('keydown', e=>{
   const tag=(e.target.tagName||'').toLowerCase(), typing=tag==='input'||tag==='textarea'||e.target.isContentEditable;
   if(e.key==='/' && !typing){ e.preventDefault(); $('#palSearch').focus(); return; }
