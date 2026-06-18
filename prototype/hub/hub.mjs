@@ -21,6 +21,7 @@ import url from 'node:url';
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
+import { langflowRun, langflowImport } from './langflow.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
@@ -188,6 +189,8 @@ function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
 function runFlow({ id, nodes, edges, input, parent }) {
   if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
+  const lf = nodes.find((n) => n.kind === 'langflow');   // 🔗 exotic component → not natively runnable; the whole flow must go to Langflow /v1/run
+  if (lf) throw new Error(`flow has a Langflow component (${(lf.config && lf.config._lfType) || '🔗'}) — run via POST /api/langflow/run with flowId ${(lf.config && lf.config._lfFlowId) || '(missing — re-import the flow)'}`);
   const depth = parent ? ((state.runs[parent.runId]?.depth || 0) + 1) : 0;   // 📦 sub-flow nesting — bound it so a self-referential flow can't loop forever
   if (depth > 8) throw new Error('sub-flow nesting too deep (>8)');
   const trg = new Set(nodes.filter((n) => n.kind === 'trigger' || n.kind === 'note').map((n) => n.id));   // triggers = entry markers, notes = annotations — neither is executable
@@ -681,6 +684,8 @@ const server = http.createServer((req, res) => {
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
+      if (p === '/api/langflow/run') { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // 🔗 delegate an exotic Langflow flow to /api/v1/run, fenced (audit appended → persist)
+      if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
       if (p === '/api/fire/preview') return json(res, 200, firePreview(j.event || {})); // Wave 2: dry-run — what this event would fire (no run)

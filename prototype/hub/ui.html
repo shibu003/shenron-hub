@@ -285,6 +285,7 @@
     </div>
     <button class="tb" id="btnGhost" onclick="ghostWrite()"></button>
     <button class="tb" id="btnLfImport" onclick="pickLangflowFile()"></button>
+    <button class="tb" id="btnLfPush" onclick="pushToLangflow()"></button>
     <button class="tb" id="btnSettings" onclick="openSettings()"></button>
   </div>
   <button class="tb" id="lang" onclick="toggleLang()"></button>
@@ -428,6 +429,9 @@ const I18N = {
   edge_branch:{ja:'router の分岐',en:'router branch'}, edge_pred_true:{ja:'条件が真',en:'predicate true'}, edge_pred_false:{ja:'条件が偽',en:'predicate false'},
   trig_custom:{ja:'— カスタム（JSON を表示）',en:'— custom (Show JSON)'},
   lf_import:{ja:'🔗 Langflow 取込',en:'🔗 Import Langflow'}, lf_empty:{ja:'Langflow flow が空です',en:'empty Langflow flow'}, lf_bad:{ja:'Langflow JSON 解析失敗',en:'bad Langflow JSON'}, lf_imported:{ja:'Langflow flow を取込（{n} ノード・{e} 配線）— firewall/passport で fence 可',en:'imported Langflow flow ({n} nodes, {e} wires) — fence it with firewall/passport'},
+  lf_host_label:{ja:'Langflow host（🔗 を含む flow の実行先）',en:'Langflow host (for running 🔗 flows)'}, lf_noflowid:{ja:'flowId 不明 — 先に「⤴ Langflow へ登録」するか flow を再取込してください',en:'no flowId — push to Langflow first, or re-import the flow'},
+  lf_key_label:{ja:'Langflow API key（任意・secured 時のみ）',en:'Langflow API key (optional, secured instances)'}, lf_push:{ja:'⤴ Langflow へ登録',en:'⤴ Push to Langflow'}, lf_push_none:{ja:'先に Langflow flow を取込んでください',en:'import a Langflow flow first'}, lf_pushed:{ja:'Langflow に登録 → flowId {id}',en:'registered in Langflow → flowId {id}'},
+  lf_run_info:{ja:'🔗 を含む flow は {host} の /v1/run へ丸ごと委譲。入力は firewall で除去・呼び出しは audit に記録。',en:'🔗 flow is delegated whole to {host} /v1/run. Input is firewalled, the call is audited.'}, lf_ran:{ja:'Langflow 実行完了（除去 {n} 件）',en:'Langflow run done ({n} redacted)'},
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
@@ -518,7 +522,7 @@ function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
-  $('#btnGhost').textContent=t('ghost'); $('#btnLfImport').textContent=t('lf_import'); $('#btnSettings').textContent=t('settings');
+  $('#btnGhost').textContent=t('ghost'); $('#btnLfImport').textContent=t('lf_import'); $('#btnLfPush').textContent=t('lf_push'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger'); $('#btnAddNote').textContent=t('add_note');
@@ -1280,7 +1284,10 @@ function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
     <div class="row2" style="display:flex;gap:6px;margin-top:4px">
       <input id="itLabel" placeholder="${t('it_label')}" style="flex:1"><input id="itConn" placeholder="${t('it_conn')}" style="flex:1"></div>
     <input id="itTools" placeholder="${t('it_tools')}">
-    <button class="ibtn" id="itAdd">${t('add_mcp')}</button></div>
+    <button class="ibtn" id="itAdd">${t('add_mcp')}</button>
+    <label style="margin-top:6px">${t('lf_host_label')}</label>
+    <input id="lfHost" value="${esc(lfHost())}" placeholder="http://localhost:7860">
+    <input id="lfKey" value="${esc(lfKey())}" placeholder="${t('lf_key_label')}"></div>
     <div class="df"><button class="act" id="setClose">${t('close')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#gAutorun').onclick=async()=>{ await api('/api/autorun',{on:!(state.autorun!==false)}); await refresh(); openSettings(); };
@@ -1288,7 +1295,8 @@ function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   $('#itAdd').onclick=async()=>{ const label=$('#itLabel').value.trim(); if(!label)return; const conn=$('#itConn').value.trim();
     const tools=($('#itTools').value||'').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,accepts:['*'],emits:['*']}));
     await api('/api/integrations',{ label, command: conn.startsWith('http')?'':conn, url: conn.startsWith('http')?conn:'', enabled:true, tools }); await fetchIntegrations(); openSettings(); render(); };
-  $('#setClose').onclick=()=>dlg.close(); }
+  $('#setClose').onclick=()=>{ const h=$('#lfHost').value.trim(); h?localStorage.setItem('lf_host',h):localStorage.removeItem('lf_host');
+    const k=$('#lfKey').value.trim(); k?localStorage.setItem('lf_key',k):localStorage.removeItem('lf_key'); dlg.close(); }; }
 let mcpTool = 'send_handoff';
 function copyMcp(id){ openMcpModal(id); }
 function openMcpModal(id){
@@ -1367,8 +1375,32 @@ async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1')
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); api('/api/trust/preview',{ nodes:f.nodes, edges:f.edges, input:'' }).then(p=>{ TRUST_BASELINE=p; TRUST_DIFF=null; }).catch(()=>{}); fetchWorkflows(); refresh(); } }); }   // Wave ④: saved flow = new trust baseline
+const lfHost=()=>localStorage.getItem('lf_host')||'http://localhost:7860';   // 🔗 run/import target; editable in ⚙ Settings
+const lfKey=()=>localStorage.getItem('lf_key')||'';                          // optional x-api-key (secured Langflow only)
+let LF_SOURCE=null;                                                          // raw last-imported Langflow JSON, kept for verbatim re-upload
+// ⤴ register the last-imported flow INTO Langflow (verbatim → types/settings preserved) so /api/v1/run can run
+// it; on success point every 🔗 node at the id Langflow issued (the .json's own id won't exist in a fresh server).
+async function pushToLangflow(){
+  if(!LF_SOURCE) return toast(t('lf_push_none'));
+  let res; try{ res=await api('/api/langflow/import',{ host:lfHost(), key:lfKey(), flow:LF_SOURCE }); }catch(e){ return toast(e.message); }
+  if(res&&res.error) return toast(res.error);
+  let n=0; for(const c of COMPONENTS) if(c.kind==='langflow'&&res.flowId){ c.config=c.config||{}; c.config._lfFlowId=res.flowId; n++; }
+  if(n) render();
+  const msg=t('lf_pushed').replace('{id}',res.flowId||'?'); conn(msg); toast(msg);
+}
+// 🔗 a flow holding an exotic Langflow component can't run node-by-node here → delegate the whole flow to
+// Langflow /api/v1/run; the hub still firewalls the input + audits the call. flowId rode in on the 🔗 node's config.
+function runLangflow(lfNode){
+  const flowId=lfNode.config&&lfNode.config._lfFlowId; if(!flowId) return toast(t('lf_noflowid'));
+  openModal({ title:t('m_run_t'), info:t('lf_run_info').replace('{host}',lfHost()), submitLabel:t('m_run_b'),
+    fields:[{key:'input',label:t('m_entry'),type:'textarea',value:''}],
+    onSubmit:async v=>{ let res; try{ res=await api('/api/langflow/run',{ host:lfHost(), key:lfKey(), flowId, input:v.input }); }catch(e){ return toast(e.message); }
+      if(res&&res.error) return toast(res.error);
+      conn(t('lf_ran').replace('{n}',res.redacted||0)); toast(res.output?String(res.output).slice(0,240):'(no output)'); refresh(); } });
+}
 async function runFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
+  const lfNode=f.nodes.find(n=>n.kind==='langflow'); if(lfNode) return runLangflow(lfNode);
   let pv=null; try{ pv=await api('/api/trust/preview',{ nodes:f.nodes, edges:f.edges, input:'' }); }catch{}   // Wave ④: pre-run trust verdict + advisory gate (reuses the E1 dry-run)
   const diff=(pv&&TRUST_BASELINE)?trustDiff(TRUST_BASELINE,pv):null;
   const risky=!!(pv&&(pv.summary.deniedSends>0||(diff&&diff.weaker)));
@@ -1574,6 +1606,7 @@ const LF_KIND = { ChatInput:'input', TextInput:'input', ChatOutput:'output', Tex
   StructuredOutput:'structured', ParseData:'parser', note:'note' };
 const lfVal=(tmpl,k)=>{ const f=tmpl&&tmpl[k]; return f&&typeof f==='object'?f.value:f; };
 function importLangflowFlow(lf){
+  const flowId=(lf&&lf.id)||''; LF_SOURCE=lf;   // top-level id = flowId for /api/v1/run (kept on 🔗 nodes); raw kept for ⤴ re-upload
   const d=(lf&&lf.data)||lf||{}; const lns=d.nodes||[], les=d.edges||[];
   if(!lns.length) return toast(t('lf_empty'));
   const xs=lns.map(n=>n.position?.x||0), ys=lns.map(n=>n.position?.y||0), minx=Math.min(...xs), miny=Math.min(...ys), S=0.55;   // Langflow coords are large/spread → normalize into the canvas
@@ -1583,8 +1616,13 @@ function importLangflowFlow(lf){
     const config={ name:(ln.data&&ln.data.display_name)||dt };
     if(kind==='input') config.text=lfVal(tmpl,'input_value')||'';
     else if(kind==='prompt') config.template=lfVal(tmpl,'template')||'{input}';
-    else if(kind==='languagemodel'){ config.model='stub'; config.system=lfVal(tmpl,'system_message')||lfVal(tmpl,'system')||''; }
-    else if(kind==='langflow'){ config._lfType=dt; config.desc=(ln.data&&ln.data.description)||''; }
+    else if(kind==='languagemodel'){ const m=String(lfVal(tmpl,'model')||lfVal(tmpl,'model_name')||'').toLowerCase();
+      config.model=/claude|anthropic/.test(m)?'claude':/gemini|google/.test(m)?'gemini':'stub';   // cockpit runner = claude CLI | stub; model/temperature are honored only when run IN Langflow
+      config.system=lfVal(tmpl,'system_message')||lfVal(tmpl,'system')||''; const tp=lfVal(tmpl,'temperature'); if(tp!=null&&tp!=='') config.temperature=tp; }
+    else if(kind==='parser') config.pattern=lfVal(tmpl,'template')||lfVal(tmpl,'pattern')||'{input}';
+    else if(kind==='structured'){ const sc=lfVal(tmpl,'output_schema')||lfVal(tmpl,'schema');
+      config.schema=Array.isArray(sc)?sc.map(f=>f&&(f.name||f.field||f.key)).filter(Boolean).join(','):(typeof sc==='string'?sc:''); config.instructions=lfVal(tmpl,'instructions')||lfVal(tmpl,'format_instructions')||''; }
+    else if(kind==='langflow'){ config._lfType=dt; config._lfFlowId=flowId; config.desc=(ln.data&&ln.data.description)||''; }
     return { id:ln.id, kind, config, x, y };
   });
   const have=new Set(nodes.map(n=>n.id));
