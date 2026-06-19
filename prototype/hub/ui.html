@@ -20,6 +20,8 @@
   .tb.primary { border-color:var(--blue); color:var(--blue); } .tb.go { border-color:var(--green); color:var(--green); }
   .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
   .tb.collapse { border-color:#8957e5; color:#a371f7; } .tb.collapse:hover { border-color:#a371f7; background:rgba(137,87,229,.1); }
+  .flowgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; max-height:58vh; overflow:auto; }
+  .flowcard { text-align:left; padding:10px; cursor:pointer; } .flowcard:hover { border-color:var(--blue); } .fc-name { font-weight:600; margin-bottom:3px; }
   .menu { position:relative; }
   .menu-pop { position:absolute; top:38px; right:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:230px; z-index:30; box-shadow:0 12px 34px -12px #000; display:none; }
   .menu-pop.open { display:block; }
@@ -269,6 +271,7 @@
   <input id="flowName">
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
+    <button class="tb" id="btnFlows" onclick="showFlows()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none"></button>
     <button class="tb collapse" id="btnCollapse" onclick="collapseSelection()" style="display:none"></button>
@@ -387,6 +390,7 @@ const I18N = {
   comp_unset:{ja:'未設定',en:'unconfigured'}, comp_pick_kind:{ja:'種類を選んでください',en:'choose a kind'}, comp_kind:{ja:'種類',en:'kind'}, comp_kind_none:{ja:'— 種類を選択 —',en:'— choose a kind —'},
   t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
   sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
+  flows:{ja:'🗂 一覧',en:'🗂 Flows'}, flows_title:{ja:'保存済み flow',en:'Saved flows'}, flows_none:{ja:'保存済み flow なし — 💾 で保存',en:'no saved flows — save with 💾'},
   collapse:{ja:'📦 {n}個を畳む',en:'📦 Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
   t_collapse_linear:{ja:'入口/出口が複数です — 線形の選択にしてください',en:'Multiple entry/exit points — select a linear chain'}, t_collapsed:{ja:'選択を sub-flow に畳みました',en:'collapsed into a sub-flow'}, t_collapse_min:{ja:'2つ以上を Shift+クリックで選択してください',en:'Shift+click 2+ nodes first'},
   add_note:{ja:'📝 メモ',en:'📝 Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'}, note_done:{ja:'✓ 完了',en:'✓ Done'},
@@ -520,7 +524,7 @@ function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.
 function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
-  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
+  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnFlows').textContent=t('flows'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnGhost').textContent=t('ghost'); $('#btnLfImport').textContent=t('lf_import'); $('#btnLfPush').textContent=t('lf_push'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
@@ -1271,6 +1275,15 @@ async function togglePolicy(id){ const a=ag(id); await api(`/api/agents/${id}/po
 async function toggleAutorun(id){ const a=ag(id); await api(`/api/agents/${id}/autorun`,{on:!(a?.autorun!==false)}); refresh(); }
 async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integrations/search'); }catch{ INTEGRATIONS=[]; } INTEG_FULL={}; }   // A2: refs only; drop stale full-tool cache (also runs after a toggle/add)
 async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the 📦 Sub-flow picker
+async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');                                // 🗂 overview: all saved flows; click → loadFlow onto canvas
+  const cards = WORKFLOWS.length
+    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}"><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
+    : `<div class="minfo">${t('flows_none')}</div>`;
+  dlg.innerHTML=`<div class="dh">${t('flows_title')}（${WORKFLOWS.length}）</div><div class="db flowgrid">${cards}</div><div class="df"><button class="act" id="flowsClose">${t('cancel')}</button></div>`;
+  if(!dlg.open) dlg.showModal();
+  $('#flowsClose').onclick=()=>dlg.close();
+  dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
+}
 const sfName=(id)=>{ const w=WORKFLOWS.find(x=>x.id===id); return w?(w.name||w.id):id; };
 function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
