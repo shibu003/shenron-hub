@@ -42,7 +42,6 @@
     "url": "",
     "enabled": false,
     "searchTool": "search",
-    "tags": ["discover"],
     "tools": [
       { "name": "search", "accepts": ["*"], "emits": ["results"] }
     ]

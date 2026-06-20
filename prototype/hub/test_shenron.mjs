@@ -35,25 +35,24 @@ const h = buildPlanIR('do a thing', { plain_summary: 'do a thing', steps: [{ act
 assert.equal(h.nodes.length, 3, 'heuristic: input+prompt+output');
 assert.equal(h.missing.length, 0, 'heuristic prompt is not a gap');
 
-// Wave 2 — suggestionFromSearch: defensive multi-shape parse
+// Wave 2 — suggestionFromSearch: minimal shapes (envelope → array | {results})
 const env = (obj) => ({ content: [{ type: 'text', text: JSON.stringify(obj) }] });            // MCP tool-result envelope
 assert.deepEqual(suggestionFromSearch(env({ results: [{ title: 'GitHub MCP', url: 'https://x/gh' }] })), { title: 'GitHub MCP', url: 'https://x/gh' }, 'envelope→{results}');
 assert.deepEqual(suggestionFromSearch([{ url: 'https://y' }]), { title: 'https://y', url: 'https://y' }, 'bare array, url→title fallback');
-assert.deepEqual(suggestionFromSearch({ structuredContent: { title: 'T', link: 'https://z' } }), { title: 'T', url: 'https://z' }, 'structuredContent + link alias');
+assert.deepEqual(suggestionFromSearch({ structuredContent: { results: [{ title: 'T', url: 'https://z' }] } }), { title: 'T', url: 'https://z' }, 'structuredContent.results');
 assert.equal(suggestionFromSearch({ content: [{ type: 'text', text: 'sorry, no idea' }] }), null, 'prose → null');
 assert.equal(suggestionFromSearch(null), null, 'null → null');
 
 // Wave 2 — discover: fills missing[].suggestion, caps at 3, never throws on a bad search
 const fakeSearch = async (q) => env({ results: [{ title: `tool for ${q}`, url: 'https://t/' + encodeURIComponent(q) }] });
 const gaps = [{ what: 'collect GitHub commits', kind: 'mcp', step: 1 }];
-const d = await discover(gaps, fakeSearch);
-assert.deepEqual(d, { searched: 1, capped: 0 }, 'discover summary');
+await discover(gaps, fakeSearch);
 assert.equal(gaps[0].suggestion.title, 'tool for collect GitHub commits', 'suggestion attached');
 assert.equal(gaps[0].suggestion.source, 'external', 'source tagged external');
 
 const many = Array.from({ length: 5 }, (_, i) => ({ what: 'g' + i, kind: 'mcp', step: i }));
-assert.deepEqual(await discover(many, fakeSearch), { searched: 3, capped: 2 }, 'cap 3, surface 2 capped');
-assert.ok(!many[3].suggestion, 'gap past cap untouched');
+await discover(many, fakeSearch);
+assert.ok(many[2].suggestion && !many[3].suggestion, 'cap 3: gap[2] filled, gap[3] past cap untouched');
 
 const throwy = async () => { throw new Error('no key'); };
 const g2 = [{ what: 'x', kind: 'mcp', step: 1 }];
