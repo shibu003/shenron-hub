@@ -102,12 +102,15 @@ assert.deepEqual(neededCredentials(`x = os.environ.get('OPENWEATHER_API_KEY')\ny
 assert.deepEqual(neededCredentials('print("no env here")'), [], 'no env refs → empty allowlist');
 // genComponent: 宣言 cred が hub env に無ければ live verify せず needsCredentials を surface（repair 空回りを止める）
 const credCode = async () => '```python\nimport os\nx=os.environ.get("WEATHER_API_KEY")\n```';
-const rNoKey = await genComponent({ what: 'weather', run: credCode, sandbox: () => ({ ok: true }), hasEnv: () => false });
+delete process.env.WEATHER_API_KEY;
+const rNoKey = await genComponent({ what: 'weather', run: credCode, sandbox: () => ({ ok: true }) });
 assert.ok(!rNoKey.converged && rNoKey.needsCredentials.includes('WEATHER_API_KEY') && rNoKey.iters === 1, 'missing cred → surfaced, not verified/repaired');
 // 揃っていれば allowlist を sandbox に通し、converged 結果に credentials が載る
-const rKey = await genComponent({ what: 'weather', run: credCode, hasEnv: () => true,
+process.env.WEATHER_API_KEY = 'present';
+const rKey = await genComponent({ what: 'weather', run: credCode,
   sandbox: (code, opt) => { assert.deepEqual(opt.creds, ['WEATHER_API_KEY'], 'allowlist threaded to verify'); return { ok: true, output: 'sunny' }; } });
 assert.ok(rKey.converged && rKey.credentials.includes('WEATHER_API_KEY'), 'cred present → verified, credentials recorded for approval');
+delete process.env.WEATHER_API_KEY;
 
 // Wave 5 — refine: context={prev_plan,instruction} → 再生成。run 注入で LLM 不要。
 const prev = buildPlanIR('post commits to slack', { plain_summary: 'summarize commits, post to Slack',

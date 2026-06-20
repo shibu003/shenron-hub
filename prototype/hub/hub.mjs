@@ -20,7 +20,7 @@ import path from 'node:path';
 import url from 'node:url';
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
-import { callMcpTool, safeEnv, pickEnv } from '../mcp/mcp-client.mjs';
+import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
@@ -356,9 +356,8 @@ async function runMcp(h) {
     const pass = upstream?.passport?.share?.pass || [];            // capability passport: structured-args allowlist (default-deny when set)
     const pf = applyPass(config || {}, pass);                      // gate the CONFIG fields only; the scrubbed `input` payload always flows
     if (pf.dropped.length) trail('pass-drop', { handoff: h.id, to: `${server}.${tool}`, allowlist: pass, dropped: pf.dropped });
-    if (integ.generated && (integ.credentials || []).length) trail('credential-inject', { handoff: h.id, server, tool, names: integ.credentials });   // BYO-credential: 注入した名前のみ監査（値は絶対に出さない）
-    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv(pickEnv(integ.credentials || [])) } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ pickEnv で戻す（信頼済 server は env 継承のまま）
-    trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length });
+    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv(integ.credentials || []) } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ ride through（信頼済 server は env 継承のまま）
+    trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length, ...(integ.generated && (integ.credentials || []).length ? { creds: integ.credentials } : {}) });   // creds=注入した名前のみ・値は絶対に出さない
     postResult(h.id, { result: out }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
   finally { running.delete(h.id); console.log(`✓ [hub] MCP ${h.id} done`); }

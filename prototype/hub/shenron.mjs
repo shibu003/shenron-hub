@@ -5,7 +5,7 @@
 //    プロンプトに「generic ツールは specific need を covered しない」を明記（spike0 でこれが効いた）。inventory を注入。
 //  - nodes/edges の port 検証・layout は hub 側（validateFlow/layoutFlow）に委譲。ここは raw を返す。
 import { runVendorAsync } from '../runner.mjs';
-import { callMcpTool, safeEnv, pickEnv, SECRET_RE } from '../mcp/mcp-client.mjs';
+import { callMcpTool, safeEnv, SECRET_RE } from '../mcp/mcp-client.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -227,13 +227,13 @@ export function neededCredentials(code) {
   return [...names];
 }
 
-// creds = この server が宣言した credential allowlist。default-deny の safeEnv に pickEnv で**その名前だけ**戻して spawn
+// creds = この server が宣言した credential allowlist。default-deny の safeEnv に**その名前だけ**通して spawn
 // （= BYO-credential 注入）。allowlist 空なら従来通り全 secret strip。値は process.env のみ（repo に乗らない）。
 export async function verifyMcpServer(code, { python = 'python3', timeout = 30000, creds = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'shenron-'));
   try {
     writeFileSync(join(dir, 'server.py'), code);
-    const text = await callMcpTool({ command: `${python} server.py` }, 'run', { input: '' }, { cwd: dir, timeoutMs: timeout, env: safeEnv(pickEnv(creds)) });
+    const text = await callMcpTool({ command: `${python} server.py` }, 'run', { input: '' }, { cwd: dir, timeoutMs: timeout, env: safeEnv(creds) });
     const out = String(text || '').trim();
     return out ? { ok: true, output: out.slice(0, 2000) } : { ok: false, error: 'run returned empty text' };
   } catch (e) {
@@ -244,14 +244,14 @@ export async function verifyMcpServer(code, { python = 'python3', timeout = 3000
 // 生成→収束→（失敗なら）修復ループ。run/sandbox/hasEnv は test 用に注入可。
 // BYO-credential: 各 iter でコードの宣言 cred を抽出。env に無い cred があれば live verify 不能 → repair 空回りを止めて
 // needsCredentials を surface（operator が key を hub env に入れて再生成する導線）。揃っていれば allowlist を verify に通す。
-export async function genComponent({ what, vendor = 'claude', maxIters = 3, run = runVendorAsync, sandbox = verifyMcpServer, hasEnv = (k) => process.env[k] != null }) {
+export async function genComponent({ what, vendor = 'claude', maxIters = 3, run = runVendorAsync, sandbox = verifyMcpServer }) {
   what = String(what || '').trim();
   if (!what) throw new Error('what required');
   let code = '', err = null;
   for (let i = 1; i <= maxIters; i++) {
     code = extractCode(await run(vendor, err ? REPAIR_PROMPT(what, code, err) : GEN_PROMPT(what), ''));
     const creds = neededCredentials(code);
-    const missing = creds.filter((k) => !hasEnv(k));
+    const missing = creds.filter((k) => process.env[k] == null);
     if (missing.length) return { what, code, iters: i, converged: false, needsCredentials: missing, error: `needs credentials (set in hub env, then re-generate): ${missing.join(', ')}` };
     const r = await sandbox(code, { creds });
     if (r.ok) return { what, code, iters: i, converged: true, output: r.output, credentials: creds };   // credentials = approve 時に integration へ載せる allowlist
