@@ -286,6 +286,8 @@
         <button id="miExport" onclick="exportFlow()"></button>
       </div>
     </div>
+    <button class="tb" id="btnShenron" onclick="shenronPlan()"></button>
+    <button class="tb" id="btnShenronBuild" onclick="shenronBuild()" style="display:none"></button>
     <button class="tb" id="btnGhost" onclick="ghostWrite()"></button>
     <button class="tb" id="btnLfImport" onclick="pickLangflowFile()"></button>
     <button class="tb" id="btnLfPush" onclick="pushToLangflow()"></button>
@@ -439,6 +441,9 @@ const I18N = {
   ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
   gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
+  shenron:{ja:'🐉 神龍',en:'🐉 Shenron'}, sh_build:{ja:'🔗 Langflow 化',en:'🔗 To Langflow'},
+  sh_title:{ja:'🐉 神龍 — 願いを flow に',en:'🐉 Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
+  sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'🐉 計画',en:'🐉 Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（🔗 ゼロ＝透明な往復）',en:'built Langflow flow (🔗-free = transparent round-trip)'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_match:{ja:'{ } JSON を表示（上級者向け）',en:'{ } Show JSON (advanced)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -526,6 +531,7 @@ function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnFlows').textContent=t('flows'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
+  $('#btnShenron').textContent=t('shenron'); $('#btnShenronBuild').textContent=t('sh_build');
   $('#btnGhost').textContent=t('ghost'); $('#btnLfImport').textContent=t('lf_import'); $('#btnLfPush').textContent=t('lf_push'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
@@ -1535,7 +1541,27 @@ function ghostWrite(){
       if(r.agentDraft) showAgentDraft(r.agentDraft);
     } });
 }
-function loadFlow(flow){                          // materialize a generated/saved flow onto the canvas (fresh draft)
+/* ---------- 神龍 Shenron (Wave 1+3): NL goal → plan IR on canvas, then 🔗 round-trip to Langflow. ---------- */
+let LAST_PLAN=null;                                                          // last shenron plan IR, for 🔗 build
+function shenronPlan(){
+  openModal({ title:t('sh_title'), info:t('sh_info'), submitLabel:t('sh_btn'),
+    fields:[{key:'goal',label:'',type:'textarea',placeholder:t('sh_ph')}],
+    onSubmit:async v=>{ const goal=(v.goal||'').trim(); if(!goal) return;
+      let r; try{ r=await api('/api/shenron/plan',{goal,save:true}); }catch(e){ return toast(e.message||t('gw_empty')); }
+      if(!r.nodes||!r.nodes.length) return toast(t('gw_empty'));
+      LAST_PLAN=r; loadFlow(r); $('#btnShenronBuild').style.display='inline-flex';   // reveal 🔗 build once a plan exists
+      const gaps=r.missing||[], sg=gaps.find(g=>g.suggestion);                       // Wave 2: surface first external suggestion
+      const msg=`${t('sh_built')} (${r.source}, ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'')+')'+(sg?` · ${sg.suggestion.title} ${sg.suggestion.url}`:'');
+      conn(msg); toast(msg);
+    } });
+}
+async function shenronBuild(){                                              // plan IR → Langflow JSON → re-import on canvas (round-trip: 🔗 ゼロ なら透明)
+  if(!LAST_PLAN) return toast(t('gw_empty'));
+  let r; try{ r=await api('/api/shenron/build',{plan:LAST_PLAN}); }catch(e){ return toast(e.message); }
+  if(!r.flow) return toast(t('gw_empty'));
+  importLangflowFlow(r.flow); conn(t('sh_built_lf'));                        // importLangflowFlow が node/edge 数を toast・LF_SOURCE もセット（pushToLangflow で実 Langflow 登録可）
+}
+function loadFlow(flow){                         // materialize a generated/saved flow onto the canvas (fresh draft)
   TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // hide all, then reveal the flow's agents
   for(const n of flow.nodes){
