@@ -5,23 +5,23 @@
 //    プロンプトに「generic ツールは specific need を covered しない」を明記（spike0 でこれが効いた）。inventory を注入。
 //  - nodes/edges の port 検証・layout は hub 側（validateFlow/layoutFlow）に委譲。ここは raw を返す。
 import { runVendorAsync } from '../runner.mjs';
+import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 // LLM が step.tool に入れてよい id（または null）を列挙した inventory テキスト。
-function inventoryText({ agents = [], tools = [], workflows = [], components = [] }) {
+function inventoryText({ agents = [], tools = [], workflows = [] }) {
   const lines = [];
   for (const a of agents) lines.push(`agent:${a.id} — ${a.skill || 'task'}`);
-  for (const t of tools) lines.push(`mcp:${t.id} — ${t.name}`);            // t = { id: "<integ>.<tool>", name }
+  for (const t of tools) lines.push(`mcp:${t.id} — ${t.name}`);            // t = { id: "<integ>.<tool>", name }; Wave 9: 承認済み生成部品も実 integration の run tool (mcp:cmp-xxx.run) としてここに出る
   for (const w of workflows) lines.push(`workflow:${w.id} — ${w.name || w.id}`);
-  for (const c of components) lines.push(`component:${c.id} — ${c.what} (already built & vetted)`);   // Wave 8: 過去に生成→人承認した部品。同じ gap を再生成しない
   return lines.length ? lines.join('\n') : '(no tools/agents registered yet — everything specific is a gap)';
 }
 
-// Wave 8 — 生成部品の登録庫の照合（pure）。componentKey で what を正規化、matchComponent は approved 済みのみ拾う
-// （§I「無人パスで踏むのは vetted ノードのみ」＝無審査な LLM コードを cache 再利用しない trust 境界）。fs は hub 側。
+// Wave 8/9 — 生成部品の cache 照合（pure・gen-component の重複生成回避）。componentKey で what を正規化、matchComponent は
+// approved 済みのみ拾う（§I「無人パスで踏むのは vetted ノードのみ」）。承認後は実 integration になり planner inventory 経由で
+// 解決される（buildPlanIR の vetted placeholder は Wave 9 で廃止）。fs は hub 側。
 export const componentKey = (what) => String(what || '').toLowerCase().replace(/\s+/g, ' ').trim();   // ponytail: 文字正規化のみ。意味的 dedup は v2
 export const matchComponent = (components, what) => {
   const k = componentKey(what);
@@ -36,16 +36,12 @@ Decompose the goal into ordered steps. For EACH step choose kind ("mcp" external
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
-export function buildPlanIR(goal, parsed, source = 'llm', components = []) {
-  const steps = (parsed.steps || []).map((s, i) => {
-    const st = { n: i + 1, action: s.action || '', kind: ['mcp', 'agent', 'prompt'].includes(s.kind) ? s.kind : 'prompt',
-      tool: s.tool || null, have: !!s.tool || s.kind === 'prompt' };
-    if (!st.tool && (st.kind === 'mcp' || st.kind === 'agent')) { const c = matchComponent(components, st.action); if (c) st.vetted = c.id; }   // Wave 8: gap だが vetted 部品が在れば「作成済」に格上げ＝再生成しない
-    return st;
-  });
+export function buildPlanIR(goal, parsed, source = 'llm') {
+  const steps = (parsed.steps || []).map((s, i) => ({ n: i + 1, action: s.action || '',
+    kind: ['mcp', 'agent', 'prompt'].includes(s.kind) ? s.kind : 'prompt', tool: s.tool || null, have: !!s.tool || s.kind === 'prompt' }));
   const needsTool = (s) => s.kind === 'mcp' || s.kind === 'agent';
-  const missing = steps.filter((s) => needsTool(s) && !s.tool && !s.vetted).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));   // vetted は missing から外す（もう埋まっている）
-  const tools_needed = steps.filter(needsTool).map((s) => ({ name: s.tool || (s.vetted ? `component:${s.vetted}` : s.action), kind: s.kind, have: !!s.tool || !!s.vetted, source: s.tool ? 'inventory' : s.vetted ? 'component' : 'gap' }));
+  const missing = steps.filter((s) => needsTool(s) && !s.tool).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));
+  const tools_needed = steps.filter(needsTool).map((s) => ({ name: s.tool || s.action, kind: s.kind, have: !!s.tool, source: s.tool ? 'inventory' : 'gap' }));
 
   const nodes = [{ id: 'input-1', kind: 'input' }];
   for (const s of steps) {
@@ -53,7 +49,7 @@ export function buildPlanIR(goal, parsed, source = 'llm', components = []) {
     if (s.kind === 'mcp' && s.tool) { const r = s.tool.replace(/^mcp:/, ''); const d = r.indexOf('.'); nodes.push({ id, kind: 'mcp', server: r.slice(0, d), tool: r.slice(d + 1) }); }
     else if (s.kind === 'agent' && s.tool) nodes.push({ id, kind: 'agent', agent: s.tool.replace(/^agent:/, '') });
     else if (s.kind === 'prompt') nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` } });
-    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` }, ...(s.vetted ? { vetted: s.vetted } : { missing: true }) });   // mcp/agent w/ no tool = gap → placeholder。vetted 部品が在れば ✓ built（Wave 8）、無ければ ⚠️ gap（Wave 4 で生成）
+    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` }, missing: true });   // mcp/agent w/ no tool = gap → ⚠️ placeholder（Wave 4 で生成→承認で実 mcp node に解決される）
   }
   nodes.push({ id: 'output-1', kind: 'output' });
   const edges = [];
@@ -157,19 +153,19 @@ Built-in step kind "prompt" (an LLM step) is always available and needs no tool.
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
-export async function plan({ goal, agents = [], tools = [], workflows = [], components = [], vendor = 'claude', search = null, context = null, run = runVendorAsync }) {
+export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, run = runVendorAsync }) {
   goal = String(goal || '').trim();
   const refine = !!(context && context.instruction && context.prev_plan);
   if (!goal && !refine) throw new Error('goal required');
-  const inv = inventoryText({ agents, tools, workflows, components });
+  const inv = inventoryText({ agents, tools, workflows });
   const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv), '');
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', components);
+    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm');
   } catch { /* fall through */ }
   if (!ir) ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
-    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic', components);   // 初回 LLM 不在/壊れ → 1 prompt step
+    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // 初回 LLM 不在/壊れ → 1 prompt step
   if (search && ir.missing.length) await discover(ir.missing, search);   // Wave 2: gap に外部ツール提案を mutate（caller が fence）
   return ir;
 }
@@ -189,118 +185,60 @@ export function extractCode(out) {                                        // LLM
   return (any ? any[1] : s).trim();
 }
 
-const GEN_PROMPT = (what) => `Write ONE Langflow 1.10.0 custom Component in Python that implements: "${what}".
-Exact API shape:
-from langflow.custom import Component
-from langflow.io import MessageTextInput, Output
-from langflow.schema.message import Message
-class Thing(Component):
-    display_name = "..."
-    description = "..."
-    inputs = [MessageTextInput(name="x", display_name="X", value="<a real working default>")]
-    outputs = [Output(name="result", display_name="Result", method="build")]
-    def build(self) -> Message:
-        # real implementation — actually fetch/compute. No TODO, no pass, no placeholder.
-        return Message(text=<the result as a non-empty string>)
+// Wave 9: 生成ターゲット = standalone Python MCP server（JSON-RPC over stdio・1 tool `run`）。Langflow Component から転換
+// （北極星: Langflow 独立）。利点3点: ① `mcp` node が消費＝Langflow runtime 不要 ② 検証が prod と同形（prod の stdio client で
+// spawn → stub-gap が消える） ③ 一度生成した server が ladder 第1段に rejoin（integration 登録 → 再生成不要）。
+const GEN_PROMPT = (what) => `Write ONE self-contained Python MCP server (Model Context Protocol, JSON-RPC 2.0 over stdio) that implements: "${what}".
+It speaks this exact wire protocol on stdin/stdout — read stdin line by line; for each line parse JSON-RPC and reply with EXACTLY ONE line: print(json.dumps(msg), flush=True). flush=True is REQUIRED (no flush → the client hangs).
+- "initialize" → result {"protocolVersion": params.get("protocolVersion","2025-06-18"), "capabilities":{"tools":{}}, "serverInfo":{"name":"<a slug>","version":"0.1.0"}}
+- "notifications/initialized" → a NOTIFICATION (no "id"): do NOT reply.
+- "tools/list" → result {"tools":[{"name":"run","description":"<one line>","inputSchema":{"type":"object","properties":{"input":{"type":"string"}}}}]}
+- "tools/call" with params["name"] == "run" → call run(**(params.get("arguments") or {})); reply result {"content":[{"type":"text","text": <the result string>}]}. On ANY exception, reply result {"content":[{"type":"text","text": <traceback as string>}], "isError": true}.
+- any other request that has an "id" → JSON-RPC error -32601.
+The one tool:
+    def run(input=None, **kw):
+        # REAL implementation — actually fetch/compute and RETURN a non-empty string. No TODO, no pass, no placeholder.
+        return "<the result as a non-empty string>"
 Hard rules:
-- Python STANDARD LIBRARY ONLY (urllib.request, json, xml.etree.ElementTree, datetime, math…). No pip packages, no "requests".
-- build() must RUN STANDALONE with NO caller input: give every input a real default value, and read self.<name> with a fallback to that default.
-- build() MUST return a Message whose .text is the non-empty result string.
+- Python STANDARD LIBRARY ONLY (urllib.request, json, sys, xml.etree.ElementTree, datetime, math…). No pip packages, no "requests".
+- run() MUST work with NO arguments (input defaults to a real working value) and ignore unknown keyword args via **kw.
+- Public / no-auth APIs only — the environment is stripped of credentials, so no API keys.
+- stdout carries JSON-RPC ONLY: one compact JSON object per line, flush=True. Send any logging to sys.stderr, NEVER stdout.
+- run() must return a NON-EMPTY string (the real data).
 Output ONLY the Python code inside one \`\`\`python fence. No prose.`;
 
-const REPAIR_PROMPT = (what, code, err) => `Your Langflow Component for "${what}" FAILED when executed standalone.
+const REPAIR_PROMPT = (what, code, err) => `Your Python MCP server for "${what}" FAILED a spawn + JSON-RPC handshake + tools/call check.
 --- your code ---
 ${code}
 --- error / output (tail) ---
 ${err}
-Fix it so it runs standalone and returns a Message with non-empty .text. Same hard rules (stdlib only; real default inputs; no pip).
+Fix it so: it speaks JSON-RPC 2.0 over stdio (initialize → tools/list → tools/call name="run"); every reply is ONE line printed with flush=True; run(input=None,**kw) returns a NON-EMPTY string; stdlib only; no secrets; stdout carries JSON-RPC ONLY (logs to stderr).
 Output ONLY the corrected Python in one \`\`\`python fence. No prose.`;
 
-// 使い捨てサンドボックス: 生成 Component を langflow を install せず stub 注入で standalone 実行し、
-// build() が「Message.text に非空の実データ」を返すか検証。失敗時は traceback/出力の末尾を返す（修復ループの入力）。
-// ponytail: プロセス隔離 = 使い捨て cwd + timeout + secret を抜いた env。OS サンドボックス(container/seccomp/egress allowlist)は v2（§1.5-I）。
-const HARNESS = `import sys, types, traceback
-def _mod(n):
-    m = types.ModuleType(n); sys.modules[n] = m; return m
-class Message:
-    def __init__(self, text="", **kw):
-        self.text = text if isinstance(text, str) else ("" if text is None else str(text))
-        for k, v in kw.items(): setattr(self, k, v)
-class Data:
-    def __init__(self, data=None, **kw):
-        self.data = data
-        for k, v in kw.items(): setattr(self, k, v)
-class _In:
-    def __init__(self, name=None, display_name=None, value=None, **kw):
-        self.name = name; self.display_name = display_name; self.value = value
-class Output:
-    def __init__(self, name=None, display_name=None, method=None, **kw):
-        self.name = name; self.display_name = display_name; self.method = method
-class Component:
-    def __init__(self, **kw):
-        for k, v in kw.items(): setattr(self, k, v)
-    def log(self, *a, **k): pass
-_mod("langflow"); _mod("langflow.custom").Component = Component
-io = _mod("langflow.io")
-for n in ["MessageTextInput","MessageInput","MultilineInput","SecretStrInput","IntInput","FloatInput","BoolInput","DropdownInput","DataInput","StrInput","HandleInput","NestedDictInput"]:
-    setattr(io, n, _In)
-io.Output = Output
-_mod("langflow.schema.message").Message = Message
-_mod("langflow.schema").Data = Data
-_mod("langflow.schema.data").Data = Data
-src = open("component.py", encoding="utf-8").read()
-ns = {}
-try:
-    exec(compile(src, "component.py", "exec"), ns)
-except Exception:
-    print("HARNESS_ERR: component did not import"); traceback.print_exc(); sys.exit(2)
-cls = next((v for v in ns.values() if isinstance(v, type) and issubclass(v, Component) and v is not Component), None)
-if cls is None:
-    print("HARNESS_ERR: no Component subclass found"); sys.exit(2)
-inst = cls()
-for inp in (getattr(cls, "inputs", None) or []):
-    nm = getattr(inp, "name", None)
-    if nm and getattr(inst, nm, None) in (None, ""): setattr(inst, nm, getattr(inp, "value", None) or "")
-method = "build"
-outs = getattr(cls, "outputs", None) or []
-if outs and getattr(outs[0], "method", None): method = outs[0].method
-fn = getattr(inst, method, None)
-if not callable(fn):
-    print("RUN_ERR: no method %r" % method); sys.exit(3)
-try:
-    out = fn()
-except Exception:
-    print("RUN_ERR: build() raised"); traceback.print_exc(); sys.exit(3)
-text = getattr(out, "text", None)
-if text is None and isinstance(out, str): text = out
-if not text or not str(text).strip():
-    print("TYPE_ERR: build() returned no Message text (got %s)" % type(out).__name__); sys.exit(4)
-print("OK"); print(str(text)[:2000])
-`;
-
-export function runInSandbox(code, { python = 'python3', timeout = 30000 } = {}) {
+// 使い捨てサンドボックス: 生成 MCP server を prod と同じ stdio client（callMcpTool）で spawn + handshake + `run` し、
+// 非空の実データを返すか検証。prod パス = 検証パス → stub-gap が消える（Wave 9）。失敗時は traceback / handshake error の
+// 末尾を返す（修復ループの入力）。fence: secret を抜いた env（safeEnv）で spawn = 生成コードからの credential exfil 防止。
+// 検証は `{input:''}` で呼ぶ＝prod の arg 形（hub runMcp が input を渡す）を再現。OS サンドボックス(seccomp/egress)は v2（§1.5-I）。
+export async function verifyMcpServer(code, { python = 'python3', timeout = 30000 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'shenron-'));
   try {
-    writeFileSync(join(dir, 'component.py'), code);
-    writeFileSync(join(dir, 'harness.py'), HARNESS);
-    const env = Object.fromEntries(Object.entries(process.env)   // secret を抜く（生成コードが env から exfil するのを防ぐ。PATH/SSL/HOME は残す）
-      .filter(([k]) => !/KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_API|\bAPI_|AUTH|COOKIE/i.test(k)));
-    const r = spawnSync(python, ['harness.py'], { cwd: dir, timeout, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, env });
-    const out = r.stdout || '', err = r.stderr || '';
-    if (r.error && r.error.code === 'ETIMEDOUT') return { ok: false, error: `timeout after ${timeout}ms` };
-    if (r.status === 0 && out.startsWith('OK')) return { ok: true, output: out.slice(3).trim() };
-    return { ok: false, error: ((out ? out + '\n' : '') + err || `exit ${r.status}`).slice(-1500) };   // 末尾＝traceback（修復の手掛かり）
-  } finally { rmSync(dir, { recursive: true, force: true }); }                                          // 使い捨て
+    writeFileSync(join(dir, 'server.py'), code);
+    const text = await callMcpTool({ command: `${python} server.py` }, 'run', { input: '' }, { cwd: dir, timeoutMs: timeout, env: safeEnv() });
+    const out = String(text || '').trim();
+    return out ? { ok: true, output: out.slice(0, 2000) } : { ok: false, error: 'run returned empty text' };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e).slice(-1500) };   // isError traceback / timeout(no flush) / spawn error
+  } finally { rmSync(dir, { recursive: true, force: true }); }            // 使い捨て
 }
 
 // 生成→収束→（失敗なら）修復ループ。run/sandbox は test 用に注入可。
-export async function genComponent({ what, vendor = 'claude', maxIters = 3, run = runVendorAsync, sandbox = runInSandbox }) {
+export async function genComponent({ what, vendor = 'claude', maxIters = 3, run = runVendorAsync, sandbox = verifyMcpServer }) {
   what = String(what || '').trim();
   if (!what) throw new Error('what required');
   let code = '', err = null;
   for (let i = 1; i <= maxIters; i++) {
     code = extractCode(await run(vendor, err ? REPAIR_PROMPT(what, code, err) : GEN_PROMPT(what), ''));
-    const r = sandbox(code);
+    const r = await sandbox(code);
     if (r.ok) return { what, code, iters: i, converged: true, output: r.output };
     err = r.error;
   }

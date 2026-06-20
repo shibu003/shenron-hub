@@ -470,7 +470,7 @@ const I18N = {
   sh_title:{ja:'🐉 神龍 — 願いを flow に',en:'🐉 Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
   sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'🐉 計画',en:'🐉 Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（🔗 ゼロ＝透明な往復）',en:'built Langflow flow (🔗-free = transparent round-trip)'},
   sh_refine:{ja:'✏️ 修正',en:'✏️ Refine'}, sh_refine_title:{ja:'✏️ plan を直す',en:'✏️ Refine the plan'}, sh_refine_info:{ja:'「Slack じゃなくメールに」「要約は5行で」のように直したい所を一文で。指示の変更だけ当て、他 step は維持して再生成（重ねるほど積み上がる）。',en:'Say what to change in one line ("email instead of Slack", "summary in 5 lines"). Only that change is applied; other steps stay. Refinements stack.'}, sh_refine_ph:{ja:'例: Slack じゃなくメールで送って',en:'e.g. send by email instead of Slack'}, sh_refine_btn:{ja:'✏️ 直す',en:'✏️ Apply'}, sh_refine_wait:{ja:'再生成中…',en:'re-planning…'},
-  sh_gen_wait:{ja:'生成中…（使い捨てサンドボックスで収束検証）',en:'generating… (verifying convergence in a throwaway sandbox)'}, sh_gaps_result:{ja:'未実装ノード — 生成コード',en:'missing node — generated code'}, sh_gaps_ok:{ja:'収束',en:'converged'}, sh_gaps_fail:{ja:'未収束',en:'not converged'}, sh_gaps_info:{ja:'langflow Component を生成→使い捨てサンドボックスで実行し収束（実データ返却）を検証。レビューして手動で Langflow 登録（auto-install しない＝安全）。',en:'Generated a Langflow Component and ran it in a throwaway sandbox to verify convergence (real data). Review, then register in Langflow manually (no auto-install).'},
+  sh_gen_wait:{ja:'生成中…（spawn + handshake で収束検証）',en:'generating… (verifying via spawn + JSON-RPC handshake)'}, sh_gaps_result:{ja:'不足ノード — 生成した MCP server',en:'missing node — generated MCP server'}, sh_gaps_ok:{ja:'収束',en:'converged'}, sh_gaps_fail:{ja:'未収束',en:'not converged'}, sh_gaps_info:{ja:'MCP server（stdlib・JSON-RPC over stdio）を生成→spawn して handshake + run で実データ収束を検証。承認すると prototype/mcp/generated/ に書き出し integration 登録（実 mcp node として再 plan/Run・生成コードは secret を抜いた env で実行）。',en:'Generated a standalone MCP server (stdlib, JSON-RPC over stdio) and verified it via spawn + handshake + run (real data). Approve to write it under prototype/mcp/generated/ and register it as an integration (resolves as a real mcp node on re-plan/Run; generated code runs with secrets stripped from env).'}, sh_approve:{ja:'✅ 承認して登録',en:'✅ Approve & register'}, sh_approved:{ja:'承認 → integration 登録。再 plan 中…',en:'approved → registered. re-planning…'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_match:{ja:'{ } JSON を表示（上級者向け）',en:'{ } Show JSON (advanced)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -1642,16 +1642,22 @@ async function shenronBuild(){                                              // p
   if(!r.flow) return toast(t('gw_empty'));
   importLangflowFlow(r.flow); conn(t('sh_built_lf'));                        // importLangflowFlow が node/edge 数を toast・LF_SOURCE もセット（pushToLangflow で実 Langflow 登録可）
 }
-async function shenronGaps(){                                               // Wave 4: gap → langflow Component 生成 + 使い捨てサンドボックスで収束検証 → コード表示（実行のみ・自動登録 v2）
+async function shenronGaps(){                                               // Wave 4+9: gap → MCP server 生成 + spawn/handshake 検証 → 承認で integration 登録 → 再 plan が gap を実 mcp node に解決
   const gaps=(LAST_PLAN&&LAST_PLAN.missing)||[]; if(!gaps.length) return;
   const g=gaps[0];                                                          // ponytail: gap[0] のみ。N>1 の巡回は v2（多くの plan は不足 1 件）。
-  toast(t('sh_gen_wait'));                                                  // 生成=LLM＋サンドボックス収束ループで数十秒〜
+  toast(t('sh_gen_wait'));                                                  // 生成=LLM＋spawn 検証ループで数十秒〜
   let r; try{ r=await api('/api/shenron/gen-component',{what:g.what}); }catch(e){ return toast(e.message); }
   const head=(r.converged?`# ✅ ${t('sh_gaps_ok')} (iter ${r.iters}) → ${r.output}`:`# ⚠️ ${t('sh_gaps_fail')} (iter ${r.iters}): ${(r.error||'').split('\n').pop()}`)
     +`\n# gap: ${g.what}`+(gaps.length>1?`  (1/${gaps.length})`:'');
   const body=head+'\n\n'+(r.code||'');
-  openModal({ title:t('sh_gaps_result'), info:t('sh_gaps_info'), submitLabel:t('m_copy'),
-    fields:[{key:'code',label:'',type:'readonly',value:body}], onSubmit:()=>copyText(body,t('t_snip_copied')) });
+  const canApprove=r.converged&&r.id&&!r.approved;                          // 収束した新規部品のみ承認可（cache hit は既 approved）
+  openModal({ title:t('sh_gaps_result'), info:t('sh_gaps_info'), submitLabel: canApprove?t('sh_approve'):t('m_copy'),
+    fields:[{key:'code',label:'',type:'readonly',value:body}],
+    onSubmit: canApprove ? (async()=>{                                      // Wave 9 人ゲート: 承認 → server.py 書出 + integration 登録 → 再 plan が gap を実 mcp:<id>.run node に解決
+        try{ await api('/api/shenron/components/approve',{id:r.id}); }catch(e){ return toast(e.message); }
+        toast(t('sh_approved'));
+        try{ applyPlan(await api('/api/shenron/plan',{goal:LAST_PLAN.goal,save:true})); }catch(e){ toast(e.message); }
+      }) : (()=>copyText(body,t('t_snip_copied'))) });
 }
 function loadFlow(flow){                         // materialize a generated/saved flow onto the canvas (fresh draft)
   TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft

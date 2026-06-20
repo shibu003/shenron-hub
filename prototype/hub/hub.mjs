@@ -20,7 +20,7 @@ import path from 'node:path';
 import url from 'node:url';
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
-import { callMcpTool } from '../mcp/mcp-client.mjs';
+import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
@@ -356,7 +356,7 @@ async function runMcp(h) {
     const pass = upstream?.passport?.share?.pass || [];            // capability passport: structured-args allowlist (default-deny when set)
     const pf = applyPass(config || {}, pass);                      // gate the CONFIG fields only; the scrubbed `input` payload always flows
     if (pf.dropped.length) trail('pass-drop', { handoff: h.id, to: `${server}.${tool}`, allowlist: pass, dropped: pf.dropped });
-    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT });
+    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv() } : {}) });   // Wave 9: 生成 server は untrusted → secret-strip した env で spawn（信頼済 server は env 継承のまま）
     trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length });
     postResult(h.id, { result: out }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
@@ -496,9 +496,9 @@ const searchIntegrationsRefs = (q = '', limit = 999) => {
     .filter((x) => x.s > 0 || !terms.length).sort((x, y) => y.s - x.s).slice(0, limit)
     .map(({ it }) => ({ id: it.id, label: it.label, kind: it.kind, enabled: it.enabled !== false, tools: (it.tools || []).length, tags: it.tags }));
 };
-function saveIntegration({ id, label, kind, command, url, enabled, tools }) {
+function saveIntegration({ id, label, kind, command, url, enabled, tools, generated }) {
   id = id || (label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mcp-' + randomUUID().slice(0, 4);
-  const it = { id, label: label || id, kind: kind || 'mcp', command: command || '', url: url || '', enabled: enabled !== false, tools: Array.isArray(tools) ? tools : [] };
+  const it = { id, label: label || id, kind: kind || 'mcp', command: command || '', url: url || '', enabled: enabled !== false, tools: Array.isArray(tools) ? tools : [], ...(generated ? { generated: true } : {}) };   // Wave 9: generated=神龍が作った untrusted server → run 時 safeEnv で fence
   const arr = readIntegrations(); const i = arr.findIndex((x) => x.id === id);
   if (i >= 0) arr[i] = { ...arr[i], ...it }; else arr.push(it);
   writeIntegrations(arr); return it;
@@ -666,8 +666,8 @@ const server = http.createServer((req, res) => {
           trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
           return r;
         } : null;
-        const components = readComponents().filter((c) => c.approved).map((c) => ({ id: c.id, what: c.what }));   // Wave 8: 承認済み生成部品を inventory に＝同じ gap を再生成せず「✓ built」に格上げ
-        shenronPlan({ goal: j.goal, agents, tools, workflows, components, vendor: EXEC_VENDOR || 'claude', search, context: j.context })   // Wave 5: context={prev_plan,instruction} で対話修正
+        // Wave 9: 承認済み生成部品は実 integration（kind:mcp, generated）になり tools(:660) に run tool として出る → 二重列挙回避で別注入しない
+        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context: j.context })   // Wave 5: context={prev_plan,instruction} で対話修正
           .then((ir) => {
             const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
             const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
@@ -688,7 +688,14 @@ const server = http.createServer((req, res) => {
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }
-      if (p === '/api/shenron/components/approve') return json(res, 200, approveComponent(j.id));   // Wave 8 人ゲート: 部品を vetted 化 → 以降の plan/gen で再利用
+      if (p === '/api/shenron/components/approve') {                                  // Wave 9 人ゲート: 承認 → server.py 書出 + integration 登録 = ladder rejoin（生成部品が ladder 第1段に戻る・再生成不要・以降は実 mcp node として plan/run）
+        const c = approveComponent(j.id);                                             // Wave 8: approved フラグ（gen-component cache の再利用ゲート）
+        const GEN_DIR = path.join(HERE, '..', 'mcp', 'generated');                    // command は REPO_ROOT 相対 → runMcp が cwd:REPO_ROOT で spawn（echo と同形）
+        fs.mkdirSync(GEN_DIR, { recursive: true }); fs.writeFileSync(path.join(GEN_DIR, c.id + '.py'), c.code);
+        const integ = saveIntegration({ id: c.id, label: c.what, kind: 'mcp', command: 'python3 prototype/mcp/generated/' + c.id + '.py', url: '', enabled: true, generated: true, tools: [{ name: 'run', accepts: ['*'], emits: ['*'] }] });
+        trail('component-approve', { id: c.id, integration: integ.id });
+        return json(res, 200, { ...c, integration: integ.id });
+      }
       if (p === '/api/shenron/build') {                                                // 神龍 Wave 3: plan IR → Langflow flow JSON (importLangflowFlow の逆)。cockpit が importLangflowFlow(flow) で描画。
         try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }   // §5 Wave3 fence: audit 記録（実 Langflow 登録は既存 /api/langflow/import = Wave 6）
         catch (e) { return json(res, 400, { error: e.message }); }

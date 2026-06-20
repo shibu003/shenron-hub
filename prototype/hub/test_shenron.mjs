@@ -1,7 +1,8 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer } from './shenron.mjs';
+import { spawnSync } from 'node:child_process';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -131,22 +132,62 @@ assert.ok(/`id`: "wf_abc123"/.test(sk.content), 'body passes the real flow id');
 assert.ok(/`confirm`: true/.test(sk.content), 'body sets confirm:true (else dry-run only)');
 assert.throws(() => flowSkill({ name: 'no id' }), /id.*required/, 'guard: workflow id required');
 
-// Wave 8 — 生成部品の登録庫: build→vet→remember→re-plan ループ。承認済み部品は再生成せず、同じ gap は plan で
-// 「missing」でなく「✓ built（vetted）」に格上げ。承認前の部品は再利用しない（§I 人ゲート）。これが崩れると毎回再生成する。
+// Wave 8/9 — 生成部品の cache 照合（gen-component の重複生成を承認ゲートで回避）。componentKey 正規化 + matchComponent は
+// approved 済みのみ拾う。これが崩れると未承認の無審査コードを再利用 or 毎回再生成する。
 assert.equal(componentKey('  Collect  GitHub   Commits '), 'collect github commits', 'key normalizes whitespace + case');
 const reg = [{ id: 'cmp-a', what: 'collect github commits', approved: false }, { id: 'cmp-b', what: 'Send Email', approved: true }];
 assert.equal(matchComponent(reg, 'collect GITHUB commits'), null, 'unapproved match is NOT reused (human-gate)');
 assert.equal(matchComponent(reg, ' send email ').id, 'cmp-b', 'approved match reused regardless of ws/case');
 assert.equal(matchComponent(reg, 'unknown'), null, 'no match → null');
-// buildPlanIR: vetted 部品が在る gap は missing から外れ、node に vetted ref が付く（再生成しない）
-const vetted = [{ id: 'cmp-collect-github-commits', what: 'collect github commits', approved: true }];
-const pir = buildPlanIR('g', { plain_summary: 'g', steps: [{ action: 'collect github commits', kind: 'mcp', tool: null }, { action: 'summarize', kind: 'prompt', tool: null }] }, 'llm', vetted);
-assert.ok(!pir.missing.find((m) => /github/i.test(m.what)), 'vetted gap is removed from missing[]');
-const vnode = pir.nodes.find((n) => n.vetted === 'cmp-collect-github-commits');
-assert.ok(vnode && !vnode.missing, 'vetted gap node carries vetted ref, NOT the missing flag');
-assert.ok(pir.tools_needed.find((t) => t.source === 'component' && t.have), 'tools_needed marks it have via component');
-// 承認前 component は格上げしない（gap のまま＝Wave 4 で生成対象）
-const pir2 = buildPlanIR('g', { plain_summary: 'g', steps: [{ action: 'collect github commits', kind: 'mcp', tool: null }] }, 'llm', [{ id: 'x', what: 'collect github commits', approved: false }]);
-assert.ok(pir2.missing.find((m) => /github/i.test(m.what)), 'unapproved component does NOT upgrade the gap (still missing)');
+
+// Wave 9 — 承認済み生成部品は実 integration（mcp server）になり、その run tool が planner inventory に出る → LLM が
+// mcp:<id>.run に解決 → buildPlanIR は実 mcp node を出し missing にしない（W8 の vetted placeholder は廃止）。
+const w9 = buildPlanIR('g', { plain_summary: 'g', steps: [
+  { action: 'fetch BTC price', kind: 'mcp', tool: 'mcp:cmp-fetch-btc-price.run' },   // approved → real integration → resolved
+  { action: 'summarize', kind: 'prompt', tool: null }] }, 'llm');
+assert.equal(w9.missing.length, 0, 'resolved generated component → no gap');
+const mnode = w9.nodes.find((n) => n.kind === 'mcp' && n.server === 'cmp-fetch-btc-price' && n.tool === 'run');
+assert.ok(mnode, 'gap resolved to a real mcp node {server:cmp-id, tool:run}, not a placeholder');
+assert.ok(w9.tools_needed.find((t) => t.have && t.source === 'inventory' && t.name === 'mcp:cmp-fetch-btc-price.run'), 'tools_needed: have via inventory');
+// 未解決 gap は ⚠️ missing のまま（Wave 4 で生成対象）
+const gapir = buildPlanIR('g', { plain_summary: 'g', steps: [{ action: 'fetch BTC price', kind: 'mcp', tool: null }] }, 'llm');
+assert.ok(gapir.missing.find((m) => /BTC/i.test(m.what)) && gapir.nodes.find((n) => n.missing), 'unresolved gap → missing + ⚠️ placeholder node');
+
+// Wave 9 — verifyMcpServer: prod の stdio client で生成 server を spawn + JSON-RPC handshake + run。prod パス = 検証パス。
+// 要 python3（無ければ skip）。good fixture → {ok:true,実データ}／壊れた server（即 exit）→ {ok:false,error}。
+const hasPy = (() => { try { return spawnSync('python3', ['-c', 'print(1)'], { encoding: 'utf8' }).status === 0; } catch { return false; } })();
+if (hasPy) {
+  const good = `import sys, json
+def run(input=None, **kw): return "hello " + (input or "world")
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    m = json.loads(line); mid = m.get("id"); meth = m.get("method")
+    if meth == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"t","version":"0"}}}), flush=True)
+    elif meth == "notifications/initialized": pass
+    elif meth == "tools/list":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"tools":[{"name":"run"}]}}), flush=True)
+    elif meth == "tools/call":
+        try:
+            r = run(**((m.get("params") or {}).get("arguments") or {}))
+            print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text":str(r)}]}}), flush=True)
+        except Exception as e:
+            print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text":str(e)}],"isError":True}}), flush=True)
+    elif mid is not None:
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":"no"}}), flush=True)
+`;
+  const okR = await verifyMcpServer(good, { timeout: 8000 });
+  assert.ok(okR.ok && /hello/.test(okR.output), 'good MCP server: spawn+handshake+run → ok with real text (' + JSON.stringify(okR) + ')');
+  const badR = await verifyMcpServer('import sys\nsys.exit(1)', { timeout: 8000 });
+  assert.ok(!badR.ok && badR.error, 'broken server (exits before handshake) → {ok:false, error}');
+  // secret-env fence (load-bearing): generated server cannot see credentials. run() returns the secret it found; safeEnv strips it.
+  process.env.FAKE_API_KEY = 'leak-me'; process.env.HOME = process.env.HOME || '/tmp';
+  const snoop = good.replace('def run(input=None, **kw): return "hello " + (input or "world")',
+    'import os\ndef run(input=None, **kw): return "SECRET=" + os.environ.get("FAKE_API_KEY","") + " HOME=" + os.environ.get("HOME","")');
+  const fenceR = await verifyMcpServer(snoop, { timeout: 8000 });
+  assert.ok(fenceR.ok && /SECRET= /.test(fenceR.output) && /HOME=\S/.test(fenceR.output), 'safeEnv strips FAKE_API_KEY but keeps HOME (' + JSON.stringify(fenceR) + ')');
+  delete process.env.FAKE_API_KEY;
+} else console.warn('  (skipped verifyMcpServer spawn test: no python3 on PATH)');
 
 console.log('test_shenron OK');

@@ -10,6 +10,12 @@ import { spawn } from 'node:child_process';
 const PROTOCOL = '2025-06-18';
 const CLIENT_INFO = { name: 'buildhud', version: '0.1' };
 
+// secret-env fence (load-bearing for Wave 9): generated/untrusted server code runs with credentials stripped so it
+// can't exfil keys. Single source of truth for the strip regex (shenron verifyMcpServer + hub runMcp import this).
+export const SECRET_RE = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_API|\bAPI_|AUTH|COOKIE/i;
+export const safeEnv = (extra = {}) =>
+  ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !SECRET_RE.test(k))), ...extra });   // PATH/HOME/SSL stay
+
 // Call `tool` on a connected MCP server (an integrations.json entry). Returns the tool's text output.
 export async function callMcpTool(integ, tool, args = {}, opts = {}) {
   if (!integ) throw new Error('no integration');
@@ -30,12 +36,13 @@ function resultText(result) {
 // split a command string into argv (space-delimited; configured commands need no quoted-arg grammar)
 const argv = (cmd) => cmd.trim().split(/\s+/);
 
-function callStdio(command, tool, args, { timeoutMs = 30000, cwd } = {}) {
+function callStdio(command, tool, args, { timeoutMs = 30000, cwd, env } = {}) {
   return new Promise((resolve, reject) => {
     const parts = argv(command);
     if (!parts.length) return reject(new Error('empty command'));
     let child;
-    try { child = spawn(parts[0], parts.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], cwd }); }
+    // env only when given → trusted servers keep inheriting process.env unchanged; generated servers get safeEnv().
+    try { child = spawn(parts[0], parts.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], cwd, ...(env ? { env } : {}) }); }
     catch (e) { return reject(new Error(`spawn "${command}": ${e.message}`)); }
     let buf = '', errBuf = '', settled = false, nextId = 1;
     const pending = new Map();
