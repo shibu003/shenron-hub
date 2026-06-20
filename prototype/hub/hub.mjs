@@ -24,6 +24,7 @@ import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
+import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
@@ -109,12 +110,37 @@ function poll(agentId) {
 }
 function postResult(id, { result, error }, by = 'worker') {
   const h = find(id); h.result = result ?? null; h.error = error ?? null;
+  if (h.checkpoint) h.checkpoint.screenshot = null;   // Wave 11b: drop the base64 once the handoff is done (STATE_FILE bloat)
   touch(h, error ? 'failed' : 'completed', by); save();
   if (h.runId) advanceRun(h);               // this node is part of a DAG run → fire ready downstream nodes
   return h;
 }
-function approve(id) { const h = find(id); if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`); touch(h, 'approved', 'human'); trail('approve', { handoff: id, to: h.to, skill: h.skill }); save(); if (h.mcp) runMcp(h); else schedule(h); return h; }
-function decline(id) { const h = find(id); touch(h, 'rejected', 'human'); save(); return h; }
+// Wave 11b — intra-handoff checkpoint: a RUNNING handoff (a browser-control worker mid-task) pauses for a
+// human ok before an `ask`-classified step. Invariant: poll() never claims awaiting_approval/running, and
+// browser-control stays REMOTE (no a.local) — so this state round-trip kicks off NO in-process execution;
+// only the alive worker (polling /api/state for checkpoint.decided) resumes. Break either → double-exec.
+function checkpoint(id, { screenshot, label, tool, domain } = {}) {
+  const h = find(id);
+  if (h.status !== 'running') throw new Error(`handoff ${id} is ${h.status}, not running`);
+  h.checkpoint = { screenshot: screenshot || null, label: label || '', tool: tool || null, domain: domain || null, decided: null };
+  touch(h, 'awaiting_approval', 'worker');
+  trail('checkpoint', { handoff: id, tool: tool || null, domain: domain || null, label: label || '' });   // never the base64 screenshot
+  save(); return h;
+}
+function approve(id) {
+  const h = find(id);
+  if (h.checkpoint && h.checkpoint.decided === null) {   // checkpoint fast-path: resume a paused worker IN PLACE — NOT a fresh task-start approval
+    h.checkpoint.decided = 'approved'; touch(h, 'running', 'human'); trail('approve', { handoff: id, checkpoint: true, tool: h.checkpoint.tool, domain: h.checkpoint.domain }); save();
+    return h;   // ⛔ no runMcp/schedule — the remote worker owns execution (touch('running') is not re-claimable by poll)
+  }
+  if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`);
+  touch(h, 'approved', 'human'); trail('approve', { handoff: id, to: h.to, skill: h.skill }); save(); if (h.mcp) runMcp(h); else schedule(h); return h;
+}
+function decline(id) {
+  const h = find(id);
+  if (h.checkpoint && h.checkpoint.decided === null) { h.checkpoint.decided = 'declined'; touch(h, 'rejected', 'human'); trail('decline', { handoff: id, checkpoint: true }); save(); return h; }
+  touch(h, 'rejected', 'human'); save(); return h;
+}
 function setPolicy(id, { policy, autoFrom }) { const a = agent(id); if (policy) a.policy = policy === 'auto' ? 'auto' : 'approval'; if (Array.isArray(autoFrom)) a.autoFrom = autoFrom; save(); return { id: a.id, policy: a.policy, autoFrom: a.autoFrom, online: online(a) }; }
 function resumePending() { for (const h of state.handoffs) { const a = state.agents[h.to]; if (a && a.local && autorunOn(a) && (h.status === 'submitted' || h.status === 'approved')) schedule(h); } } // turning autorun back on → run what was waiting
 function setAutorun(id, on) { const a = agent(id); a.autorun = on !== false; save(); resumePending(); return { id: a.id, autorun: a.autorun }; }
@@ -608,7 +634,7 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)) });   // Wave R: per-agent audit-backed reputation (derived, read-time)
+    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)) });   // Wave R: per-agent audit-backed reputation (derived, read-time)
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
@@ -629,6 +655,7 @@ const server = http.createServer((req, res) => {
     if (im) { const it = readIntegrations().find((x) => x.id === decodeURIComponent(im[1])); return it ? json(res, 200, it) : json(res, 404, { error: `no integration "${im[1]}"` }); } }
   if (req.method === 'GET' && p === '/api/audit')                // Wave H: tamper-evident trust trail + chain verification
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
+  if (req.method === 'GET' && p === '/api/permissions') return json(res, 200, readPermissions());   // Wave 11b: browser-control allow/ask/deny ruleset (worker fetches to classify)
   if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
     try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } }
   if (req.method === 'GET' && p === '/api/buildstate')           // Wave J: the build-state IR vocabulary + match operators
@@ -646,6 +673,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/handoffs') return json(res, 200, ref(create(j)));
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
+      if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
       if (p === '/api/langflow/run') { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // 🔗 delegate an exotic Langflow flow to /api/v1/run, fenced (audit appended → persist)
@@ -714,8 +742,8 @@ const server = http.createServer((req, res) => {
       let m;
       if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
-      if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result)$/)))
-        return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : ref(postResult(m[1], j)));
+      if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result|checkpoint)$/)))
+        return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : m[2] === 'checkpoint' ? ref(checkpoint(m[1], j)) : ref(postResult(m[1], j)));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/autorun$/))) return json(res, 200, setAutorun(m[1], j.on)); // per-agent autorun on/off
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/passport$/))) return json(res, 200, setPassport(m[1], j));  // Wave H: edit capability passport

@@ -4,6 +4,7 @@ import assert from 'node:assert';
 import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
 import { openStdio } from '../mcp/mcp-client.mjs';
+import { classify, SEED_RULES, addAllowRule } from '../permissions.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -243,5 +244,25 @@ for line in sys.stdin:
     assert.equal(r2.content[0].text, '2', 'openStdio call 2 → counter 2 (session persisted across calls in one child)');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 } else console.warn('  (skipped verifyMcpServer/openStdio spawn tests: no python3 on PATH)');
+
+// Wave 11b — classify(): the Claude-Code-style allow/ask/deny gate for browser-control. Pure (no browser/hub).
+// Seeded defaults: read-only tools run silently, mutating/outbound tools pause for a human (the ToS line).
+assert.equal(classify({ tool: 'browser_navigate' }, null, SEED_RULES), 'allow', 'navigate (read-only) → allow');
+assert.equal(classify({ tool: 'browser_snapshot' }, null, SEED_RULES), 'allow', 'snapshot → allow');
+assert.equal(classify({ tool: 'browser_click' }, null, SEED_RULES), 'ask', 'click (mutating) → ask');
+assert.equal(classify({ tool: 'browser_type' }, null, SEED_RULES), 'ask', 'type → ask');
+assert.equal(classify({ tool: 'browser_unknown' }, null, SEED_RULES), 'ask', 'unknown tool → ask (safe default)');
+// precedence deny > allow > ask
+assert.equal(classify({ tool: 'browser_click' }, null, [{ effect: 'allow', tool: 'browser_click' }, { effect: 'deny', tool: 'browser_click' }]), 'deny', 'deny beats allow');
+assert.equal(classify({ tool: 'browser_click' }, null, [{ effect: 'allow', tool: 'browser_click' }]), 'allow', 'promoted click → allow');
+// domain scoping: rule domain is a suffix of the live page domain
+const dr = [{ effect: 'allow', tool: 'browser_click', domain: 'example.com' }];
+assert.equal(classify({ tool: 'browser_click' }, 'app.example.com', dr), 'allow', 'domain rule matches subdomain (endsWith)');
+assert.equal(classify({ tool: 'browser_click' }, 'evil.com', dr), 'ask', 'domain rule does not match other domain');
+assert.equal(classify({ tool: 'browser_click' }, null, dr), 'ask', 'domain rule needs a known currentDomain');
+// addAllowRule idempotency — 「常に許可」 連打でも膨らまない
+const a1 = addAllowRule(SEED_RULES, { tool: 'browser_click' });
+assert.equal(addAllowRule(a1, { tool: 'browser_click' }).length, a1.length, 'addAllowRule is idempotent');
+assert.ok(a1.some((r) => r.effect === 'allow' && r.tool === 'browser_click'), 'addAllowRule appended the allow rule');
 
 console.log('test_shenron OK');
