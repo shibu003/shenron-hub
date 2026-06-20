@@ -21,7 +21,8 @@
   .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
   .tb.collapse { border-color:#8957e5; color:#a371f7; } .tb.collapse:hover { border-color:#a371f7; background:rgba(137,87,229,.1); }
   .flowgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; max-height:58vh; overflow:auto; }
-  .flowcard { text-align:left; padding:10px; cursor:pointer; } .flowcard:hover { border-color:var(--blue); } .fc-name { font-weight:600; margin-bottom:3px; }
+  .flowcard { text-align:left; padding:10px; cursor:pointer; position:relative; } .flowcard:hover { border-color:var(--blue); } .fc-name { font-weight:600; margin-bottom:3px; }
+  .fc-skill { position:absolute; top:6px; right:8px; cursor:pointer; opacity:.55; } .fc-skill:hover { opacity:1; }
   .menu { position:relative; }
   .menu-pop { position:absolute; top:38px; right:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:230px; z-index:30; box-shadow:0 12px 34px -12px #000; display:none; }
   .menu-pop.open { display:block; }
@@ -419,6 +420,7 @@ const I18N = {
   t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
   sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
   flows:{ja:'🗂 一覧',en:'🗂 Flows'}, flows_title:{ja:'保存済み flow',en:'Saved flows'}, flows_none:{ja:'保存済み flow なし — 💾 で保存',en:'no saved flows — save with 💾'},
+  flows_skill:{ja:'📜 skill 化（Claude Code）',en:'📜 Make a skill (Claude Code)'}, comps_title:{ja:'🐉 生成部品（MCP server）',en:'🐉 Generated parts (MCP servers)'}, comps_pending:{ja:'承認待ち',en:'pending'},
   collapse:{ja:'📦 {n}個を畳む',en:'📦 Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
   t_collapse_linear:{ja:'入口/出口が複数です — 線形の選択にしてください',en:'Multiple entry/exit points — select a linear chain'}, t_collapsed:{ja:'選択を sub-flow に畳みました',en:'collapsed into a sub-flow'}, t_collapse_min:{ja:'2つ以上を Shift+クリックで選択してください',en:'Shift+click 2+ nodes first'},
   add_note:{ja:'📝 メモ',en:'📝 Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'}, note_done:{ja:'✓ 完了',en:'✓ Done'},
@@ -553,10 +555,19 @@ async function renderRunsView(){
   const el=$('#view-runs');
   await fetchWorkflows();
   const cards=WORKFLOWS.length
-    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}" onclick="loadFlowById('${esc(w.id)}')"><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
+    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}" onclick="loadFlowById('${esc(w.id)}')"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">📜</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
     : `<div class="empty">${t('flows_none')}</div>`;
+  let comps=[]; try{ comps=await api('/api/shenron/components'); }catch{}                 // Wave 10: 生成部品の登録庫（pending=人ゲート待ち）
+  const pending=comps.filter(c=>!c.approved);
+  const compRow=c=>`<div class="palrow" style="border:1px solid var(--line);border-radius:7px">
+    <div class="pm"><b>${esc(c.what)}</b><span>${c.approved?'✅':'⚠️'} ${esc(c.id)} · iter ${c.iters||0}${(c.credentials&&c.credentials.length)?' · 🔑 '+c.credentials.map(esc).join(','):''}</span></div>
+    <span class="pb" data-compcode="${esc(c.id)}">{ } code</span>${c.approved?'':`<span class="pb" data-compok="${esc(c.id)}">${t('sh_approve')}</span>`}</div>`;
+  const compSection=comps.length ? `<h2 style="margin-top:8px">${t('comps_title')}${pending.length?` · ⚠️ ${pending.length} ${t('comps_pending')}`:''}</h2><div style="margin-bottom:20px">${pending.concat(comps.filter(c=>c.approved)).map(compRow).join('')}</div>` : '';
   el.innerHTML=`<h2>${t('flows_title')}</h2><div class="flowgrid" style="margin-bottom:20px">${cards}</div>
-    <h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
+    ${compSection}<h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
+  el.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });
+  el.querySelectorAll('[data-compok]').forEach(b=>b.onclick=async()=>{ try{ const r=await api('/api/shenron/components/approve',{id:b.getAttribute('data-compok')}); toast('✅ '+(r.integration||r.id)); await fetchIntegrations(); renderRunsView(); }catch(e){ toast(e.message); } });   // 承認 → integration 登録（ladder rejoin）→ 以降 plan で実 mcp node に
+  el.querySelectorAll('[data-compcode]').forEach(b=>b.onclick=async()=>{ const c=await api('/api/shenron/components?id='+encodeURIComponent(b.getAttribute('data-compcode'))); openModal({title:c.id,info:esc(c.what),submitLabel:t('m_copy'),fields:[{key:'code',label:'',type:'readonly',value:c.code||''}],onSubmit:()=>copyText(c.code||'',t('t_snip_copied'))}); });
 }
 async function loadFlowById(id){ const w=await api('/api/workflows?id='+encodeURIComponent(id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); viewSwitch('builder'); toast(w.name||w.id); } else toast(t('flows_none')); }
 function renderSettingsView(){
@@ -1300,12 +1311,13 @@ async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integratio
 async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the 📦 Sub-flow picker
 async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');                                // 🗂 overview: all saved flows; click → loadFlow onto canvas
   const cards = WORKFLOWS.length
-    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}"><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
+    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">📜</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
     : `<div class="minfo">${t('flows_none')}</div>`;
   dlg.innerHTML=`<div class="dh">${t('flows_title')}（${WORKFLOWS.length}）</div><div class="db flowgrid">${cards}</div><div class="df"><button class="act" id="flowsClose">${t('cancel')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#flowsClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
+  dlg.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });   // Wave 10: flow → Claude Code SKILL.md（Wave 7 endpoint）
 }
 function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
@@ -1644,7 +1656,7 @@ async function shenronBuild(){                                              // p
 }
 async function shenronGaps(){                                               // Wave 4+9: gap → MCP server 生成 + spawn/handshake 検証 → 承認で integration 登録 → 再 plan が gap を実 mcp node に解決
   const gaps=(LAST_PLAN&&LAST_PLAN.missing)||[]; if(!gaps.length) return;
-  const g=gaps[0];                                                          // ponytail: gap[0] のみ。N>1 の巡回は v2（多くの plan は不足 1 件）。
+  const g=gaps[0];                                                          // ponytail: gap[0] のみ。承認→re-plan で missing[] が縮む＝次の ⚠️ が次の gap になり巡回は自然に進む。明示 cycler は不要（収束しない gap だけ詰まる→plan refine で回避）。
   toast(t('sh_gen_wait'));                                                  // 生成=LLM＋spawn 検証ループで数十秒〜
   let r; try{ r=await api('/api/shenron/gen-component',{what:g.what}); }catch(e){ return toast(e.message); }
   const head=(r.converged?`# ✅ ${t('sh_gaps_ok')} (iter ${r.iters}) → ${r.output}`
