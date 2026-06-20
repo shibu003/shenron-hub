@@ -5,11 +5,12 @@
 // node is one-shot (fresh session per call) → structurally can't multi-step browse; this worker is the
 // stateful seam that closes the "API 無し / UI のみ" branch of the decision tree (docs/13 §J).
 //
-//   node prototype/agents/browser-worker.mjs [--hub http://localhost:8795] [--pw "npx @playwright/mcp@latest"] [--once] [--no-screenshot]
+//   node prototype/agents/browser-worker.mjs [--hub …] [--pw "npx @playwright/mcp@latest"] [--once] [--no-screenshot] [--vendor claude] [--max-steps 12]
 //
-// Handoff input = JSON {steps:[{tool, args}]} where tool is a Playwright-MCP tool (browser_navigate,
-// browser_snapshot, browser_take_screenshot, browser_click, browser_type, …). Each step is audited (redacted)
-// to the hub; the joined step output is posted back as the handoff result.
+// Handoff input is EITHER JSON {steps:[{tool, args}]} (pre-baked Playwright-MCP steps, 11a/b) OR a plain
+// natural-language goal (11c: the planner's agent:browser-control node hands off the intent). For an NL goal
+// the worker runs an agentic loop — observe (snapshot) → the brain (--vendor) picks the next action → gate → act.
+// Each step is audited (redacted) to the hub; the joined output is posted back as the handoff result.
 //
 // Wave 11b: each step is classified against the persisted permission ruleset (GET /api/permissions). allow →
 // run silently. ask → screenshot the page, POST a checkpoint, and BLOCK until a human approves/declines in the
@@ -19,6 +20,7 @@
 import { openStdio } from '../mcp/mcp-client.mjs';
 import { redact } from '../trust.mjs';
 import { classify } from '../permissions.mjs';
+import { runVendorAsync } from '../runner.mjs';   // Wave 11c: the agent's brain — decide the next browser action from a goal + the live page
 
 const argOf = (f) => { const i = process.argv.indexOf(f); return i > -1 ? process.argv[i + 1] : null; };
 const HUB = (argOf('--hub') || 'http://localhost:8795').replace(/\/$/, '');
@@ -27,6 +29,8 @@ const HUB = (argOf('--hub') || 'http://localhost:8795').replace(/\/$/, '');
 const PW = argOf('--pw') || 'npx @playwright/mcp@latest --isolated';
 const ONCE = process.argv.includes('--once');
 const SHOT = !process.argv.includes('--no-screenshot');   // Wave 11b: capture a screenshot at each ask-checkpoint (default ON; --no-screenshot → text-only card)
+const VENDOR = argOf('--vendor') || 'claude';             // Wave 11c: brain for the agentic NL-goal loop (claude|codex|stub)
+const MAX_STEPS = Number(argOf('--max-steps')) || 12;     // bound the agentic loop (computer-use brittleness → keep it finite + human-in-loop)
 const AGENT = 'browser-control', SKILL = 'browser-control';
 let ticking = false;   // re-entrancy guard: a checkpoint pause makes a handoff long-lived → never run two ticks against the one shared browser
 
@@ -50,41 +54,72 @@ const textOf = (r) => {
 const domainOf = (r) => { const m = textOf(r).match(/Page URL:\s*(\S+)/); if (m) try { return new URL(m[1]).hostname; } catch {} return null; };
 const shotUri = (r) => { const img = (r?.content || []).find((c) => c.type === 'image'); return img ? `data:${img.mimeType};base64,${img.data}` : null; };
 
-// returns the joined step log, or `null` when a human declined at a checkpoint (caller must NOT post /result —
-// the hub already set the handoff to 'rejected'; a result would override it to failed/completed).
-async function runSteps(steps, rules, h) {
-  const client = browser();
-  const log = [];
-  let currentDomain = null;   // tracked from each result's live Page URL (commit: classify step N uses step N-1's page)
-  for (let i = 0; i < steps.length; i++) {
-    const { tool, args = {} } = steps[i];
-    if (!tool) throw new Error(`step ${i}: missing tool`);
-    await api('/api/audit', { type: 'browser-action', detail: { agent: AGENT, step: i, tool, args: redact(JSON.stringify(args), {}).text.slice(0, 500) } });   // redact → secrets/PII never hit the audit log; cap → a huge browser_type payload can't bloat the chain
-    const eff = classify({ tool, args }, currentDomain, rules);
-    await api('/api/audit', { type: 'permission', detail: { agent: AGENT, step: i, tool, domain: currentDomain, effect: eff } });
-    if (eff === 'deny') throw new Error(`step ${i} ${tool}: denied by permission rule`);
-    if (eff === 'ask') {
-      const screenshot = SHOT ? shotUri(await client.call('browser_take_screenshot', { type: 'jpeg' }, { timeoutMs: 60000 })) : null;
-      const label = `${tool}${currentDomain ? ' @ ' + currentDomain : ''} — ${redact(JSON.stringify(args), {}).text.slice(0, 200)}`;
-      await api(`/api/handoffs/${h.id}/checkpoint`, { screenshot, label, tool, domain: currentDomain });
-      let decided = null;                                       // BLOCK until a human approves/declines in the cockpit
-      while (decided === null) {
-        await new Promise((res) => setTimeout(res, 1500));
-        const hh = (await api('/api/state')).handoffs.find((x) => x.id === h.id);
-        if (!hh) throw new Error(`handoff ${h.id} vanished during checkpoint`);
-        if (hh.status === 'rejected') return null;              // declined → abort; hub owns the 'rejected' status
-        decided = hh.checkpoint && hh.checkpoint.decided;
-      }
-      if (decided === 'declined') return null;
+// run ONE browser action through the full 11b gate: audit → classify(allow/ask/deny) → on ask screenshot +
+// checkpoint + BLOCK for human → execute (navigate cold-start 1-retry). Returns the result, or null if the
+// human declined (caller aborts; hub already set 'rejected'). ctx.domain is the live page domain (mutated).
+async function runOne(client, ctx, step, i) {
+  const { tool, args = {} } = step;
+  if (!tool) throw new Error(`step ${i}: missing tool`);
+  await api('/api/audit', { type: 'browser-action', detail: { agent: AGENT, step: i, tool, args: redact(JSON.stringify(args), {}).text.slice(0, 500) } });   // redact → secrets/PII never hit the audit log; cap → a huge browser_type payload can't bloat the chain
+  const eff = classify({ tool, args }, ctx.domain, ctx.rules);
+  await api('/api/audit', { type: 'permission', detail: { agent: AGENT, step: i, tool, domain: ctx.domain, effect: eff } });
+  if (eff === 'deny') throw new Error(`step ${i} ${tool}: denied by permission rule`);
+  if (eff === 'ask') {
+    const screenshot = SHOT ? shotUri(await client.call('browser_take_screenshot', { type: 'jpeg' }, { timeoutMs: 60000 })) : null;
+    const label = `${tool}${ctx.domain ? ' @ ' + ctx.domain : ''} — ${redact(JSON.stringify(args), {}).text.slice(0, 200)}`;
+    await api(`/api/handoffs/${ctx.h.id}/checkpoint`, { screenshot, label, tool, domain: ctx.domain });
+    let decided = null;                                       // BLOCK until a human approves/declines in the cockpit
+    while (decided === null) {
+      await new Promise((res) => setTimeout(res, 1500));
+      const hh = (await api('/api/state')).handoffs.find((x) => x.id === ctx.h.id);
+      if (!hh) throw new Error(`handoff ${ctx.h.id} vanished during checkpoint`);
+      if (hh.status === 'rejected') return null;              // declined → abort; hub owns the 'rejected' status
+      decided = hh.checkpoint && hh.checkpoint.decided;
     }
-    let r;
-    try { r = await client.call(tool, args, { timeoutMs: 60000 }); }
-    catch (e) { if (tool !== 'browser_navigate') throw e; r = await client.call(tool, args, { timeoutMs: 60000 }); }   // cold-start race: a fresh browser's first navigate can collide with about:blank. navigate is idempotent → one retry. ponytail: retry ONLY navigate, never a click/type/submit.
-    if (r?.isError) throw new Error(`step ${i} ${tool}: ${textOf(r)}`);
-    const d = domainOf(r); if (d) currentDomain = d;            // live domain for the NEXT step's classify (redirects/popups followed)
-    log.push(`#${i} ${tool} → ${textOf(r)}`);
+    if (decided === 'declined') return null;
+  }
+  let r;
+  try { r = await client.call(tool, args, { timeoutMs: 60000 }); }
+  catch (e) { if (tool !== 'browser_navigate') throw e; r = await client.call(tool, args, { timeoutMs: 60000 }); }   // cold-start race: a fresh browser's first navigate can collide with about:blank. navigate is idempotent → one retry. ponytail: retry ONLY navigate, never a click/type/submit.
+  if (r?.isError) throw new Error(`step ${i} ${tool}: ${textOf(r)}`);
+  const d = domainOf(r); if (d) ctx.domain = d;              // live domain for the NEXT step's classify (redirects/popups followed)
+  return r;
+}
+
+// returns the joined step log, or `null` when a human declined at a checkpoint.
+async function runSteps(steps, rules, h) {                    // pre-baked steps (11a/b path)
+  const ctx = { h, rules, domain: null }, client = browser(), log = [];
+  for (let i = 0; i < steps.length; i++) {
+    const r = await runOne(client, ctx, steps[i], i);
+    if (r === null) return null;
+    log.push(`#${i} ${steps[i].tool} → ${textOf(r)}`);
   }
   return log.join('\n\n');
+}
+
+// Wave 11c — agentic: drive the browser toward an NL goal. Observe (snapshot) → the brain picks the next single
+// action → run it through the SAME gate (so outbound stays human-approved) → repeat, bounded by MAX_STEPS.
+const AGENT_PROMPT = (goal, snapshot) => `You operate a web browser to achieve a goal, one step at a time.
+Goal: ${goal}
+Current page (accessibility snapshot — use the ref shown, e.g. ref=e12, for clicks/typing):
+${snapshot}
+Output ONLY JSON for the NEXT single action that progresses the goal:
+{"tool":"browser_navigate|browser_click|browser_type|browser_press_key|browser_select_option|browser_wait_for","args":{...}}
+(browser_navigate args {url}; browser_click args {element,ref}; browser_type args {element,ref,text,submit?}; browser_press_key args {key})
+or {"done":true} when the goal is achieved or you cannot proceed. No prose.`;
+async function runGoal(goal, rules, h) {
+  const ctx = { h, rules, domain: null }, client = browser(), log = [];
+  for (let i = 0; i < MAX_STEPS; i++) {
+    const snap = textOf(await client.call('browser_snapshot', {}, { timeoutMs: 60000 }));   // observe (read-only → classify allow, no gate)
+    const d = domainOf({ content: [{ type: 'text', text: snap }] }); if (d) ctx.domain = d;
+    const out = await runVendorAsync(VENDOR, AGENT_PROMPT(goal, snap), '{"done":true}');     // stub vendor → done (loop terminates)
+    let act; try { act = JSON.parse(out.match(/\{[\s\S]*\}/)[0]); } catch { act = { done: true }; }
+    if (act.done || !act.tool) break;
+    const r = await runOne(client, ctx, { tool: act.tool, args: act.args || {} }, i);
+    if (r === null) return null;                              // declined → abort
+    log.push(`#${i} ${act.tool} → ${textOf(r)}`);
+  }
+  return log.join('\n\n') || '(no actions taken)';
 }
 
 async function tick() {
@@ -94,13 +129,14 @@ async function tick() {
     for (const h of runnable) {
       if (h.skill !== SKILL) { await api(`/api/handoffs/${h.id}/result`, { error: `browser-control does not serve skill "${h.skill}"` }); continue; }
       console.log(`▶ ${AGENT} running ${h.id} from ${h.from}`);
-      let steps; try { steps = JSON.parse(h.input || '{}').steps; } catch { steps = null; }
-      if (!Array.isArray(steps)) { await api(`/api/handoffs/${h.id}/result`, { error: 'input must be JSON {steps:[{tool,args}]}' }); continue; }
+      let steps; try { steps = JSON.parse(h.input || '{}').steps; } catch { steps = null; }   // {steps:[…]} = pre-baked (11a/b); anything else = an NL goal → agentic loop (11c)
+      const goal = Array.isArray(steps) ? null : (h.input || '').trim();
+      if (!Array.isArray(steps) && !goal) { await api(`/api/handoffs/${h.id}/result`, { error: 'input must be JSON {steps:[{tool,args}]} or an NL goal' }); continue; }
       const rules = await api('/api/permissions');   // per-handoff snapshot → a 「常に許可」 written mid-run takes effect on the NEXT handoff
       try {
-        const result = await runSteps(steps, rules, h);
+        const result = goal ? await runGoal(goal, rules, h) : await runSteps(steps, rules, h);
         if (result === null) { console.log(`⏹ ${h.id} declined at checkpoint`); continue; }   // hub already set 'rejected' — do NOT post /result
-        await api(`/api/handoffs/${h.id}/result`, { result }); console.log(`✓ ${h.id} — ${steps.length} steps`);
+        await api(`/api/handoffs/${h.id}/result`, { result }); console.log(`✓ ${h.id} — ${goal ? 'goal' : steps.length + ' steps'}`);
       } catch (e) { dropBrowser(); await api(`/api/handoffs/${h.id}/result`, { error: e.message }); console.error(`✗ ${h.id}: ${e.message}`); }   // drop the browser on error → next handoff gets a clean session
     }
     return runnable.length;

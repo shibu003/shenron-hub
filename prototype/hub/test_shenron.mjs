@@ -274,4 +274,12 @@ const offIR = buildPlanIR('g', gapParsed, 'llm', 'off');
 assert.equal(offIR.missing.length, 0, 'gap=off: no buildable gap created');
 assert.ok(!offIR.nodes.some((n) => n.missing), 'gap=off: no ⚠️ node (best-effort prompt instead)');
 
+// Wave 11c — planner routes a UI-only / no-API step to the built-in browser-control agent (decision-tree
+// "UIのみ → computer-use" 枝). It resolves to a real agent node (have:true), NOT a buildable gap.
+const uiIR = buildPlanIR('女の子と付き合いたい', { plain_summary: 'register on a dating site', steps: [{ action: 'register on the dating site', kind: 'agent', tool: 'agent:browser-control' }] });
+assert.equal(uiIR.missing.length, 0, '11c: browser-control step is resolved, not a gap');
+const bc = uiIR.nodes.find((n) => n.kind === 'agent' && n.agent === 'browser-control');
+assert.ok(bc, '11c: emits an agent node targeting browser-control');
+assert.ok(uiIR.tools_needed.find((t) => t.name === 'agent:browser-control' && t.have), '11c: browser-control marked have (computer-use covers it)');
+
 console.log('test_shenron OK');

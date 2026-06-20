@@ -32,7 +32,8 @@ const PROMPT = (goal, inv) => `You plan an automation flow. Goal: "${goal}".
 Inventory — the ONLY tools/agents that exist (use these exact ids in step.tool, or null):
 ${inv}
 Built-in step kind "prompt" (an LLM step) is always available and needs no tool.
-Decompose the goal into ordered steps. For EACH step choose kind ("mcp" external tool / "agent" / "prompt") and, if an inventory item GENUINELY covers it, its exact id — otherwise null. A GENERIC tool does NOT cover a SPECIFIC need (a generic HTTP fetch does NOT cover "get GitHub commits"); use null so the missing tool is surfaced.
+Built-in agent "agent:browser-control" drives a REAL BROWSER (open/click/type/submit, using the user's own login session) — use kind:"agent", tool:"agent:browser-control" for a step that needs a service with a UI but NO usable API/MCP tool (e.g. "register on site X", "apply on a job site", "message someone on a web app"). Outbound actions (submit/send) are human-approved at run time.
+Decompose the goal into ordered steps. For EACH step choose kind ("mcp" external tool / "agent" / "prompt") and, if an inventory item GENUINELY covers it, its exact id — otherwise null. A GENERIC tool does NOT cover a SPECIFIC need (a generic HTTP fetch does NOT cover "get GitHub commits"); use null so the missing tool is surfaced. Prefer an mcp tool/API when one exists; fall back to agent:browser-control ONLY when the service is UI-only (no API).
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
