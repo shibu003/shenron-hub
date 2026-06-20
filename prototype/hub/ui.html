@@ -27,14 +27,22 @@
   .menu-pop.open { display:block; }
   .menu-pop button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--txt); padding:8px 10px; border-radius:6px; cursor:pointer; }
   .menu-pop button:hover { background:#0d1117; } .menu-pop .mh { color:var(--dim); font-size:11px; padding:6px 10px 2px; }
-  #lang { margin-left:auto; } #conn { font-size:12px; color:var(--dim); min-width:70px; text-align:right; }
-  #app { position:relative; display:grid; grid-template-columns:var(--palw,212px) 1fr var(--inspw,326px); height:calc(100vh - 49px); }
+  #conn { margin-left:auto; font-size:12px; color:var(--dim); min-width:70px; text-align:right; }
+  #main-wrap { display:flex; height:calc(100vh - 49px); overflow:hidden; }
+  #viewnav { width:42px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; padding:8px 0; gap:4px; flex-shrink:0; }
+  .vn { width:32px; height:32px; border:none; background:none; color:var(--dim); cursor:pointer; border-radius:6px; font-size:16px; display:flex; align-items:center; justify-content:center; }
+  .vn:hover { background:var(--panel2); color:var(--txt); } .vn.active { background:var(--panel2); color:var(--blue); }
+  .vn-spacer { flex:1; }
+  #view-runs, #view-settings { flex:1; overflow:auto; padding:16px; max-width:720px; }
+  #view-runs h2, #view-settings h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:0 0 12px; }
+  #app { position:relative; display:grid; grid-template-columns:1fr var(--sidew,280px); flex:1; height:100%; min-width:0; }
   .resizer { position:absolute; top:0; height:100%; width:8px; z-index:18; cursor:col-resize; }
   .resizer::after { content:''; position:absolute; top:0; left:3px; width:2px; height:100%; background:var(--line); transition:background .12s; }
   .resizer:hover::after, .resizer.drag::after { background:var(--blue); }
-  #palResizer { left:var(--palw,212px); transform:translateX(-4px); }
-  #inspResizer { right:var(--inspw,326px); transform:translateX(4px); }
-  #palette { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  #sideResizer { right:var(--sidew,280px); transform:translateX(4px); }
+  #sidebar { border-left:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  #sidebar-pal { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+  #sidebar-ins { flex:1; overflow:auto; padding:13px; }
   .pal-head { padding:11px 13px 7px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   #palSearch { margin:0 11px 8px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 9px; font:inherit; }
   .pal-tip { margin:0 11px 9px; padding:8px 9px; border:1px solid #2a3440; border-radius:8px; background:#0f1620; color:#b8c7d8; font-size:11px; }
@@ -136,7 +144,7 @@
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
   body.wiring, body.wiring .node { cursor:crosshair; }
-  #inspector { border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:13px; }
+
   .ins-h { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:2px 2px 10px; display:flex; align-items:center; }
   .ins-h .back { margin-left:auto; cursor:pointer; color:var(--blue); text-transform:none; letter-spacing:0; }
   .field { margin-bottom:11px; } .field label { display:block; font-size:11px; color:var(--dim); margin-bottom:3px; }
@@ -271,45 +279,46 @@
   <input id="flowName">
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
-    <button class="tb" id="btnFlows" onclick="showFlows()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none"></button>
-    <button class="tb collapse" id="btnCollapse" onclick="collapseSelection()" style="display:none"></button>
-    <button class="tb" id="btnTrust" onclick="checkTrust()"></button>
     <div class="menu">
-      <button class="tb" id="btnAuto" onclick="toggleMenu(event)"></button>
+      <button class="tb" id="btnAuto" onclick="toggleMenu(event,'autoMenu')"></button>
       <div class="menu-pop" id="autoMenu">
         <div class="mh" id="mhTrig"></div>
         <button id="miAuto" onclick="saveAutomation()"></button>
         <button id="miFire" onclick="fireEvent()"></button>
         <div class="mh" id="mhShare"></div>
         <button id="miExport" onclick="exportFlow()"></button>
+        <div class="mh">Langflow</div>
+        <button id="miLfImport" onclick="pickLangflowFile();closeMenu()"></button>
+        <button id="miLfPush" onclick="pushToLangflow();closeMenu()"></button>
       </div>
     </div>
-    <button class="tb" id="btnShenron" onclick="shenronPlan()"></button>
-    <button class="tb" id="btnShenronRefine" onclick="shenronRefine()" style="display:none"></button>
-    <button class="tb" id="btnShenronBuild" onclick="shenronBuild()" style="display:none"></button>
-    <button class="tb" id="btnShenronGaps" onclick="shenronGaps()" style="display:none"></button>
-    <button class="tb" id="btnLfImport" onclick="pickLangflowFile()"></button>
-    <button class="tb" id="btnLfPush" onclick="pushToLangflow()"></button>
-    <button class="tb" id="btnSettings" onclick="openSettings()"></button>
+    <div class="menu">
+      <button class="tb" id="btnShenron" onclick="toggleMenu(event,'shenronMenu')"></button>
+      <div class="menu-pop" id="shenronMenu">
+        <button id="miShenronPlan" onclick="shenronPlan();closeMenu()"></button>
+        <button id="miShenronRefine" onclick="shenronRefine();closeMenu()" disabled></button>
+        <button id="miShenronBuild" onclick="shenronBuild();closeMenu()" disabled></button>
+        <button id="miShenronGaps" onclick="shenronGaps();closeMenu()" disabled></button>
+        <div class="mh"></div>
+        <button id="miTrust" onclick="checkTrust();closeMenu()"></button>
+        <button id="miCollapse" onclick="collapseSelection();closeMenu()" disabled></button>
+      </div>
+    </div>
   </div>
-  <button class="tb" id="lang" onclick="toggleLang()"></button>
   <span id="conn"></span>
 </header>
 
+<div id="main-wrap">
+<nav id="viewnav">
+  <button class="vn active" data-view="builder" onclick="viewSwitch('builder')" title="Builder">🔧</button>
+  <button class="vn" data-view="runs" onclick="viewSwitch('runs')" title="Runs">📋</button>
+  <button class="vn" data-view="settings" onclick="viewSwitch('settings')" title="Settings">⚙</button>
+  <div class="vn-spacer"></div>
+  <button class="vn" id="langVn" onclick="toggleLang()"></button>
+</nav>
 <div id="app">
-  <aside id="palette">
-    <div class="pal-head" id="palHead"></div>
-    <input id="palSearch" oninput="renderPalette()">
-    <div class="pal-tip" id="palTip"></div>
-    <div id="palList"></div>
-    <div class="pal-add">
-      <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
-      <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button><button id="btnAddNote" onclick="addNote()"></button></div>
-    </div>
-    <section id="coach"></section>
-  </aside>
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
     <div id="hint"></div><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
@@ -320,9 +329,24 @@
       <button onclick="fitView()" title="fit to flow">⤢</button>
     </div>
   </main>
-  <aside id="inspector"></aside>
-  <div class="resizer" id="palResizer" title="drag to resize · drag to edge to hide"></div>
-  <div class="resizer" id="inspResizer" title="drag to resize · drag to edge to hide"></div>
+  <aside id="sidebar">
+    <div id="sidebar-pal">
+      <div class="pal-head" id="palHead"></div>
+      <input id="palSearch" oninput="renderPalette()">
+      <div class="pal-tip" id="palTip"></div>
+      <div id="palList"></div>
+      <div class="pal-add">
+        <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
+        <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button><button id="btnAddNote" onclick="addNote()"></button></div>
+      </div>
+      <section id="coach"></section>
+    </div>
+    <div id="sidebar-ins" hidden></div>
+  </aside>
+  <div class="resizer" id="sideResizer" title="drag to resize · drag to edge to hide"></div>
+</div>
+<div id="view-runs" hidden></div>
+<div id="view-settings" hidden></div>
 </div>
 
 <dialog id="modal"></dialog>
@@ -511,9 +535,56 @@ function initResizer(id, varName, grow){            // grow:+1 → width follows
     document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); });
 }
 function restorePanels(){
-  const pw=localStorage.getItem('bh--palw'), iw=localStorage.getItem('bh--inspw');
-  if(pw!=null) $('#app').style.setProperty('--palw', (+pw)+'px'); if(iw!=null) $('#app').style.setProperty('--inspw', (+iw)+'px');
-  initResizer('palResizer','--palw',+1); initResizer('inspResizer','--inspw',-1);
+  const sw=localStorage.getItem('bh--sidew');
+  if(sw!=null) $('#app').style.setProperty('--sidew', (+sw)+'px');
+  initResizer('sideResizer','--sidew',-1);
+}
+let VIEW='builder';
+function viewSwitch(v){
+  VIEW=v;
+  $('#app').hidden = v!=='builder';
+  $('#view-runs').hidden = v!=='runs';
+  $('#view-settings').hidden = v!=='settings';
+  document.querySelectorAll('.vn[data-view]').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  if(v==='runs') renderRunsView();
+  if(v==='settings') renderSettingsView();
+}
+async function renderRunsView(){
+  const el=$('#view-runs');
+  await fetchWorkflows();
+  const cards=WORKFLOWS.length
+    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}" onclick="loadFlowById('${esc(w.id)}')"><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
+    : `<div class="empty">${t('flows_none')}</div>`;
+  el.innerHTML=`<h2>${t('flows_title')}</h2><div class="flowgrid" style="margin-bottom:20px">${cards}</div>
+    <h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
+}
+async function loadFlowById(id){ const w=await api('/api/workflows?id='+encodeURIComponent(id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); viewSwitch('builder'); toast(w.name||w.id); } else toast(t('flows_none')); }
+function renderSettingsView(){
+  const el=$('#view-settings'); if(!el) return;
+  const g=state.autorun!==false;
+  el.innerHTML=`<h2>${t('settings')}</h2>
+    <label>${t('set_autorun_g')}</label>
+    <button class="ibtn toggle ${g?'auto':'approval'}" id="gAutorun">${g?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button>
+    <div class="minfo">${t('autorun_info')}</div>
+    <label style="margin-top:6px">${t('integrations')}</label>
+    ${INTEGRATIONS.map(it=>`<div class="palrow" style="border:1px solid var(--line);border-radius:7px">
+      <div class="pm"><b>${esc(it.label)}</b><span>${esc(it.kind||'mcp')} · ${it.tools||0} ${t('mcp_tools_word')}</span></div>
+      <span class="pb" data-ittoggle="${esc(it.id)}">${it.enabled?'⚡ ON':'⏸ OFF'}</span></div>`).join('')||`<div class="minfo">—</div>`}
+    <div class="row2" style="display:flex;gap:6px;margin-top:4px">
+      <input id="itLabel" placeholder="${t('it_label')}" style="flex:1"><input id="itConn" placeholder="${t('it_conn')}" style="flex:1"></div>
+    <input id="itTools" placeholder="${t('it_tools')}">
+    <button class="ibtn" id="itAdd">${t('add_mcp')}</button>
+    <label style="margin-top:6px">${t('lf_host_label')}</label>
+    <input id="lfHost" value="${esc(lfHost())}" placeholder="http://localhost:7860" style="width:100%;background:#0d1117;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:6px 9px;font:inherit">
+    <input id="lfKey" value="${esc(lfKey())}" placeholder="${t('lf_key_label')}" style="width:100%;background:#0d1117;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:6px 9px;font:inherit;margin-top:6px">
+    <button class="ibtn" id="setApply" style="margin-top:12px">✓ ${LANG==='ja'?'保存':'Save'}</button>`;
+  $('#gAutorun').onclick=async()=>{ await api('/api/autorun',{on:!(state.autorun!==false)}); await refresh(); renderSettingsView(); };
+  el.querySelectorAll('[data-ittoggle]').forEach(el2=>el2.onclick=async()=>{ const it=INTEGRATIONS.find(x=>x.id===el2.getAttribute('data-ittoggle')); await api(`/api/integrations/${it.id}/toggle`,{on:!it.enabled}); await fetchIntegrations(); renderSettingsView(); render(); });
+  $('#itAdd').onclick=async()=>{ const label=$('#itLabel').value.trim(); if(!label)return; const conn=$('#itConn').value.trim();
+    const tools=($('#itTools').value||'').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,accepts:['*'],emits:['*']}));
+    await api('/api/integrations',{ label, command:conn.startsWith('http')?'':conn, url:conn.startsWith('http')?conn:'', enabled:true, tools }); await fetchIntegrations(); renderSettingsView(); render(); };
+  $('#setApply').onclick=()=>{ const h=$('#lfHost').value.trim(); h?localStorage.setItem('lf_host',h):localStorage.removeItem('lf_host');
+    const k=$('#lfKey').value.trim(); k?localStorage.setItem('lf_key',k):localStorage.removeItem('lf_key'); toast(LANG==='ja'?'保存しました':'saved'); };
 }
 // ---------- pan + zoom: the nodes/links live in #world (a transformed layer); chrome stays in #canvas ----------
 let ZOOM=1, PANX=0, PANY=0, panning=null;
@@ -532,11 +603,12 @@ function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.
 function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
 function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
-  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnFlows').textContent=t('flows'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
+  $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
-  $('#btnShenron').textContent=t('shenron'); $('#btnShenronBuild').textContent=t('sh_build'); $('#btnShenronRefine').textContent=t('sh_refine');
-  $('#btnLfImport').textContent=t('lf_import'); $('#btnLfPush').textContent=t('lf_push'); $('#btnSettings').textContent=t('settings');
-  $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
+  $('#miLfImport').textContent=t('lf_import'); $('#miLfPush').textContent=t('lf_push');
+  $('#btnShenron').textContent=t('shenron')+' ▾'; $('#miShenronPlan').textContent=t('sh_btn'); $('#miShenronRefine').textContent=t('sh_refine'); $('#miShenronBuild').textContent=t('sh_build');
+  $('#miShenronGaps').textContent=t('sh_gaps'); $('#miTrust').textContent=t('check_trust'); $('#miCollapse').textContent=t('collapse').replace('{n}',selSet.size);
+  $('#langVn').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger'); $('#btnAddNote').textContent=t('add_note');
   $('#hint').innerHTML=t('hint');
@@ -602,7 +674,7 @@ async function refresh() {
 function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach();
   const sb=$('#btnStop'); if(sb) sb.style.display=(state.runs||[]).some(r=>r.status==='running')?'inline-flex':'none';   // ⏹ visible only while a run is active
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('multi', selSet.has(n.dataset.id)));        // ③b-2 multi-select highlight
-  const cb=$('#btnCollapse'); if(cb){ cb.style.display=selSet.size>=2?'inline-flex':'none'; cb.textContent=t('collapse').replace('{n}',selSet.size); } }
+  const mc=$('#miCollapse'); if(mc){ mc.disabled=selSet.size<2; mc.textContent=t('collapse').replace('{n}',selSet.size); } }
 function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
@@ -901,9 +973,11 @@ function attachNode(n, id){
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
   });
 }
-function selectNode(id){ selected=id; selEdge=null; selSet.clear(); render(); }
-function selectEdge(id){ selEdge=id; selected=null; selSet.clear(); render(); }
-function deselect(){ if(selected||selEdge||selSet.size){ selected=null; selEdge=null; selSet.clear(); render(); } }
+function showSideIns(){ const p=$('#sidebar-pal'),i=$('#sidebar-ins'); if(p)p.hidden=true; if(i)i.hidden=false; }
+function showSidePal(){ const p=$('#sidebar-pal'),i=$('#sidebar-ins'); if(i)i.hidden=true; if(p)p.hidden=false; }
+function selectNode(id){ selected=id; selEdge=null; selSet.clear(); showSideIns(); render(); }
+function selectEdge(id){ selEdge=id; selected=null; selSet.clear(); showSideIns(); render(); }
+function deselect(){ if(selected||selEdge||selSet.size){ selected=null; selEdge=null; selSet.clear(); showSidePal(); render(); } }
 function toggleMulti(id){ selSet.has(id)?selSet.delete(id):selSet.add(id); selected=null; selEdge=null; render(); }   // ③b-2 shift-click
 const edgeOf = (id) => EDGES.find(e=>e.id===id);
 $('#canvas').addEventListener('pointerdown', e=>{                                    // empty-canvas drag = pan; a click (no drag) = deselect
@@ -1001,9 +1075,8 @@ function drawLinks(){
 
 /* ---------- inspector ---------- */
 function renderInspector(){
-  // B3 — every NODE kind now edits on its own card; the right panel is only the edge firewall (edges have no
-  // card) + the run/trust/audit dashboard.
-  const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge);
+  const ins=$('#sidebar-ins'); if(!ins) return;
+  const ed = selEdge && edgeOf(selEdge);
   if(ed) return void (ins.innerHTML = inspEdge(ed), bindEdge(ed));
   ins.innerHTML = inspDefault();
   ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
@@ -1104,7 +1177,7 @@ function inspEdge(e){
     <button class="ibtn danger" id="edDel">${t('edge_del')}</button>`;
 }
 function bindEdge(e){
-  const s=$('#edSave'); if(s) s.onclick=()=>{ const classes=[...$('#inspector').querySelectorAll('input[data-dclass]')].filter(x=>x.checked&&!x.disabled).map(x=>x.dataset.dclass);
+  const s=$('#edSave'); if(s) s.onclick=()=>{ const classes=[...$('#sidebar-ins').querySelectorAll('input[data-dclass]')].filter(x=>x.checked&&!x.disabled).map(x=>x.dataset.dclass);
     const custom=listClean(($('#edNever').value||'').split('\n'));
     const never=listClean([...classPatterns(classes), ...custom]);
     const share={...(e.share||{})}; delete share.never; delete share.classes;
@@ -1114,7 +1187,7 @@ function bindEdge(e){
     const br=$('#edBranch'); if(br) e.branch=br.value;                 // Wave E2: router branch label
     toast(t('edge_saved')); clearTrust(); renderInspector(); };
   const c=$('#edCheck'); if(c) c.onclick=()=>checkTrust();
-  $('#inspector').querySelectorAll('[data-edge-preset]').forEach(b=>b.onclick=()=>applyPreset(e.target,b.dataset.edgePreset));
+  $('#sidebar-ins').querySelectorAll('[data-edge-preset]').forEach(b=>b.onclick=()=>applyPreset(e.target,b.dataset.edgePreset));
   const d=$('#edDel'); if(d) d.onclick=()=>{ EDGES=EDGES.filter(x=>x.id!==e.id); clearTrust(); deselect(); };
 }
 function triggerSummary(match){                              // plain-language one-liner for the trigger inspector header (human words, not IR ids)
@@ -1537,9 +1610,9 @@ let LAST_PLAN=null;                                                          // 
 function applyPlan(r){                                                       // plan/refine 共通: canvas 描画 + ボタン露出 + gap 提示（Wave1-5 で共有）
   if(!r||!r.nodes||!r.nodes.length){ toast(t('gw_empty')); return; }
   LAST_PLAN=r; loadFlow(r);
-  $('#btnShenronBuild').style.display='inline-flex'; $('#btnShenronRefine').style.display='inline-flex';   // plan があれば 🔗 build と ✏️ refine 露出
-  const gaps=r.missing||[], sg=gaps.find(g=>g.suggestion);                       // Wave 2: surface first external suggestion
-  const gb=$('#btnShenronGaps'); gb.style.display=gaps.length?'inline-flex':'none'; if(gaps.length) gb.textContent='⚠️ '+gaps.length;   // Wave 4: reveal 未実装ノード生成
+  $('#miShenronRefine').disabled=false; $('#miShenronBuild').disabled=false;
+  const gaps=r.missing||[], sg=gaps.find(g=>g.suggestion);
+  const mgaps=$('#miShenronGaps'); mgaps.disabled=!gaps.length; if(gaps.length) mgaps.textContent='⚠️ '+gaps.length+' '+t('sh_gaps');
   const msg=`${t('sh_built')} (${r.source}, ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'')+')'+(sg?` · ${sg.suggestion.title} ${sg.suggestion.url}`:'');
   conn(msg); toast(msg);
   const ag=gaps.find(g=>g.kind==='agent');                                     // 旧 Ghost Writer の agentDraft を統合: agent gap は下書き agent をワンクリック追加で埋める
@@ -1654,8 +1727,8 @@ function openModal({title, fields=[], submitLabel='OK', onSubmit, info}){
   if(ok) ok.onclick=(e)=>{ e.preventDefault(); const v={}; dlg.querySelectorAll('[data-k]').forEach(el=>v[el.dataset.k]=el.value); dlg.close(); onSubmit(v); };
   const first=dlg.querySelector('[data-k]'); if(first) setTimeout(()=>first.focus(),30);
 }
-function toggleMenu(e){ e.stopPropagation(); $('#autoMenu').classList.toggle('open'); }
-function closeMenu(){ $('#autoMenu').classList.remove('open'); }
+function toggleMenu(e, id='autoMenu'){ e.stopPropagation(); const t=$('#'+id); document.querySelectorAll('.menu-pop.open').forEach(m=>{ if(m!==t) m.classList.remove('open'); }); t.classList.toggle('open'); }
+function closeMenu(){ document.querySelectorAll('.menu-pop.open').forEach(m=>m.classList.remove('open')); }
 document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu(); });
 
 /* Langflow-style keyboard shortcuts */
