@@ -16,8 +16,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { runVendor } from './runner.mjs';
 
 // ---------- config ----------
 const cfgArg = (() => { const i = process.argv.indexOf('--config'); return i > -1 ? process.argv[i + 1] : null; })();
@@ -88,20 +88,7 @@ function runReviewer(payload) {
     `List concrete bugs, risks, and concerns concisely. Do not rewrite the code.\n\n` +
     `--- DIFF ---\n${diff}\n--- END DIFF ---`;
 
-  if (REVIEWER === 'codex') {
-    // codex exec is non-interactive by default — there is NO --ask-for-approval flag in codex-cli 0.137.x
-    // (sandbox controls writes; our attended gate already ran above). final msg → stdout.
-    const r = spawnSync('codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', prompt],
-      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000 });
-    if (r.status === 0 && r.stdout) return r.stdout.trim();
-    return `[codex unavailable: ${r.error?.message || (r.stderr || '').trim() || 'exit ' + r.status}]\n` + stubReview(payload);
-  }
-  if (REVIEWER === 'claude') {
-    const r = spawnSync('claude', ['-p', prompt], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000 });
-    if (r.status === 0 && r.stdout) return r.stdout.trim();
-    return `[claude unavailable: ${r.error?.message || (r.stderr || '').trim() || 'exit ' + r.status}]\n` + stubReview(payload);
-  }
-  return stubReview(payload);
+  return runVendor(REVIEWER, prompt, stubReview(payload));   // shared spawn (codex|claude|stub) — runner.mjs
 }
 
 // Deterministic offline reviewer so the dogfood runs without any agent CLI.

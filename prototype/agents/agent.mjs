@@ -10,8 +10,8 @@
 
 import http from 'node:http';
 import fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { runVendor } from '../runner.mjs';
 
 const cfgPath = (() => { const i = process.argv.indexOf('--config'); return i > -1 ? process.argv[i + 1] : null; })();
 if (!cfgPath) { console.error('✗ --config <file> required'); process.exit(1); }
@@ -36,19 +36,7 @@ const card = () => ({
 
 function run(input) {
   const prompt = `${cfg.skill.systemPrompt}\n\n--- INPUT ---\n${input}\n--- END INPUT ---`;
-  const V = cfg.skill.vendor;
-  if (V === 'codex') {
-    const r = spawnSync('codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', prompt],
-      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000 });
-    if (r.status === 0 && r.stdout?.trim()) return r.stdout.trim();
-    return `[codex failed → stub] ${r.error?.message || (r.stderr || '').trim() || 'exit ' + r.status}\n` + stub(input);
-  }
-  if (V === 'claude') {
-    const r = spawnSync('claude', ['-p', prompt], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000 });
-    if (r.status === 0 && r.stdout?.trim()) return r.stdout.trim();
-    return `[claude failed → stub] ${r.error?.message || (r.stderr || '').trim() || 'exit ' + r.status}\n` + stub(input);
-  }
-  return stub(input);
+  return runVendor(cfg.skill.vendor, prompt, stub(input));   // shared spawn (codex|claude|stub) — runner.mjs
 }
 const stub = () => cfg.skill.stub || `[stub:${cfg.name}] (no vendor / offline)`;
 
