@@ -22,7 +22,7 @@ import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } fr
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
@@ -665,6 +665,14 @@ const server = http.createServer((req, res) => {
       if (p === '/api/shenron/build') {                                                // 神龍 Wave 3: plan IR → Langflow flow JSON (importLangflowFlow の逆)。cockpit が importLangflowFlow(flow) で描画。
         try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }   // §5 Wave3 fence: audit 記録（実 Langflow 登録は既存 /api/langflow/import = Wave 6）
         catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (p === '/api/shenron/skill') {                                                // 神龍 Wave 7: 保存済み flow → Claude Code SKILL.md（run_workflow を呼ぶ薄ラッパ）。local agent に flow を skill 化。
+        const wf = readWorkflows().find((w) => w.id === j.id); if (!wf) return json(res, 404, { error: `no workflow "${j.id}"` });
+        const { slug, content } = flowSkill(wf);                                        // slug は [a-z0-9-] のみ＝下の join で path 外に出られない
+        const dir = path.join(HERE, '..', '..', '.claude', 'skills', slug);            // repo-root .claude/skills = この project の skill
+        fs.mkdirSync(dir, { recursive: true }); const file = path.join(dir, 'SKILL.md'); fs.writeFileSync(file, content);
+        trail('flow-skill', { id: wf.id, slug });
+        return json(res, 200, { slug, path: path.relative(process.cwd(), file), content });
       }
       if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
       let m;

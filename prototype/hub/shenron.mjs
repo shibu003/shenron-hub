@@ -104,6 +104,35 @@ export function toLangflowFlow(ir) {
   return { name: ir.plain_summary || ir.goal || 'shenron-flow', data: { nodes, edges } };
 }
 
+// Wave 7 — flow を local agent の skill に: 保存済み workflow → Claude Code SKILL.md。中身は MCP `run_workflow` を
+// 呼ぶだけの薄いラッパ（実行は hub の DAG executor＝per-edge fence + audit 込み）。skill-aware な agent（Claude Code）が
+// 自然文で発火→flow 実行。MCP/HTTP しか喋らない agent は run_workflow / /api/runflow を直叩きすればよく、この md は不要。
+const KIND_LABEL = (n) => n.kind === 'mcp' ? `${n.server}.${n.tool}` : n.kind === 'agent' ? `agent:${n.agent}` : n.kind;
+const yamlSafe = (s) => String(s).replace(/\s+/g, ' ').replace(/:\s/g, ' - ').trim();   // frontmatter は YAML: 改行と "key: " 衝突を潰す
+export function flowSkill(wf) {
+  if (!wf || !wf.id) throw new Error('workflow {id} required');
+  const slug = (wf.name || wf.id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'flow';   // [a-z0-9-] のみ＝path traversal 不能
+  const title = wf.name || wf.id, desc = (wf.summary || title);
+  const chain = (wf.nodes || []).map(KIND_LABEL).join(' → ') || '(no nodes)';
+  const content = `---
+name: ${slug}
+description: ${yamlSafe(`${desc}. Use when the user wants to run "${title}" or asks to: ${desc}`)}
+---
+
+Runs the saved BuildHUD flow **${title}** end-to-end via the connected BuildHUD MCP server.
+
+When this skill fires, call the \`run_workflow\` MCP tool with:
+- \`id\`: "${wf.id}"
+- \`input\`: the user's request (free text for the flow to act on)
+- \`confirm\`: true
+
+Flow: ${chain}
+
+The hub runs the DAG (same executor as the cockpit ▶ Run), firewalls the input, and audits the call (hash-chain), then returns the flow's output. Prerequisite: the BuildHUD MCP server must be connected so \`run_workflow\` is available.
+`;
+  return { slug, content };
+}
+
 // Wave 5: 対話修正。現 plan の steps を見せ「指示の変更だけ当てて他 step は維持」させ steps[] を再生成（§5 Wave5 v1=再生成、差分適用は最終形）。
 const stepsText = (steps) => (steps || []).map((s) => `${s.n}. [${s.kind}] ${s.action}${s.tool ? ` (tool: ${s.tool})` : s.kind !== 'prompt' ? ' (tool: none — gap)' : ''}`).join('\n');
 const REFINE_PROMPT = (prev, instruction, inv) => `You are REVISING an existing automation plan. Apply ONLY the requested change and keep every OTHER step identical (same action/kind/tool).

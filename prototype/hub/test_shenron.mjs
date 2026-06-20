@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill } from './shenron.mjs';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -117,5 +117,18 @@ await assert.rejects(() => plan({ goal: '', run: async () => '{}' }), /goal requ
 const RUNNABLE = new Set(['input', 'output', 'prompt', 'mcp', 'agent', 'parser', 'languagemodel', 'structured', 'consensus', 'router', 'workflow']);
 for (const n of [...ir.nodes, ...refined.nodes]) assert.ok(RUNNABLE.has(n.kind), `plan node kind "${n.kind}" is natively runnable (fireNode handles it)`);
 assert.ok(ir.nodes.every((n) => n.kind !== 'mcp' || (n.server && n.tool)), 'mcp nodes carry server+tool → not NODE_UNSET → run button fires');
+
+// Wave 7 — flowSkill: 保存済み flow → SKILL.md（run_workflow ラッパ）。slug は path-safe、frontmatter は YAML-safe、
+// body は run_workflow を正しい id/confirm で呼ぶ。これが崩れると local agent が flow を呼べない or 別ディレクトリに書く。
+const sk = flowSkill({ id: 'wf_abc123', name: 'Weekly Commits → Slack: digest', summary: 'post a weekly commit digest', nodes: ir.nodes });
+assert.ok(/^[a-z0-9-]+$/.test(sk.slug), `slug is path-safe ([a-z0-9-] only): "${sk.slug}"`);   // path traversal 不能
+assert.ok(!sk.slug.includes('..') && !sk.slug.includes('/'), 'slug cannot escape the skills dir');
+const fm = sk.content.split('---')[1] || '';                                                     // frontmatter ブロック
+assert.ok(new RegExp(`name: ${sk.slug}\\n`).test(fm), 'frontmatter name = slug');
+assert.ok(/description: .+/.test(fm) && !/: \w/.test(fm.split('description:')[1].split('\n')[0].replace(/^ /, 'x')), 'description is one YAML-safe line');
+assert.ok(/`run_workflow`/.test(sk.content), 'body tells the agent to call run_workflow');
+assert.ok(/`id`: "wf_abc123"/.test(sk.content), 'body passes the real flow id');
+assert.ok(/`confirm`: true/.test(sk.content), 'body sets confirm:true (else dry-run only)');
+assert.throws(() => flowSkill({ name: 'no id' }), /id.*required/, 'guard: workflow id required');
 
 console.log('test_shenron OK');
