@@ -12,10 +12,11 @@
 // the worker runs an agentic loop — observe (snapshot) → the brain (--vendor) picks the next action → gate → act.
 // Each step is audited (redacted) to the hub; the joined output is posted back as the handoff result.
 //
-// Wave 11b: each step is classified against the persisted permission ruleset (GET /api/permissions). allow →
-// run silently. ask → screenshot the page, POST a checkpoint, and BLOCK until a human approves/declines in the
-// cockpit (the always-human outbound gate / ToS line). deny → throw. 「常に許可」 in the UI promotes a rule so
-// it stops asking. Read-only tools default allow, mutating/outbound default ask (see permissions.mjs).
+// Wave 11b: each step is classified against the persisted permission ruleset (GET /api/permissions) — a
+// 3-stage allow/ask/deny gate (NOT a hardcoded always-human rule). allow → run silently. ask → screenshot the
+// page, POST a checkpoint, BLOCK until a human approves/declines in the cockpit. deny → throw. 「常に許可」
+// promotes a tool to allow (stops asking). Read-only tools DEFAULT allow, mutating/outbound DEFAULT ask — both
+// are just defaults the user can change per the 3 stages (see permissions.mjs).
 
 import { openStdio } from '../mcp/mcp-client.mjs';
 import { redact } from '../trust.mjs';
@@ -60,7 +61,8 @@ const shotUri = (r) => { const img = (r?.content || []).find((c) => c.type === '
 async function runOne(client, ctx, step, i) {
   const { tool, args = {} } = step;
   if (!tool) throw new Error(`step ${i}: missing tool`);
-  if (args.ref && !args.target) args.target = args.ref;   // ponytail: LLMs strongly emit `ref` for the element; this Playwright-MCP wants `target`. Bridge it. (drop if a future PW unifies the name)
+  const ref = [args.target, args.ref, args.element].find((v) => /^e\d+$/.test(v || ''));   // LLMs confuse target/element/ref (and which holds the e-number); this PW-MCP wants the ref in `target` → route it there
+  if (ref) args.target = ref;
   await api('/api/audit', { type: 'browser-action', detail: { agent: AGENT, step: i, tool, args: redact(JSON.stringify(args), {}).text.slice(0, 500) } });   // redact → secrets/PII never hit the audit log; cap → a huge browser_type payload can't bloat the chain
   const eff = classify({ tool, args }, ctx.domain, ctx.rules);
   await api('/api/audit', { type: 'permission', detail: { agent: AGENT, step: i, tool, domain: ctx.domain, effect: eff } });
