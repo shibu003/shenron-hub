@@ -22,7 +22,7 @@ import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } fr
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
-import { plan as shenronPlan, toLangflowFlow } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
@@ -653,6 +653,12 @@ const server = http.createServer((req, res) => {
             const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
             json(res, 200, { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}) });
           })
+          .catch((e) => json(res, 400, { error: e.message }));
+        return;
+      }
+      if (p === '/api/shenron/gen-component') {                                         // 神龍 Wave 4: gap "what" → langflow Component を生成し使い捨てサンドボックスで収束検証（§1.5-E/H/I）。実行のみ・自動登録 v2。
+        genComponent({ what: j.what, vendor: EXEC_VENDOR || 'claude', maxIters: j.maxIters || 3 })
+          .then((r) => { trail('gen-component', { what: r.what, iters: r.iters, converged: r.converged }); json(res, 200, r); })   // §H 生成フェーズの収束を audit（本番投入は別途 human-gate）
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }

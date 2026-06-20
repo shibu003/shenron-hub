@@ -64,7 +64,7 @@
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
   #hint { position:absolute; top:16px; left:18px; color:var(--dim); font-size:12px; max-width:340px; }
-  #coach { position:absolute; left:18px; bottom:18px; width:min(430px, calc(100% - 36px)); z-index:4; }
+  #coach { border-top:1px solid var(--line); padding:10px 11px; }
   .coach-card,.helpbox { border:1px solid #2f3d4c; background:linear-gradient(135deg,#111a25,#0d1117 72%); border-radius:14px; box-shadow:0 16px 42px -28px #000; }
   .coach-card { padding:14px; }
   .coach-title { display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px; margin-bottom:8px; }
@@ -288,6 +288,7 @@
     </div>
     <button class="tb" id="btnShenron" onclick="shenronPlan()"></button>
     <button class="tb" id="btnShenronBuild" onclick="shenronBuild()" style="display:none"></button>
+    <button class="tb" id="btnShenronGaps" onclick="shenronGaps()" style="display:none"></button>
     <button class="tb" id="btnLfImport" onclick="pickLangflowFile()"></button>
     <button class="tb" id="btnLfPush" onclick="pushToLangflow()"></button>
     <button class="tb" id="btnSettings" onclick="openSettings()"></button>
@@ -306,10 +307,11 @@
       <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
       <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button><button id="btnAddNote" onclick="addNote()"></button></div>
     </div>
+    <section id="coach"></section>
   </aside>
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
-    <div id="hint"></div><section id="coach"></section><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
+    <div id="hint"></div><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
     <div id="zoomctl">
       <button onclick="zoomStep(-1)" title="zoom out">−</button>
       <button id="zoomPct" onclick="resetView()" title="reset to 100%">100%</button>
@@ -442,6 +444,7 @@ const I18N = {
   shenron:{ja:'🐉 神龍',en:'🐉 Shenron'}, sh_build:{ja:'🔗 Langflow 化',en:'🔗 To Langflow'},
   sh_title:{ja:'🐉 神龍 — 願いを flow に',en:'🐉 Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
   sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'🐉 計画',en:'🐉 Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（🔗 ゼロ＝透明な往復）',en:'built Langflow flow (🔗-free = transparent round-trip)'},
+  sh_gen_wait:{ja:'生成中…（使い捨てサンドボックスで収束検証）',en:'generating… (verifying convergence in a throwaway sandbox)'}, sh_gaps_result:{ja:'未実装ノード — 生成コード',en:'missing node — generated code'}, sh_gaps_ok:{ja:'収束',en:'converged'}, sh_gaps_fail:{ja:'未収束',en:'not converged'}, sh_gaps_info:{ja:'langflow Component を生成→使い捨てサンドボックスで実行し収束（実データ返却）を検証。レビューして手動で Langflow 登録（auto-install しない＝安全）。',en:'Generated a Langflow Component and ran it in a throwaway sandbox to verify convergence (real data). Review, then register in Langflow manually (no auto-install).'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_match:{ja:'{ } JSON を表示（上級者向け）',en:'{ } Show JSON (advanced)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ trigger を削除',en:'✕ Delete trigger'},
@@ -1537,6 +1540,7 @@ function shenronPlan(){
       if(!r.nodes||!r.nodes.length) return toast(t('gw_empty'));
       LAST_PLAN=r; loadFlow(r); $('#btnShenronBuild').style.display='inline-flex';   // reveal 🔗 build once a plan exists
       const gaps=r.missing||[], sg=gaps.find(g=>g.suggestion);                       // Wave 2: surface first external suggestion
+      const gb=$('#btnShenronGaps'); gb.style.display=gaps.length?'inline-flex':'none'; if(gaps.length) gb.textContent='⚠️ '+gaps.length;   // Wave 4: reveal 未実装ノード生成
       const msg=`${t('sh_built')} (${r.source}, ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'')+')'+(sg?` · ${sg.suggestion.title} ${sg.suggestion.url}`:'');
       conn(msg); toast(msg);
       const ag=gaps.find(g=>g.kind==='agent');                                     // 旧 Ghost Writer の agentDraft を統合: agent gap は下書き agent をワンクリック追加で埋める
@@ -1548,6 +1552,17 @@ async function shenronBuild(){                                              // p
   let r; try{ r=await api('/api/shenron/build',{plan:LAST_PLAN}); }catch(e){ return toast(e.message); }
   if(!r.flow) return toast(t('gw_empty'));
   importLangflowFlow(r.flow); conn(t('sh_built_lf'));                        // importLangflowFlow が node/edge 数を toast・LF_SOURCE もセット（pushToLangflow で実 Langflow 登録可）
+}
+async function shenronGaps(){                                               // Wave 4: gap → langflow Component 生成 + 使い捨てサンドボックスで収束検証 → コード表示（実行のみ・自動登録 v2）
+  const gaps=(LAST_PLAN&&LAST_PLAN.missing)||[]; if(!gaps.length) return;
+  const g=gaps[0];                                                          // ponytail: gap[0] のみ。N>1 の巡回は v2（多くの plan は不足 1 件）。
+  toast(t('sh_gen_wait'));                                                  // 生成=LLM＋サンドボックス収束ループで数十秒〜
+  let r; try{ r=await api('/api/shenron/gen-component',{what:g.what}); }catch(e){ return toast(e.message); }
+  const head=(r.converged?`# ✅ ${t('sh_gaps_ok')} (iter ${r.iters}) → ${r.output}`:`# ⚠️ ${t('sh_gaps_fail')} (iter ${r.iters}): ${(r.error||'').split('\n').pop()}`)
+    +`\n# gap: ${g.what}`+(gaps.length>1?`  (1/${gaps.length})`:'');
+  const body=head+'\n\n'+(r.code||'');
+  openModal({ title:t('sh_gaps_result'), info:t('sh_gaps_info'), submitLabel:t('m_copy'),
+    fields:[{key:'code',label:'',type:'readonly',value:body}], onSubmit:()=>copyText(body,t('t_snip_copied')) });
 }
 function loadFlow(flow){                         // materialize a generated/saved flow onto the canvas (fresh draft)
   TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft

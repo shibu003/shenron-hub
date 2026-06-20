@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent } from './shenron.mjs';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -72,5 +72,27 @@ flow.data.edges.forEach((e) => assert.ok(e.data.sourceHandle.output_types.length
 assert.equal(flow.data.nodes[0].data.type, 'ChatInput', 'input → ChatInput');
 assert.equal(flow.data.nodes.at(-1).data.type, 'ChatOutput', 'output → ChatOutput');
 assert.throws(() => toLangflowFlow(null), /nodes\[\]/, 'guard: nodes[] required');
+
+// Wave 4 — extractCode: fenced python → code; prefer python fence; raw fallback.
+assert.equal(extractCode('blah\n```python\nx=1\n```\nbye'), 'x=1', 'python fence');
+assert.equal(extractCode('```py\ny=2\n```'), 'y=2', 'py fence');
+assert.equal(extractCode('```\nz=3\n```'), 'z=3', 'any fence fallback');
+assert.equal(extractCode('no fence here'), 'no fence here', 'raw fallback');
+
+// Wave 4 — genComponent repair loop (inject fake run+sandbox; no LLM/python).
+const fakeRun = (calls) => async (_v, prompt) => { calls.push(prompt); return '```python\n# gen ' + calls.length + '\n```'; };
+// converge on iter1
+let c1 = []; let r1 = await genComponent({ what: 'x', run: fakeRun(c1), sandbox: () => ({ ok: true, output: 'real data' }) });
+assert.ok(r1.converged && r1.iters === 1 && r1.output === 'real data', 'iter1 converge');
+assert.equal(c1.length, 1, 'one LLM call when iter1 converges');
+// fail once → repair → converge iter2 (2nd prompt must be the REPAIR prompt carrying the error)
+let c2 = []; let n = 0; let r2 = await genComponent({ what: 'fetch stars', run: fakeRun(c2), sandbox: () => (++n === 1 ? { ok: false, error: 'Traceback: NameError boom' } : { ok: true, output: 'ok' }) });
+assert.ok(r2.converged && r2.iters === 2, 'converge on iter2 after repair');
+assert.ok(/FAILED|Traceback: NameError boom/.test(c2[1]), 'iter2 prompt is repair w/ traceback fed back');
+// never converges → converged:false after maxIters, code from last attempt retained
+let c3 = []; let r3 = await genComponent({ what: 'y', maxIters: 3, run: fakeRun(c3), sandbox: () => ({ ok: false, error: 'still broken' }) });
+assert.ok(!r3.converged && r3.iters === 3 && r3.error === 'still broken' && r3.code === '# gen 3', 'maxIters then give up, keep last code+error');
+assert.equal(c3.length, 3, 'maxIters LLM calls');
+await assert.rejects(() => genComponent({ what: '   ', run: fakeRun([]), sandbox: () => ({ ok: true }) }), /what required/, 'guard: empty what');
 
 console.log('test_shenron OK');
