@@ -106,20 +106,21 @@ ${snapshot}
 Output ONLY JSON for the NEXT single action that progresses the goal:
 {"tool":"browser_navigate|browser_click|browser_type|browser_press_key|browser_select_option|browser_wait_for","args":{...}}
 (browser_navigate args {url}; browser_click args {element,ref}; browser_type args {element,ref,text,submit?}; browser_press_key args {key})
-or {"done":true} when the goal is achieved or you cannot proceed. No prose.`;
+or {"done":true,"answer":"<for a report/read goal: the information you found, stated directly>"} when the goal is achieved (or you cannot proceed). No prose.`;
 async function runGoal(goal, rules, h) {
   const ctx = { h, rules, domain: null }, client = browser(), log = [];
+  let answer = '';
   for (let i = 0; i < MAX_STEPS; i++) {
     const snap = textOf(await client.call('browser_snapshot', {}, { timeoutMs: 60000 }));   // observe (read-only → classify allow, no gate)
     const d = domainOf({ content: [{ type: 'text', text: snap }] }); if (d) ctx.domain = d;
     const out = await runVendorAsync(VENDOR, AGENT_PROMPT(goal, snap), '{"done":true}');     // stub vendor → done (loop terminates)
     let act; try { act = JSON.parse(out.match(/\{[\s\S]*\}/)[0]); } catch { act = { done: true }; }
-    if (act.done || !act.tool) break;
+    if (act.done || !act.tool) { answer = act.answer || ''; break; }                         // capture the agent's final answer (report goals)
     const r = await runOne(client, ctx, { tool: act.tool, args: act.args || {} }, i);
     if (r === null) return null;                              // declined → abort
     log.push(`#${i} ${act.tool} → ${textOf(r)}`);
   }
-  return log.join('\n\n') || '(no actions taken)';
+  return [answer, log.length ? '— actions —\n' + log.join('\n') : ''].filter(Boolean).join('\n\n') || '(no actions taken)';
 }
 
 async function tick() {
