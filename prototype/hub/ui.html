@@ -366,7 +366,7 @@ const I18N = {
   conn_connecting:{ja:'接続中…',en:'connecting…'}, conn_live:{ja:'● 接続',en:'● live'}, conn_off:{ja:'○ hub オフライン',en:'○ hub offline'},
   palette:{ja:'パレット',en:'Palette'}, ph_search:{ja:'agent / skill を検索…',en:'search agents / skills…'},
   ph_newagent:{ja:'新しい agent id…',en:'new agent id…'}, add_agent:{ja:'＋ agent',en:'＋ agent'}, add_trigger:{ja:'⚡ ＋ trigger',en:'⚡ ＋ trigger'},
-  hint:{ja:'パレットの agent をキャンバスへ、<b>OUT→IN</b> で配線、<b>▶ 実行</b>。迷ったら「正解例を配置」。',en:'Add agents to the canvas, wire <b>OUT→IN</b>, then <b>▶ Run</b>. Use “Place example” if unsure.'},
+  hint:{ja:'右の <b>＋</b> で agent を追加 → <b>OUT→IN</b> で配線 → <b>▶ 実行</b>。迷ったら「正解例を配置」。',en:'Add an agent with <b>＋</b> on the right → wire <b>OUT→IN</b> → <b>▶ Run</b>. Use “Place example” if unsure.'},
   pal_tip:{ja:'左の一覧は部品置き場です。<b>＋</b>でキャンバスへ追加、配線はキャンバス上の丸から行います。',en:'This left panel is the parts shelf. Use <b>＋</b> to place a node; wiring happens on the canvas ports.'},
   coach_title:{ja:'最初はこの3手だけ',en:'Start with these 3 steps'},
   coach_1:{ja:'左のパレットから agent / trigger / action をキャンバスに置く。',en:'Place an agent / trigger / action from the left palette.'},
@@ -405,7 +405,7 @@ const I18N = {
   integrations:{ja:'連携（MCP servers）',en:'Integrations (MCP servers)'}, add_mcp:{ja:'＋ MCP server を追加',en:'＋ add MCP server'},
   it_label:{ja:'ラベル',en:'label'}, it_conn:{ja:'command または url',en:'command or url'}, it_tools:{ja:'tools（カンマ区切り）',en:'tools (comma-separated)'},
   mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（⚙設定で on）',en:'no enabled MCP server (turn on in ⚙ Settings)'},
-  mcp_generic:{ja:'MCP アクション',en:'MCP action'}, mcp_generic_sub:{ja:'空の外部アクション（tool は後で）',en:'blank external action (pick tool later)'},
+  mcp_generic:{ja:'外部ツール',en:'External tool'}, mcp_generic_sub:{ja:'空の外部アクション（tool は後で）',en:'blank external action (pick tool later)'},
   mcp_tool_sel:{ja:'tool（外部アクション）',en:'tool (external action)'}, mcp_tool_none:{ja:'— tool を選択 —',en:'— choose a tool —'}, mcp_pick_tool:{ja:'tool を選んでください',en:'choose a tool'}, mcp_no_tools:{ja:'enabled な MCP server がありません — ⚙ 設定で接続',en:'no enabled MCP server — connect one in ⚙ Settings'},
   mcp_server_sel:{ja:'server（接続先）',en:'server (connection)'}, mcp_server_none:{ja:'— server を選択 —',en:'— choose a server —'}, mcp_tools_word:{ja:'tools',en:'tools'}, mcp_loading:{ja:'読み込み中…',en:'loading…'},
   insp_mcp:{ja:'MCP tool node',en:'MCP tool node'}, f_server:{ja:'server',en:'server'}, f_tool:{ja:'tool',en:'tool'},
@@ -414,7 +414,7 @@ const I18N = {
   f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_name:{ja:'名前（任意）',en:'name (optional)'}, comp_name_ph:{ja:'この部品の呼び名…',en:'a name for this node…'}, comp_desc:{ja:'説明（任意）',en:'description (optional)'}, comp_desc_ph:{ja:'この部品が何をするか…',en:'what this node does…'}, comp_save:{ja:'✓ 適用',en:'✓ Apply'},
-  comp_generic:{ja:'Component',en:'Component'}, comp_generic_sub:{ja:'空のノードを置く（種類は後で）',en:'place a blank node (pick kind later)'},
+  comp_generic:{ja:'処理ブロック',en:'Processing block'}, comp_generic_sub:{ja:'空のノードを置く（種類は後で）',en:'place a blank node (pick kind later)'},
   comp_unset:{ja:'未設定',en:'unconfigured'}, comp_pick_kind:{ja:'種類を選んでください',en:'choose a kind'}, comp_kind:{ja:'種類',en:'kind'}, comp_kind_none:{ja:'— 種類を選択 —',en:'— choose a kind —'},
   t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
   sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
@@ -710,8 +710,7 @@ function renderPalette(){
       const repChip=(rp&&rp.r.auditedRuns)?`<span class="rep-chip ${rp.tone}" title="${esc(rp.counts)}">${rp.score!=null?rp.score+'%':rp.label}</span>`:'';   // Wave R: longitudinal trust at a glance
       return `<div class="palrow ${on?'on':''}" title="${on?t('on_canvas'):t('add_canvas')}">
         <div class="pm"><b>${esc(a.id)}</b><span>${esc(a.skill||'—')}${a.company?' · '+esc(a.company):''}${repChip}</span></div>
-        <span class="pb" data-padd="${esc(a.id)}" title="${on?t('on_canvas'):t('add_canvas')}">${on?'·':'＋'}</span>
-        <span class="pb" data-pmcp="${esc(a.id)}" title="${t('copy_mcp_t')}">⧉</span></div>`; }).join('')
+        <span class="pb" data-padd="${esc(a.id)}" title="${on?t('on_canvas'):t('add_canvas')}">${on?'·':'＋'}</span></div>`; }).join('')
     + TRIGGERS.map(tr=>`<div class="palrow trig"><div class="pm"><b>⚡ ${esc(tr.id)}</b><span>${esc(tr.type)} ${esc(matchStr(tr))}</span></div>
         <span class="pb" data-psel="${esc(tr.id)}" title="${t('select_t')}">→</span></div>`).join('')
     + `<div class="palrow"><div class="pm"><b>🔌 ${esc(t('mcp_generic'))}</b><span>${esc(t('mcp_generic_sub'))}</span></div>
@@ -720,7 +719,6 @@ function renderPalette(){
         <span class="pb" data-pcompadd="" title="${t('add_canvas')}">＋</span></div>`;
   $('#palList').innerHTML = rows || `<div class="empty" style="padding:10px 12px">${t('pal_empty')}</div>`;
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
-  $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>openMcpModal(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
   $('#palList').querySelectorAll('[data-pmcpgeneric]').forEach(el=>el.onclick=()=>addMcpNode());
   $('#palList').querySelectorAll('[data-pcompadd]').forEach(el=>el.onclick=()=>addComp(el.getAttribute('data-pcompadd')));
