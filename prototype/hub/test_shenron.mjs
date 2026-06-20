@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan } from './shenron.mjs';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -94,5 +94,21 @@ let c3 = []; let r3 = await genComponent({ what: 'y', maxIters: 3, run: fakeRun(
 assert.ok(!r3.converged && r3.iters === 3 && r3.error === 'still broken' && r3.code === '# gen 3', 'maxIters then give up, keep last code+error');
 assert.equal(c3.length, 3, 'maxIters LLM calls');
 await assert.rejects(() => genComponent({ what: '   ', run: fakeRun([]), sandbox: () => ({ ok: true }) }), /what required/, 'guard: empty what');
+
+// Wave 5 — refine: context={prev_plan,instruction} → 再生成。run 注入で LLM 不要。
+const prev = buildPlanIR('post commits to slack', { plain_summary: 'summarize commits, post to Slack',
+  steps: [{ action: 'summarize commits', kind: 'prompt', tool: null }, { action: 'post to Slack', kind: 'mcp', tool: 'mcp:slack.post_message' }] }, 'llm');
+const refineRun = async (_v, prompt) => { assert.ok(/REVISING|Requested change/.test(prompt), 'refine prompt used'); assert.ok(/post to Slack/.test(prompt), 'prev steps shown to LLM');
+  return JSON.stringify({ plain_summary: 'summarize commits, email it', steps: [{ action: 'summarize commits', kind: 'prompt', tool: null }, { action: 'send email', kind: 'mcp', tool: 'mcp:gmail.send' }] }); };
+const refined = await plan({ goal: 'post commits to slack', context: { prev_plan: prev, instruction: 'email instead of Slack' }, run: refineRun });
+assert.equal(refined.source, 'refine', 'source=refine');
+assert.ok(refined.nodes.find((n) => n.kind === 'mcp' && n.tool === 'send'), 'slack step → email mcp node (changed)');
+assert.ok(!refined.nodes.find((n) => n.tool === 'post_message'), 'old slack node gone');
+assert.ok(refined.nodes.find((n) => n.kind === 'prompt' && /summarize/.test(n.config.template)), 'untouched summarize step preserved');
+// refine の LLM 失敗 → 前 plan を維持（編集を捨てない）
+const kept = await plan({ goal: 'x', context: { prev_plan: prev, instruction: 'whatever' }, run: async () => 'no json here' });
+assert.equal(kept, prev, 'refine parse fail → prev_plan returned unchanged');
+// 初回(context 無し)は従来通り goal 必須
+await assert.rejects(() => plan({ goal: '', run: async () => '{}' }), /goal required/, 'initial plan still needs a goal');
 
 console.log('test_shenron OK');

@@ -106,16 +106,32 @@ export function toLangflowFlow(ir) {
   return { name: ir.plain_summary || ir.goal || 'shenron-flow', data: { nodes, edges } };
 }
 
-export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null }) {
+// Wave 5: 対話修正。現 plan の steps を見せ「指示の変更だけ当てて他 step は維持」させ steps[] を再生成（§5 Wave5 v1=再生成、差分適用は最終形）。
+const stepsText = (steps) => (steps || []).map((s) => `${s.n}. [${s.kind}] ${s.action}${s.tool ? ` (tool: ${s.tool})` : s.kind !== 'prompt' ? ' (tool: none — gap)' : ''}`).join('\n');
+const REFINE_PROMPT = (prev, instruction, inv) => `You are REVISING an existing automation plan. Apply ONLY the requested change and keep every OTHER step identical (same action/kind/tool).
+Current plan: "${prev.plain_summary || prev.goal || ''}"
+Steps:
+${stepsText(prev.steps)}
+Requested change: "${instruction}"
+Inventory — the ONLY tools/agents that exist (use these exact ids in step.tool, or null):
+${inv}
+Built-in step kind "prompt" (an LLM step) is always available and needs no tool. A GENERIC tool does NOT cover a SPECIFIC need; use null so the missing tool is surfaced.
+Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
+
+// context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
+export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, run = runVendorAsync }) {
   goal = String(goal || '').trim();
-  if (!goal) throw new Error('goal required');
-  const out = await runVendorAsync(vendor, PROMPT(goal, inventoryText({ agents, tools, workflows })), '');
+  const refine = !!(context && context.instruction && context.prev_plan);
+  if (!goal && !refine) throw new Error('goal required');
+  const inv = inventoryText({ agents, tools, workflows });
+  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv), '');
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal, parsed, 'llm');
-  } catch { /* fall through to heuristic */ }
-  if (!ir) ir = buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // LLM 不在/壊れ → 1 prompt step
+    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm');
+  } catch { /* fall through */ }
+  if (!ir) ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
+    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // 初回 LLM 不在/壊れ → 1 prompt step
   if (search && ir.missing.length) await discover(ir.missing, search);   // Wave 2: gap に外部ツール提案を mutate（caller が fence）
   return ir;
 }

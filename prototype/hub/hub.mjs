@@ -647,7 +647,7 @@ const server = http.createServer((req, res) => {
           trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
           return r;
         } : null;
-        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search })
+        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context: j.context })   // Wave 5: context={prev_plan,instruction} で対話修正
           .then((ir) => {
             const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
             const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
