@@ -8,8 +8,10 @@
 .a2a_token
 A2A_SHARED_TOKEN*
 
-# Local agent / session data
-.claude/
+# Local agent / session data — ignore .claude contents, but SHARE the team hook + directive
+.claude/*
+!.claude/settings.json
+!.claude/giogio-mcp-first.md
 
 # Dogfood (07) / prototype local artifacts
 handoff.log
