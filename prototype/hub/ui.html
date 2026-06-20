@@ -238,6 +238,8 @@
   .h.open .body { max-height:none; } .h .acts { display:flex; gap:6px; margin-top:7px; }
   button.act { font-size:12px; border-radius:6px; border:1px solid var(--line); padding:4px 11px; cursor:pointer; background:#0d1117; color:var(--txt); }
   button.ok { border-color:var(--green); color:var(--green); } button.no { border-color:var(--red); color:var(--red); }
+  .ckpt { margin-top:8px; } .ckpt-label { font-size:12px; color:var(--amber); margin-bottom:6px; word-break:break-all; }
+  .ckpt-img { max-width:100%; border:1px solid var(--line); border-radius:6px; display:block; }
   .empty { color:var(--dim); font-size:12px; padding:10px 2px; }
   .helpbox { padding:11px; margin:0 0 12px; color:#c9d7e5; font-size:12px; }
   .helpbox b { color:var(--txt); }
@@ -475,7 +477,7 @@ const I18N = {
   trig_set:{ja:'(クリックで match を設定)',en:'(click to set match)'},
   insp_flow:{ja:'Flow & 実行',en:'Flow & runs'}, s_online:{ja:'オンライン',en:'online'}, s_queued:{ja:'待機',en:'queued'}, s_await:{ja:'承認待ち',en:'awaiting'}, s_running:{ja:'実行中',en:'running'}, s_done:{ja:'完了',en:'done'}, s_failed:{ja:'失敗',en:'failed'},
   hf_empty_f:{ja:'このフィルタに handoff なし。',en:'No handoffs in this filter.'}, hf_empty:{ja:'handoff なし。flow を配線して ▶ 実行、または agent を選んで handoff を送る。',en:'No handoffs yet. Wire a flow and ▶ Run, or select an agent → Send a handoff.'},
-  approve:{ja:'承認',en:'approve'}, decline:{ja:'却下',en:'decline'},
+  approve:{ja:'承認',en:'approve'}, decline:{ja:'却下',en:'decline'}, always_allow:{ja:'常に許可',en:'always allow'},
   m_save_t:{ja:'workflow として保存',en:'Save as workflow'}, m_save_b:{ja:'保存',en:'Save'}, m_name:{ja:'Workflow 名',en:'Workflow name'},
   m_run_t:{ja:'flow を実行',en:'Run flow'}, m_run_b:{ja:'▶ 実行',en:'▶ Run'}, m_entry:{ja:'入口ノードへの入力',en:'Input for the entry node(s)'},
   m_auto_t:{ja:'automation として保存',en:'Save as automation'}, m_auto_name:{ja:'Automation 名',en:'Automation name'}, m_auto_in:{ja:'入口ノードへの既定入力',en:'Default input for the entry node(s)'},
@@ -1085,6 +1087,7 @@ function renderInspector(){
   ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
   ins.querySelectorAll('[data-ok]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-ok'),'approve');});
   ins.querySelectorAll('[data-no]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-no'),'decline');});
+  ins.querySelectorAll('[data-always]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/api/permissions',{tool:b.getAttribute('data-tool'),domain:b.getAttribute('data-domain')||undefined});await act(b.getAttribute('data-always'),'approve');});   // Wave 11b 「常に許可」: write the allow rule THEN approve this step (next run won't pause)
 }
 // Wave C — packaging: one-click Trust presets. A buyer picks a trust level for an agent instead of hand-setting
 // each field. Sends only caps (share is preserved by the hub's normalizePassport merge).
@@ -1218,7 +1221,8 @@ function inspDefault(){
       ${h.result?`<div class="body" style="color:var(--green)">${esc(h.result).slice(0,open?4000:160)}</div>`:''}
       ${h.error?`<div class="body" style="color:var(--red)">${esc(h.error)}</div>`:''}
       ${open&&h.input?`<div class="body">in: ${esc(h.input).slice(0,1500)}</div>`:''}
-      ${h.status==='awaiting_approval'?`<div class="acts"><button class="act ok" data-ok="${h.id}">${t('approve')}</button><button class="act no" data-no="${h.id}">${t('decline')}</button></div>`:''}
+      ${h.status==='awaiting_approval'&&h.checkpoint?`<div class="ckpt"><div class="ckpt-label">${esc(h.checkpoint.label||'')}</div>${h.checkpoint.screenshot?`<img class="ckpt-img" src="${esc(h.checkpoint.screenshot)}" alt="screenshot">`:''}</div>`:''}
+      ${h.status==='awaiting_approval'?`<div class="acts"><button class="act ok" data-ok="${h.id}">${t('approve')}</button><button class="act no" data-no="${h.id}">${t('decline')}</button>${h.checkpoint&&h.checkpoint.tool?`<button class="act" data-always="${h.id}" data-tool="${esc(h.checkpoint.tool)}" data-domain="${esc(h.checkpoint.domain||'')}">${t('always_allow')}</button>`:''}</div>`:''}
     </div>`; }).join('') || `<div class="empty">${filter?t('hf_empty_f'):t('hf_empty')}</div>`;
   return `<div class="ins-h">${t('insp_flow')}</div>
     <div class="helpbox"><b>${t('default_help')}</b><div style="margin-top:9px"><button class="linkbtn" onclick="placeExampleFlow()">${t('demo_btn')}</button> · <button class="linkbtn" onclick="placeSafeHandoff()">${t('safe_btn')}</button></div></div>
