@@ -21,6 +21,10 @@ const GAPS = [
   { key: 'github', name: 'GithubStars', task: "return the star count of the public GitHub repo 'langflow-ai/langflow'. Use the public REST API https://api.github.com/repos/langflow-ai/langflow (no auth; the JSON field is 'stargazers_count'). Hardcode that repo." },
   { key: 'weather', name: 'TokyoTemp', task: "return the current temperature in Tokyo. Use the free open-meteo API https://api.open-meteo.com/v1/forecast?latitude=35.68&longitude=139.69&current=temperature_2m (no key; read current.temperature_2m). Hardcode those coordinates." },
   { key: 'xkcd', name: 'LatestXkcd', task: "return the title of the latest xkcd comic. Use https://xkcd.com/info.0.json (no key; the JSON field is 'title')." },
+  // spike1b — harder gaps to make iter-1 fail naturally (XML parse / nested JSON / required key param) → exercise the repair loop
+  { key: 'rss', name: 'HnTop3', task: "return the titles of the latest 3 items from the Hacker News RSS feed at https://hnrss.org/frontpage — this is RSS/XML, parse it and take the first 3 <item><title> values, joined with ' | '." },
+  { key: 'iss', name: 'IssCrew', task: "return the names of the astronauts currently in space. Use http://api.open-notify.org/astros.json (JSON: 'people' is a list of objects each with a 'name'); join the names with ', '." },
+  { key: 'apod', name: 'NasaApod', task: "return today's NASA Astronomy Picture of the Day title. Use https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY (the api_key query param is required; use DEMO_KEY; read the 'title' field)." },
 ];
 
 const fence = (s) => { const m = s.match(/```(?:python|py)?\s*([\s\S]*?)```/i); return (m ? m[1] : s).trim(); };
@@ -67,7 +71,7 @@ async function converge(g) {
 }
 
 const only = process.argv[2];
-const gaps = only ? GAPS.filter((g) => g.key === only) : GAPS;
+const gaps = only ? GAPS.filter((g) => only.split(',').includes(g.key)) : GAPS;
 console.log(`=== spike1: generate→run→repair (≤${MAX_ITERS} iters), ${gaps.length} gap(s), API hint ${API_HINT.length} chars ===`);
 const results = [];
 for (const g of gaps) results.push(await converge(g));
