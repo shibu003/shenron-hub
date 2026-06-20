@@ -36,14 +36,14 @@
   .vn-spacer { flex:1; }
   #view-runs, #view-settings { flex:1; overflow:auto; padding:16px; max-width:720px; }
   #view-runs h2, #view-settings h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:0 0 12px; }
-  #app { position:relative; display:grid; grid-template-columns:1fr var(--sidew,280px); flex:1; height:100%; min-width:0; }
+  #app { position:relative; display:grid; grid-template-columns:var(--palw,220px) 1fr; flex:1; height:100%; min-width:0; }
+  #app.ins-open { grid-template-columns:var(--palw,220px) 1fr var(--inspw,280px); }
   .resizer { position:absolute; top:0; height:100%; width:8px; z-index:18; cursor:col-resize; }
   .resizer::after { content:''; position:absolute; top:0; left:3px; width:2px; height:100%; background:var(--line); transition:background .12s; }
   .resizer:hover::after, .resizer.drag::after { background:var(--blue); }
-  #sideResizer { right:var(--sidew,280px); transform:translateX(4px); }
-  #sidebar { border-left:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
-  #sidebar-pal { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
-  #sidebar-ins { flex:1; overflow:auto; padding:13px; }
+  #palResizer { left:var(--palw,220px); transform:translateX(-4px); }
+  #sidebar-pal { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  #sidebar-ins { border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:13px; }
   .pal-head { padding:11px 13px 7px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   #palSearch { margin:0 11px 8px; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 9px; font:inherit; }
   .pal-tip { margin:0 11px 9px; padding:8px 9px; border:1px solid #2a3440; border-radius:8px; background:#0f1620; color:#b8c7d8; font-size:11px; }
@@ -319,6 +319,15 @@
   <button class="vn" id="langVn" onclick="toggleLang()"></button>
 </nav>
 <div id="app">
+  <aside id="sidebar-pal">
+    <input id="palSearch" oninput="renderPalette()">
+    <div id="palList"></div>
+    <div class="pal-add">
+      <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
+      <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button></div>
+    </div>
+  </aside>
+  <div class="resizer" id="palResizer" title="drag to resize · drag to edge to hide"></div>
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
     <div id="hint"></div><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
@@ -329,20 +338,7 @@
       <button onclick="fitView()" title="fit to flow">⤢</button>
     </div>
   </main>
-  <aside id="sidebar">
-    <div id="sidebar-pal">
-      <div class="pal-head" id="palHead"></div>
-      <input id="palSearch" oninput="renderPalette()">
-      <div class="pal-tip" id="palTip"></div>
-      <div id="palList"></div>
-      <div class="pal-add">
-        <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
-        <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button></div>
-      </div>
-    </div>
-    <div id="sidebar-ins" hidden></div>
-  </aside>
-  <div class="resizer" id="sideResizer" title="drag to resize · drag to edge to hide"></div>
+  <aside id="sidebar-ins" hidden></aside>
 </div>
 <div id="view-runs" hidden></div>
 <div id="view-settings" hidden></div>
@@ -536,9 +532,9 @@ function initResizer(id, varName, grow){            // grow:+1 → width follows
     document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); });
 }
 function restorePanels(){
-  const sw=localStorage.getItem('bh--sidew');
-  if(sw!=null) $('#app').style.setProperty('--sidew', (+sw)+'px');
-  initResizer('sideResizer','--sidew',-1);
+  const pw=localStorage.getItem('bh--palw');
+  if(pw!=null) $('#app').style.setProperty('--palw', (+pw)+'px');
+  initResizer('palResizer','--palw',+1);
 }
 let VIEW='builder';
 function viewSwitch(v){
@@ -615,8 +611,7 @@ function applyChrome(){   // static (non-state) chrome strings
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnShenron').textContent=t('shenron')+' ▾'; $('#miShenronPlan').textContent=t('sh_btn'); $('#miShenronRefine').textContent=t('sh_refine'); $('#miShenronBuild').textContent=t('sh_build');
   $('#miShenronGaps').textContent=t('sh_gaps'); $('#miTrust').textContent=t('check_trust'); $('#miCollapse').textContent=t('collapse').replace('{n}',selSet.size);
-  $('#langVn').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
-  $('#palTip').innerHTML=t('pal_tip');
+  $('#langVn').textContent=t('lang_btn'); $('#palSearch').placeholder=t('ph_search');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent');
   $('#hint').innerHTML=t('hint');
 }
@@ -980,8 +975,8 @@ function attachNode(n, id){
     nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
   });
 }
-function showSideIns(){ const p=$('#sidebar-pal'),i=$('#sidebar-ins'); if(p)p.hidden=true; if(i)i.hidden=false; }
-function showSidePal(){ const p=$('#sidebar-pal'),i=$('#sidebar-ins'); if(i)i.hidden=true; if(p)p.hidden=false; }
+function showSideIns(){ $('#sidebar-ins').hidden=false; $('#app').classList.add('ins-open'); }
+function showSidePal(){ $('#app').classList.remove('ins-open'); $('#sidebar-ins').hidden=true; }
 function selectNode(id){ selected=id; selEdge=null; selSet.clear(); showSideIns(); render(); }
 function selectEdge(id){ selEdge=id; selected=null; selSet.clear(); showSideIns(); render(); }
 function deselect(){ if(selected||selEdge||selSet.size){ selected=null; selEdge=null; selSet.clear(); showSidePal(); render(); } }
