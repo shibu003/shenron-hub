@@ -130,6 +130,8 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'build_state', description: 'Summary of the BuildHUD state (counts, ids, attended/unattended). Summary only — not a full dump.',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'plan_flow', description: '神龍: turn a natural-language goal into a flow — ordered steps, which existing tools/agents cover each, and which are MISSING (gaps to build). Saves it to the workflow store so it is viewable in the web cockpit (🗂 Flows); pass save:false to design without saving. Designs, does not run — act on it with run_workflow.',
+    inputSchema: { type: 'object', properties: { goal: { type: 'string' }, save: { type: 'boolean' } }, required: ['goal'] } },
   { name: 'run_handoff', description: 'ACT: send one handoff to an agent skill (A2A). confirm:true to execute; otherwise returns a dry-run plan (attended).',
     inputSchema: { type: 'object', properties: { toAgentId: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['toAgentId', 'skill', 'input'] } },
   { name: 'run_workflow', description: 'ACT: run a workflow end-to-end (chained A2A handoffs). confirm:true to execute; otherwise returns a dry-run plan (attended).',
@@ -168,6 +170,8 @@ async function callTool(name, args = {}) {
     case 'get_integration': { const it = INTEGRATIONS.find((x) => x.id === args.id); if (!it) throw new Error(`no integration "${args.id}"`); return it; }
     case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,
       agentIds: Object.keys(AGENTS), workflowIds: WORKFLOWS.map((w) => w.id), automationIds: AUTOMATIONS.map((m) => m.id) };
+    case 'plan_flow':                                            // 神龍 over MCP → hub plans (inventory+validate+layout) and SAVES it (save:false to skip) → viewable in the web cockpit 🗂
+      return await hub('/api/shenron/plan', { goal: args.goal, save: args.save !== false });
     case 'run_handoff': {
       const a = AGENTS[args.toAgentId]; if (!a) throw new Error(`no agent "${args.toAgentId}"`);
       if (!shouldExec(args.confirm)) return { dryRun: true, plan: `would send skill "${args.skill}" to ${a.company} (${a.url}) — call again with confirm:true to execute` };

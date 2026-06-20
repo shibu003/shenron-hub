@@ -702,7 +702,11 @@ const server = http.createServer((req, res) => {
         const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name })));
         const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name }));
         shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude' })
-          .then((ir) => { const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges); json(res, 200, { ...ir, edges: v.edges, warnings: v.warnings }); })
+          .then((ir) => {
+            const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
+            const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
+            json(res, 200, { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}) });
+          })
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }
