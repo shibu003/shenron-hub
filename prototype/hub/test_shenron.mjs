@@ -111,4 +111,11 @@ assert.equal(kept, prev, 'refine parse fail → prev_plan returned unchanged');
 // 初回(context 無し)は従来通り goal 必須
 await assert.rejects(() => plan({ goal: '', run: async () => '{}' }), /goal required/, 'initial plan still needs a goal');
 
+// Wave 6 — 実行: a shenron flow is run AS-IS by the hub DAG executor (cockpit ▶ 実行 and MCP run_workflow's isDag
+// branch both POST /api/runflow). No per-Wave execution code — the invariant that makes that free is: every node
+// kind the planner emits is one hub.mjs fireNode() handles. This pins it; emit a kind fireNode can't run and it fails.
+const RUNNABLE = new Set(['input', 'output', 'prompt', 'mcp', 'agent', 'parser', 'languagemodel', 'structured', 'consensus', 'router', 'workflow']);
+for (const n of [...ir.nodes, ...refined.nodes]) assert.ok(RUNNABLE.has(n.kind), `plan node kind "${n.kind}" is natively runnable (fireNode handles it)`);
+assert.ok(ir.nodes.every((n) => n.kind !== 'mcp' || (n.server && n.tool)), 'mcp nodes carry server+tool → not NODE_UNSET → run button fires');
+
 console.log('test_shenron OK');
