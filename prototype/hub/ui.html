@@ -318,6 +318,7 @@
   <button class="vn" data-view="runs" onclick="viewSwitch('runs')" title="Runs">📋</button>
   <button class="vn" data-view="settings" onclick="viewSwitch('settings')" title="Settings">⚙</button>
   <div class="vn-spacer"></div>
+  <button class="vn" data-view="tutorial" onclick="viewSwitch('tutorial')" title="使い方">?</button>
   <button class="vn" id="langVn" onclick="toggleLang()"></button>
 </nav>
 <div id="app">
@@ -341,7 +342,6 @@
         <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
         <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button><button id="btnAddNote" onclick="addNote()"></button></div>
       </div>
-      <section id="coach"></section>
     </div>
     <div id="sidebar-ins" hidden></div>
   </aside>
@@ -349,6 +349,7 @@
 </div>
 <div id="view-runs" hidden></div>
 <div id="view-settings" hidden></div>
+<div id="view-tutorial" hidden></div>
 </div>
 
 <dialog id="modal"></dialog>
@@ -548,9 +549,11 @@ function viewSwitch(v){
   $('#app').hidden = v!=='builder';
   $('#view-runs').hidden = v!=='runs';
   $('#view-settings').hidden = v!=='settings';
+  $('#view-tutorial').hidden = v!=='tutorial';
   document.querySelectorAll('.vn[data-view]').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
   if(v==='runs') renderRunsView();
   if(v==='settings') renderSettingsView();
+  if(v==='tutorial') renderCoach();
 }
 async function renderRunsView(){
   const el=$('#view-runs');
@@ -734,20 +737,20 @@ function renderPalette(){
   $('#palList').querySelectorAll('[data-pcompadd]').forEach(el=>el.onclick=()=>addComp(el.getAttribute('data-pcompadd')));
 }
 function renderCoach(){
-  const el=$('#coach'); if(!el)return;
-  const hasDraft = EDGES.length || TRIGGERS.length || MCP_NODES.length || COMPONENTS.length;
-  el.style.display = EDGES.length ? 'none' : 'block';
-  el.innerHTML = `<div class="coach-card">
+  const el=$('#view-tutorial'); if(!el)return;
+  el.innerHTML = `<div class="coach-card" style="max-width:480px">
     <div class="coach-title"><span>●</span>${t('coach_title')}</div>
     <div class="steps">
       <div class="step"><b>1</b><div>${t('coach_1')}</div></div>
       <div class="step"><b>2</b><div>${t('coach_2')}</div></div>
       <div class="step"><b>3</b><div>${t('coach_3')}</div></div>
     </div>
-    <div class="coach-actions"><button onclick="placeExampleFlow()">${t('demo_btn')}</button><button onclick="placeSafeHandoff()">${t('safe_btn')}</button></div>
-    <div class="mini" style="color:var(--dim);margin-top:4px">${t('safe_desc')}</div>
-    <div class="legend"><span><i></i>${t('legend_in')}</span><span><i></i>${t('legend_out')}</span></div>
-    ${hasDraft?`<div class="mini" style="color:var(--dim);margin-top:8px">${t('next_pick')}</div>`:''}
+    <div class="coach-actions" style="margin-top:14px">
+      <button onclick="placeExampleFlow();viewSwitch('builder')">${t('demo_btn')}</button>
+      <button onclick="placeSafeHandoff();viewSwitch('builder')">${t('safe_btn')}</button>
+    </div>
+    <div class="mini" style="color:var(--dim);margin-top:6px">${t('safe_desc')}</div>
+    <div class="legend" style="margin-top:10px"><span><i></i>${t('legend_in')}</span><span><i></i>${t('legend_out')}</span></div>
   </div>`;
 }
 function compatibleAgents(a,b){
