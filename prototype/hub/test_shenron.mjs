@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent } from './shenron.mjs';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -130,5 +130,23 @@ assert.ok(/`run_workflow`/.test(sk.content), 'body tells the agent to call run_w
 assert.ok(/`id`: "wf_abc123"/.test(sk.content), 'body passes the real flow id');
 assert.ok(/`confirm`: true/.test(sk.content), 'body sets confirm:true (else dry-run only)');
 assert.throws(() => flowSkill({ name: 'no id' }), /id.*required/, 'guard: workflow id required');
+
+// Wave 8 — 生成部品の登録庫: build→vet→remember→re-plan ループ。承認済み部品は再生成せず、同じ gap は plan で
+// 「missing」でなく「✓ built（vetted）」に格上げ。承認前の部品は再利用しない（§I 人ゲート）。これが崩れると毎回再生成する。
+assert.equal(componentKey('  Collect  GitHub   Commits '), 'collect github commits', 'key normalizes whitespace + case');
+const reg = [{ id: 'cmp-a', what: 'collect github commits', approved: false }, { id: 'cmp-b', what: 'Send Email', approved: true }];
+assert.equal(matchComponent(reg, 'collect GITHUB commits'), null, 'unapproved match is NOT reused (human-gate)');
+assert.equal(matchComponent(reg, ' send email ').id, 'cmp-b', 'approved match reused regardless of ws/case');
+assert.equal(matchComponent(reg, 'unknown'), null, 'no match → null');
+// buildPlanIR: vetted 部品が在る gap は missing から外れ、node に vetted ref が付く（再生成しない）
+const vetted = [{ id: 'cmp-collect-github-commits', what: 'collect github commits', approved: true }];
+const pir = buildPlanIR('g', { plain_summary: 'g', steps: [{ action: 'collect github commits', kind: 'mcp', tool: null }, { action: 'summarize', kind: 'prompt', tool: null }] }, 'llm', vetted);
+assert.ok(!pir.missing.find((m) => /github/i.test(m.what)), 'vetted gap is removed from missing[]');
+const vnode = pir.nodes.find((n) => n.vetted === 'cmp-collect-github-commits');
+assert.ok(vnode && !vnode.missing, 'vetted gap node carries vetted ref, NOT the missing flag');
+assert.ok(pir.tools_needed.find((t) => t.source === 'component' && t.have), 'tools_needed marks it have via component');
+// 承認前 component は格上げしない（gap のまま＝Wave 4 で生成対象）
+const pir2 = buildPlanIR('g', { plain_summary: 'g', steps: [{ action: 'collect github commits', kind: 'mcp', tool: null }] }, 'llm', [{ id: 'x', what: 'collect github commits', approved: false }]);
+assert.ok(pir2.missing.find((m) => /github/i.test(m.what)), 'unapproved component does NOT upgrade the gap (still missing)');
 
 console.log('test_shenron OK');

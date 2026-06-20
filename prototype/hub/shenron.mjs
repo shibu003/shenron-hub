@@ -11,13 +11,22 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 // LLM が step.tool に入れてよい id（または null）を列挙した inventory テキスト。
-function inventoryText({ agents = [], tools = [], workflows = [] }) {
+function inventoryText({ agents = [], tools = [], workflows = [], components = [] }) {
   const lines = [];
   for (const a of agents) lines.push(`agent:${a.id} — ${a.skill || 'task'}`);
   for (const t of tools) lines.push(`mcp:${t.id} — ${t.name}`);            // t = { id: "<integ>.<tool>", name }
   for (const w of workflows) lines.push(`workflow:${w.id} — ${w.name || w.id}`);
+  for (const c of components) lines.push(`component:${c.id} — ${c.what} (already built & vetted)`);   // Wave 8: 過去に生成→人承認した部品。同じ gap を再生成しない
   return lines.length ? lines.join('\n') : '(no tools/agents registered yet — everything specific is a gap)';
 }
+
+// Wave 8 — 生成部品の登録庫の照合（pure）。componentKey で what を正規化、matchComponent は approved 済みのみ拾う
+// （§I「無人パスで踏むのは vetted ノードのみ」＝無審査な LLM コードを cache 再利用しない trust 境界）。fs は hub 側。
+export const componentKey = (what) => String(what || '').toLowerCase().replace(/\s+/g, ' ').trim();   // ponytail: 文字正規化のみ。意味的 dedup は v2
+export const matchComponent = (components, what) => {
+  const k = componentKey(what);
+  return (components || []).find((c) => c.approved && componentKey(c.what) === k) || null;
+};
 
 const PROMPT = (goal, inv) => `You plan an automation flow. Goal: "${goal}".
 Inventory — the ONLY tools/agents that exist (use these exact ids in step.tool, or null):
@@ -27,14 +36,16 @@ Decompose the goal into ordered steps. For EACH step choose kind ("mcp" external
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
-export function buildPlanIR(goal, parsed, source = 'llm') {
-  const steps = (parsed.steps || []).map((s, i) => ({
-    n: i + 1, action: s.action || '', kind: ['mcp', 'agent', 'prompt'].includes(s.kind) ? s.kind : 'prompt',
-    tool: s.tool || null, have: !!s.tool || s.kind === 'prompt',
-  }));
+export function buildPlanIR(goal, parsed, source = 'llm', components = []) {
+  const steps = (parsed.steps || []).map((s, i) => {
+    const st = { n: i + 1, action: s.action || '', kind: ['mcp', 'agent', 'prompt'].includes(s.kind) ? s.kind : 'prompt',
+      tool: s.tool || null, have: !!s.tool || s.kind === 'prompt' };
+    if (!st.tool && (st.kind === 'mcp' || st.kind === 'agent')) { const c = matchComponent(components, st.action); if (c) st.vetted = c.id; }   // Wave 8: gap だが vetted 部品が在れば「作成済」に格上げ＝再生成しない
+    return st;
+  });
   const needsTool = (s) => s.kind === 'mcp' || s.kind === 'agent';
-  const missing = steps.filter((s) => needsTool(s) && !s.tool).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));
-  const tools_needed = steps.filter(needsTool).map((s) => ({ name: s.tool || s.action, kind: s.kind, have: !!s.tool, source: s.tool ? 'inventory' : 'gap' }));
+  const missing = steps.filter((s) => needsTool(s) && !s.tool && !s.vetted).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));   // vetted は missing から外す（もう埋まっている）
+  const tools_needed = steps.filter(needsTool).map((s) => ({ name: s.tool || (s.vetted ? `component:${s.vetted}` : s.action), kind: s.kind, have: !!s.tool || !!s.vetted, source: s.tool ? 'inventory' : s.vetted ? 'component' : 'gap' }));
 
   const nodes = [{ id: 'input-1', kind: 'input' }];
   for (const s of steps) {
@@ -42,7 +53,7 @@ export function buildPlanIR(goal, parsed, source = 'llm') {
     if (s.kind === 'mcp' && s.tool) { const r = s.tool.replace(/^mcp:/, ''); const d = r.indexOf('.'); nodes.push({ id, kind: 'mcp', server: r.slice(0, d), tool: r.slice(d + 1) }); }
     else if (s.kind === 'agent' && s.tool) nodes.push({ id, kind: 'agent', agent: s.tool.replace(/^agent:/, '') });
     else if (s.kind === 'prompt') nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` } });
-    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` }, missing: true });   // mcp/agent w/ no tool = gap → placeholder prompt, flagged for Wave 4
+    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` }, ...(s.vetted ? { vetted: s.vetted } : { missing: true }) });   // mcp/agent w/ no tool = gap → placeholder。vetted 部品が在れば ✓ built（Wave 8）、無ければ ⚠️ gap（Wave 4 で生成）
   }
   nodes.push({ id: 'output-1', kind: 'output' });
   const edges = [];
@@ -146,19 +157,19 @@ Built-in step kind "prompt" (an LLM step) is always available and needs no tool.
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
-export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, run = runVendorAsync }) {
+export async function plan({ goal, agents = [], tools = [], workflows = [], components = [], vendor = 'claude', search = null, context = null, run = runVendorAsync }) {
   goal = String(goal || '').trim();
   const refine = !!(context && context.instruction && context.prev_plan);
   if (!goal && !refine) throw new Error('goal required');
-  const inv = inventoryText({ agents, tools, workflows });
+  const inv = inventoryText({ agents, tools, workflows, components });
   const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv), '');
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm');
+    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', components);
   } catch { /* fall through */ }
   if (!ir) ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
-    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // 初回 LLM 不在/壊れ → 1 prompt step
+    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic', components);   // 初回 LLM 不在/壊れ → 1 prompt step
   if (search && ir.missing.length) await discover(ir.missing, search);   // Wave 2: gap に外部ツール提案を mutate（caller が fence）
   return ir;
 }

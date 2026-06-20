@@ -22,7 +22,7 @@ import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } fr
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
@@ -167,6 +167,20 @@ function sweep() {
 // (run by B1 for local agents), and when it completes, downstream nodes whose inputs are all ready fire next
 // — so per-agent approval pauses the run cleanly until approved, and the cockpit animates it via handoff edges.
 const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, 'utf8')); } catch { return []; } };
+// Wave 8 — 生成部品の登録庫（§H: 生成→収束→人が一度承認→cache・再利用）。workflows.json と同じ shared store パターン。
+const COMP_FILE = path.join(HERE, '..', 'mcp', 'components.json');
+const readComponents = () => { try { return JSON.parse(fs.readFileSync(COMP_FILE, 'utf8')); } catch { return []; } };
+const writeComponents = (arr) => fs.writeFileSync(COMP_FILE, JSON.stringify(arr, null, 2));
+function saveComponent({ what, code, output, iters }) {                 // 収束した部品を pending(approved:false) で登録。人が承認するまで再利用しない（§I）
+  const arr = readComponents();
+  const slug = componentKey(what).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32);
+  const id = 'cmp-' + (slug || randomUUID().slice(0, 6));
+  const i = arr.findIndex((c) => c.id === id);
+  const comp = { id, what, code, output: output || '', iters: iters || 0, approved: i >= 0 ? arr[i].approved : false, createdAt: i >= 0 ? arr[i].createdAt : now() };   // 再生成は上書き・承認状態は維持
+  if (i >= 0) arr[i] = comp; else arr.push(comp);
+  writeComponents(arr); return comp;
+}
+function approveComponent(id) { const arr = readComponents(); const c = arr.find((x) => x.id === id); if (!c) throw new Error(`no component "${id}"`); c.approved = true; writeComponents(arr); return c; }   // 人ゲート: これ以降この部品は再利用される
 const nodeById = (run, id) => run.nodes.find((n) => n.id === id);
 function toposort(nodes, edges) {                          // Kahn's; returns best-effort order (cycle → partial)
   const indeg = new Map(nodes.map((n) => [n.id, 0]));
@@ -600,6 +614,11 @@ const server = http.createServer((req, res) => {
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
     return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
   }
+  if (req.method === 'GET' && p === '/api/shenron/components') {                           // Wave 8: 生成部品の登録庫。?id= で full code、無しは token-light refs（pending は人ゲート待ち）
+    const cid = u.searchParams.get('id');
+    if (cid) { const c = readComponents().find((c) => c.id === cid); return c ? json(res, 200, c) : json(res, 404, { error: `no component "${cid}"` }); }
+    return json(res, 200, readComponents().map((c) => ({ id: c.id, what: c.what, iters: c.iters, approved: c.approved, createdAt: c.createdAt })));
+  }
   if (req.method === 'GET' && p === '/api/automations')
     return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false })));
   if (req.method === 'GET' && p === '/api/integrations')         // connected MCP servers (Wave F.2)
@@ -647,7 +666,8 @@ const server = http.createServer((req, res) => {
           trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
           return r;
         } : null;
-        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context: j.context })   // Wave 5: context={prev_plan,instruction} で対話修正
+        const components = readComponents().filter((c) => c.approved).map((c) => ({ id: c.id, what: c.what }));   // Wave 8: 承認済み生成部品を inventory に＝同じ gap を再生成せず「✓ built」に格上げ
+        shenronPlan({ goal: j.goal, agents, tools, workflows, components, vendor: EXEC_VENDOR || 'claude', search, context: j.context })   // Wave 5: context={prev_plan,instruction} で対話修正
           .then((ir) => {
             const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
             const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
@@ -656,12 +676,19 @@ const server = http.createServer((req, res) => {
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }
-      if (p === '/api/shenron/gen-component') {                                         // 神龍 Wave 4: gap "what" → langflow Component を生成し使い捨てサンドボックスで収束検証（§1.5-E/H/I）。実行のみ・自動登録 v2。
+      if (p === '/api/shenron/gen-component') {                                         // 神龍 Wave 4+8: gap "what" → 生成→使い捨てサンドボックス収束検証→登録庫。承認済みは再生成せず即返す（§H/§I）。
+        const cached = matchComponent(readComponents(), j.what);                        // Wave 8: vetted 済みなら LLM+サンドボックスを skip（cache hit）
+        if (cached) { trail('gen-component', { what: cached.what, cached: true, id: cached.id }); return json(res, 200, { what: cached.what, code: cached.code, iters: 0, converged: true, output: cached.output, id: cached.id, approved: true, cached: true }); }
         genComponent({ what: j.what, vendor: EXEC_VENDOR || 'claude', maxIters: j.maxIters || 3 })
-          .then((r) => { trail('gen-component', { what: r.what, iters: r.iters, converged: r.converged }); json(res, 200, r); })   // §H 生成フェーズの収束を audit（本番投入は別途 human-gate）
+          .then((r) => {
+            const saved = r.converged ? saveComponent(r) : null;                       // 収束→pending(approved:false) で登録。承認後に再利用される（§H 人ゲート）
+            trail('gen-component', { what: r.what, iters: r.iters, converged: r.converged, registered: saved ? saved.id : null });
+            json(res, 200, saved ? { ...r, id: saved.id, approved: false } : r);
+          })
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }
+      if (p === '/api/shenron/components/approve') return json(res, 200, approveComponent(j.id));   // Wave 8 人ゲート: 部品を vetted 化 → 以降の plan/gen で再利用
       if (p === '/api/shenron/build') {                                                // 神龍 Wave 3: plan IR → Langflow flow JSON (importLangflowFlow の逆)。cockpit が importLangflowFlow(flow) で描画。
         try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }   // §5 Wave3 fence: audit 記録（実 Langflow 登録は既存 /api/langflow/import = Wave 6）
         catch (e) { return json(res, 400, { error: e.message }); }
