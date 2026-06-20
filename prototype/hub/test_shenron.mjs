@@ -3,6 +3,10 @@
 import assert from 'node:assert';
 import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
+import { openStdio } from '../mcp/mcp-client.mjs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -212,6 +216,32 @@ for line in sys.stdin:
   const noCredR = await verifyMcpServer(wsnoop, { timeout: 8000, creds: [] });
   assert.ok(noCredR.ok && !/W=sunny/.test(noCredR.output), 'empty allowlist → WEATHER_API_KEY stripped (Wave 9 default)');
   delete process.env.WEATHER_API_KEY; delete process.env.FAKE_API_KEY;
-} else console.warn('  (skipped verifyMcpServer spawn test: no python3 on PATH)');
+
+  // Wave 11a — openStdio: a PERSISTENT client keeps ONE child across calls, so server-side session state survives
+  // step→step (a one-shot callStdio would spawn fresh and reset it). A stateful counter that increments per
+  // tools/call proves the session persists — exactly what the browser-control worker needs for multi-step browsing.
+  const counter = `import sys, json
+n = 0
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    m = json.loads(line); mid = m.get("id"); meth = m.get("method")
+    if meth == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"c","version":"0"}}}), flush=True)
+    elif meth == "notifications/initialized": pass
+    elif meth == "tools/call":
+        n += 1
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text":str(n)}]}}), flush=True)
+`;
+  const dir = mkdtempSync(path.join(tmpdir(), 'shenron-pw-'));
+  try {
+    writeFileSync(path.join(dir, 'counter.py'), counter);
+    const c = openStdio('python3 ' + path.join(dir, 'counter.py'), { timeoutMs: 8000 });
+    const r1 = await c.call('tick', {}); const r2 = await c.call('tick', {});   // two calls, SAME child
+    c.close();
+    assert.equal(r1.content[0].text, '1', 'openStdio call 1 → counter 1');
+    assert.equal(r2.content[0].text, '2', 'openStdio call 2 → counter 2 (session persisted across calls in one child)');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+} else console.warn('  (skipped verifyMcpServer/openStdio spawn tests: no python3 on PATH)');
 
 console.log('test_shenron OK');

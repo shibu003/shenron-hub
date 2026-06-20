@@ -37,48 +37,51 @@ function resultText(result) {
 // split a command string into argv (space-delimited; configured commands need no quoted-arg grammar)
 const argv = (cmd) => cmd.trim().split(/\s+/);
 
-function callStdio(command, tool, args, { timeoutMs = 30000, cwd, env } = {}) {
-  return new Promise((resolve, reject) => {
-    const parts = argv(command);
-    if (!parts.length) return reject(new Error('empty command'));
-    let child;
-    // env only when given → trusted servers keep inheriting process.env unchanged; generated servers get safeEnv().
-    try { child = spawn(parts[0], parts.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], cwd, ...(env ? { env } : {}) }); }
-    catch (e) { return reject(new Error(`spawn "${command}": ${e.message}`)); }
-    let buf = '', errBuf = '', settled = false, nextId = 1;
-    const pending = new Map();
-    const timer = setTimeout(() => finish(new Error(`MCP "${command}" timed out after ${timeoutMs}ms`)), timeoutMs);
-    function finish(err, val) {
-      if (settled) return; settled = true; clearTimeout(timer);
-      try { child.kill(); } catch {}
-      err ? reject(err instanceof Error ? err : new Error(String(err))) : resolve(val);
+// PERSISTENT stdio client (Wave 11): spawn ONCE, handshake ONCE, then issue many tools/call on the SAME child so
+// server-side session state (e.g. a Playwright browser tab) survives step→step. The one-shot callStdio below can't —
+// it kills the child after a single call. Returns raw tool results; call close() when done. The browser-control
+// worker holds one of these for its lifetime (a stateful computer-use session — the concierge "手").
+export function openStdio(command, { cwd, env, timeoutMs = 30000 } = {}) {
+  const parts = argv(command);
+  if (!parts.length) throw new Error('empty command');
+  // env only when given → trusted servers keep inheriting process.env unchanged; generated/untrusted get safeEnv().
+  const child = spawn(parts[0], parts.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], cwd, ...(env ? { env } : {}) });
+  let buf = '', errBuf = '', nextId = 1, dead = null;
+  const pending = new Map();
+  const fail = (e) => { dead = e instanceof Error ? e : new Error(String(e)); for (const cb of pending.values()) cb({ error: { message: dead.message } }); pending.clear(); };
+  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');   // string frames split on UTF-8 char boundaries (no multibyte corruption across chunks)
+  child.on('error', (e) => fail(new Error(`MCP "${command}": ${e.message}`)));
+  child.stderr.on('data', (d) => { errBuf += d; });
+  child.on('close', (code) => fail(new Error(`MCP "${command}" exited (${code}) ${errBuf.trim().slice(0, 200)}`)));
+  child.stdout.on('data', (d) => {                            // newline-delimited JSON-RPC frames
+    buf += d; let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      let m; try { m = JSON.parse(line); } catch { continue; }
+      if (m.id != null && pending.has(m.id)) { const cb = pending.get(m.id); pending.delete(m.id); cb(m); }
     }
-    function rpc(method, params) {
-      return new Promise((res, rej) => {
-        const id = nextId++;
-        pending.set(id, (m) => (m.error ? rej(new Error(m.error.message || JSON.stringify(m.error))) : res(m.result)));
-        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) }) + '\n');
-      });
-    }
-    const notify = (method) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method }) + '\n');
-    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');   // string frames split on UTF-8 char boundaries (no multibyte corruption across chunks)
-    child.on('error', (e) => finish(new Error(`MCP "${command}": ${e.message}`)));
-    child.stderr.on('data', (d) => { errBuf += d; });
-    child.on('close', (code) => { if (!settled) finish(new Error(`MCP "${command}" exited (${code}) ${errBuf.trim().slice(0, 200)}`)); });
-    child.stdout.on('data', (d) => {                          // newline-delimited JSON-RPC frames
-      buf += d; let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!line) continue;
-        let m; try { m = JSON.parse(line); } catch { continue; }
-        if (m.id != null && pending.has(m.id)) { const cb = pending.get(m.id); pending.delete(m.id); cb(m); }
-      }
-    });
-    rpc('initialize', { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: CLIENT_INFO })
-      .then(() => { notify('notifications/initialized'); return rpc('tools/call', { name: tool, arguments: args }); })
-      .then((result) => finish(null, resultText(result)))
-      .catch((e) => finish(e));
   });
+  const rpc = (method, params, ms) => new Promise((res, rej) => {
+    if (dead) return rej(dead);
+    const id = nextId++;
+    const timer = setTimeout(() => { pending.delete(id); rej(new Error(`MCP "${command}" ${method} timed out after ${ms}ms`)); }, ms);
+    pending.set(id, (m) => { clearTimeout(timer); m.error ? rej(new Error(m.error.message || JSON.stringify(m.error))) : res(m.result); });
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) }) + '\n');
+  });
+  const ready = rpc('initialize', { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: CLIENT_INFO }, timeoutMs)
+    .then(() => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n'));
+  ready.catch(() => {});   // mark handled: an open()→close() with no call() must not surface an unhandled rejection. call() still sees the failure via its own `await ready`.
+  return {
+    async call(tool, args = {}, opts = {}) { await ready; return rpc('tools/call', { name: tool, arguments: args }, opts.timeoutMs || timeoutMs); },   // raw result; caller decides text vs image
+    close() { try { child.kill(); } catch {} },
+  };
+}
+
+// one-shot: open → one call → close. resultText throws on isError / strips to text (unchanged contract).
+function callStdio(command, tool, args, { timeoutMs = 30000, cwd, env } = {}) {
+  const c = openStdio(command, { cwd, env, timeoutMs });
+  return c.call(tool, args, { timeoutMs }).then(resultText).finally(() => c.close());
 }
 
 async function callHttp(url, tool, args, { timeoutMs = 30000 } = {}) {

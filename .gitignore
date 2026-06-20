@@ -27,3 +27,6 @@ npm-debug.log*
 
 # OS
 .DS_Store
+
+# Playwright MCP run artifacts (snapshots/screenshots from browser-worker e2e)
+.playwright-mcp/
