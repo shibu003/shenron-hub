@@ -74,6 +74,7 @@ export function openStdio(command, { cwd, env, timeoutMs = 30000 } = {}) {
   ready.catch(() => {});   // mark handled: an open()→close() with no call() must not surface an unhandled rejection. call() still sees the failure via its own `await ready`.
   return {
     async call(tool, args = {}, opts = {}) { await ready; return rpc('tools/call', { name: tool, arguments: args }, opts.timeoutMs || timeoutMs); },   // raw result; caller decides text vs image
+    async listTools(opts = {}) { await ready; return (await rpc('tools/list', {}, opts.timeoutMs || timeoutMs)).tools || []; },   // live tool schemas (name + inputSchema) — drive an agent off the REAL server, version-robust
     close() { try { child.kill(); } catch {} },
   };
 }

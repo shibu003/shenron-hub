@@ -60,6 +60,7 @@ const shotUri = (r) => { const img = (r?.content || []).find((c) => c.type === '
 async function runOne(client, ctx, step, i) {
   const { tool, args = {} } = step;
   if (!tool) throw new Error(`step ${i}: missing tool`);
+  if (args.ref && !args.target) args.target = args.ref;   // ponytail: LLMs strongly emit `ref` for the element; this Playwright-MCP wants `target`. Bridge it. (drop if a future PW unifies the name)
   await api('/api/audit', { type: 'browser-action', detail: { agent: AGENT, step: i, tool, args: redact(JSON.stringify(args), {}).text.slice(0, 500) } });   // redact → secrets/PII never hit the audit log; cap → a huge browser_type payload can't bloat the chain
   const eff = classify({ tool, args }, ctx.domain, ctx.rules);
   await api('/api/audit', { type: 'permission', detail: { agent: AGENT, step: i, tool, domain: ctx.domain, effect: eff } });
@@ -99,21 +100,26 @@ async function runSteps(steps, rules, h) {                    // pre-baked steps
 
 // Wave 11c — agentic: drive the browser toward an NL goal. Observe (snapshot) → the brain picks the next single
 // action → run it through the SAME gate (so outbound stays human-approved) → repeat, bounded by MAX_STEPS.
-const AGENT_PROMPT = (goal, snapshot) => `You operate a web browser to achieve a goal, one step at a time.
+const AGENT_PROMPT = (goal, snapshot, schema) => `You operate a web browser to achieve a goal, one step at a time.
 Goal: ${goal}
-Current page (accessibility snapshot — use the ref shown, e.g. ref=e12, for clicks/typing):
+Available tools — use the EXACT arg names shown:
+${schema}
+For a target/element-reference arg, use the ref from the snapshot (a line like 'button "Submit" [ref=e11]' → "e11").
+Current page (accessibility snapshot):
 ${snapshot}
 Output ONLY JSON for the NEXT single action that progresses the goal:
-{"tool":"browser_navigate|browser_click|browser_type|browser_press_key|browser_select_option|browser_wait_for","args":{...}}
-(browser_navigate args {url}; browser_click args {element,ref}; browser_type args {element,ref,text,submit?}; browser_press_key args {key})
+{"tool":"<one of the tools above>","args":{...}}
 or {"done":true,"answer":"<for a report/read goal: the information you found, stated directly>"} when the goal is achieved (or you cannot proceed). No prose.`;
+// compact, version-robust tool reference straight from the live server: name(required) [+optional]
+const toolLine = (t) => { const req = t.inputSchema?.required || [], all = Object.keys(t.inputSchema?.properties || {}); const opt = all.filter((k) => !req.includes(k)); return `${t.name}(${req.join(', ')})${opt.length ? ' [opt: ' + opt.join(', ') + ']' : ''}`; };
 async function runGoal(goal, rules, h) {
   const ctx = { h, rules, domain: null }, client = browser(), log = [];
+  const schema = (await client.listTools()).filter((t) => t.name.startsWith('browser_')).map(toolLine).join('\n');   // real Playwright-MCP schema (arg names drift across versions) → agent uses correct args
   let answer = '';
   for (let i = 0; i < MAX_STEPS; i++) {
     const snap = textOf(await client.call('browser_snapshot', {}, { timeoutMs: 60000 }));   // observe (read-only → classify allow, no gate)
     const d = domainOf({ content: [{ type: 'text', text: snap }] }); if (d) ctx.domain = d;
-    const out = await runVendorAsync(VENDOR, AGENT_PROMPT(goal, snap), '{"done":true}');     // stub vendor → done (loop terminates)
+    const out = await runVendorAsync(VENDOR, AGENT_PROMPT(goal, snap, schema), '{"done":true}');   // stub vendor → done (loop terminates)
     let act; try { act = JSON.parse(out.match(/\{[\s\S]*\}/)[0]); } catch { act = { done: true }; }
     if (act.done || !act.tool) { answer = act.answer || ''; break; }                         // capture the agent's final answer (report goals)
     const r = await runOne(client, ctx, { tool: act.tool, args: act.args || {} }, i);
