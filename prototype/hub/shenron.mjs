@@ -36,11 +36,13 @@ Decompose the goal into ordered steps. For EACH step choose kind ("mcp" external
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
-export function buildPlanIR(goal, parsed, source = 'llm') {
+// gap: 'off'|'ask'|'auto' — 解決不能 step（既存ツールで埋まらない mcp/agent）をどう扱うか。off=buildable gap を作らず
+// best-effort prompt 化（神龍に自己拡張＝道具生成させない）／ask(既定)=⚠️ gap を出し人が codegen 起動／auto=同上＋自動起動(caller 側)。
+export function buildPlanIR(goal, parsed, source = 'llm', gap = 'ask') {
   const steps = (parsed.steps || []).map((s, i) => ({ n: i + 1, action: s.action || '',
     kind: ['mcp', 'agent', 'prompt'].includes(s.kind) ? s.kind : 'prompt', tool: s.tool || null, have: !!s.tool || s.kind === 'prompt' }));
   const needsTool = (s) => s.kind === 'mcp' || s.kind === 'agent';
-  const missing = steps.filter((s) => needsTool(s) && !s.tool).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));
+  const missing = gap === 'off' ? [] : steps.filter((s) => needsTool(s) && !s.tool).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));
   const tools_needed = steps.filter(needsTool).map((s) => ({ name: s.tool || s.action, kind: s.kind, have: !!s.tool, source: s.tool ? 'inventory' : 'gap' }));
 
   const nodes = [{ id: 'input-1', kind: 'input' }];
@@ -49,7 +51,7 @@ export function buildPlanIR(goal, parsed, source = 'llm') {
     if (s.kind === 'mcp' && s.tool) { const r = s.tool.replace(/^mcp:/, ''); const d = r.indexOf('.'); nodes.push({ id, kind: 'mcp', server: r.slice(0, d), tool: r.slice(d + 1) }); }
     else if (s.kind === 'agent' && s.tool) nodes.push({ id, kind: 'agent', agent: s.tool.replace(/^agent:/, '') });
     else if (s.kind === 'prompt') nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` } });
-    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` }, missing: true });   // mcp/agent w/ no tool = gap → ⚠️ placeholder（Wave 4 で生成→承認で実 mcp node に解決される）
+    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}` }, ...(gap === 'off' ? {} : { missing: true }) });   // mcp/agent w/o tool: ask/auto=⚠️ gap（生成→承認で実 mcp node）／off=ただの prompt（自己拡張しない）
   }
   nodes.push({ id: 'output-1', kind: 'output' });
   const edges = [];
@@ -153,7 +155,7 @@ Built-in step kind "prompt" (an LLM step) is always available and needs no tool.
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
 // context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
-export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, run = runVendorAsync }) {
+export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, gap = 'ask', run = runVendorAsync }) {
   goal = String(goal || '').trim();
   const refine = !!(context && context.instruction && context.prev_plan);
   if (!goal && !refine) throw new Error('goal required');
@@ -162,10 +164,10 @@ export async function plan({ goal, agents = [], tools = [], workflows = [], vend
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm');
+    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', gap);
   } catch { /* fall through */ }
   if (!ir) ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
-    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // 初回 LLM 不在/壊れ → 1 prompt step
+    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic', gap);   // 初回 LLM 不在/壊れ → 1 prompt step
   if (search && ir.missing.length) await discover(ir.missing, search);   // Wave 2: gap に外部ツール提案を mutate（caller が fence）
   return ir;
 }

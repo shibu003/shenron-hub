@@ -468,6 +468,7 @@ const I18N = {
   shenron:{ja:'🐉 神龍',en:'🐉 Shenron'}, sh_build:{ja:'🔗 Langflow 化',en:'🔗 To Langflow'},
   sh_title:{ja:'🐉 神龍 — 願いを flow に',en:'🐉 Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
   sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'🐉 計画',en:'🐉 Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（🔗 ゼロ＝透明な往復）',en:'built Langflow flow (🔗-free = transparent round-trip)'},
+  sh_gap_label:{ja:'足りない道具',en:'Missing tools'}, sh_gap_ask:{ja:'不足を出して人が生成（既定）',en:'surface gaps, generate on demand (default)'}, sh_gap_auto:{ja:'不足を自動生成（登録は承認）',en:'auto-generate gaps (approve to register)'}, sh_gap_off:{ja:'作らない（既存ツールのみ）',en:"don't build (existing tools only)"}, sh_gap_autogen:{ja:'不足ツールを自動生成中…（承認待ちに入ります）',en:'auto-generating missing tools… (queued for approval)'},
   sh_refine:{ja:'✏️ 修正',en:'✏️ Refine'}, sh_refine_title:{ja:'✏️ plan を直す',en:'✏️ Refine the plan'}, sh_refine_info:{ja:'「Slack じゃなくメールに」「要約は5行で」のように直したい所を一文で。指示の変更だけ当て、他 step は維持して再生成（重ねるほど積み上がる）。',en:'Say what to change in one line ("email instead of Slack", "summary in 5 lines"). Only that change is applied; other steps stay. Refinements stack.'}, sh_refine_ph:{ja:'例: Slack じゃなくメールで送って',en:'e.g. send by email instead of Slack'}, sh_refine_btn:{ja:'✏️ 直す',en:'✏️ Apply'}, sh_refine_wait:{ja:'再生成中…',en:'re-planning…'},
   sh_gen_wait:{ja:'生成中…（spawn + handshake で収束検証）',en:'generating… (verifying via spawn + JSON-RPC handshake)'}, sh_gaps_result:{ja:'不足ノード — 生成した MCP server',en:'missing node — generated MCP server'}, sh_gaps_ok:{ja:'収束',en:'converged'}, sh_gaps_fail:{ja:'未収束',en:'not converged'}, sh_gaps_info:{ja:'MCP server（stdlib・JSON-RPC over stdio）を生成→spawn して handshake + run で実データ収束を検証。承認すると prototype/mcp/generated/ に書き出し integration 登録（実 mcp node として再 plan/Run）。生成コードは default で secret を抜いた env で実行し、認証 API は宣言した env 名だけ Run 時に戻す（値は repo に乗らない＝hub の env に置く）。',en:'Generated a standalone MCP server (stdlib, JSON-RPC over stdio) and verified it via spawn + handshake + run (real data). Approve to write it under prototype/mcp/generated/ and register it as an integration (resolves as a real mcp node on re-plan/Run). Generated code runs with secrets stripped by default; an authed API gets back only the env var names it declared (values live in the hub env, never the repo).'}, sh_approve:{ja:'✅ 承認して登録',en:'✅ Approve & register'}, sh_approved:{ja:'承認 → integration 登録。再 plan 中…',en:'approved → registered. re-planning…'}, sh_gaps_need_cred:{ja:'認証情報が必要（hub の env に設定して再生成）',en:'credentials required (set in the hub env, then regenerate)'},
   btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
@@ -1601,11 +1602,15 @@ function applyPlan(r){                                                       // 
   if(ag){ const slug=((ag.what||'').toLowerCase().match(/[a-z0-9]+/g)||[]).slice(0,3).join('-'); showAgentDraft({ name:(slug||'new')+'-agent', skill:'task', accepts:['*'], emits:['text','*'], systemPrompt:`You are an agent that: ${ag.what}` }); }
 }
 function shenronPlan(){
+  const gapMode=localStorage.getItem('sh_gap')||'ask';   // plan を組む前に決める「足りない道具を作る」枝（off=既存ツールのみ / ask=人が生成 / auto=自動生成）
   openModal({ title:t('sh_title'), info:t('sh_info'), submitLabel:t('sh_btn'),
-    fields:[{key:'goal',label:'',type:'textarea',placeholder:t('sh_ph')}],
+    fields:[{key:'goal',label:'',type:'textarea',placeholder:t('sh_ph')},
+            {key:'gap',label:t('sh_gap_label'),type:'select',value:gapMode,options:[{value:'ask',label:t('sh_gap_ask')},{value:'auto',label:t('sh_gap_auto')},{value:'off',label:t('sh_gap_off')}]}],
     onSubmit:async v=>{ const goal=(v.goal||'').trim(); if(!goal) return;
-      let r; try{ r=await api('/api/shenron/plan',{goal,save:true}); }catch(e){ return toast(e.message||t('gw_empty')); }
+      const gap=v.gap||'ask'; localStorage.setItem('sh_gap',gap);
+      let r; try{ r=await api('/api/shenron/plan',{goal,save:true,gap}); }catch(e){ return toast(e.message||t('gw_empty')); }
       applyPlan(r);
+      if(gap==='auto'&&(r.missing||[]).length){ toast(t('sh_gap_autogen')); for(const g of r.missing){ try{ await api('/api/shenron/gen-component',{what:g.what}); }catch{} } renderRunsView&&renderRunsView(); }   // auto: 各 gap を自動生成（登録 approve は pending パネルで人が・co-pilot 線）
     } });
 }
 function shenronRefine(){                                                    // Wave 5: 「Slack じゃなくメールに」を投げて前 plan を再生成（LAST_PLAN を context に）。多ターンは LAST_PLAN 更新で積み上がる。
@@ -1709,6 +1714,7 @@ function openModal({title, fields=[], submitLabel='OK', onSubmit, info}){
     ${info?`<div class="minfo">${esc(info)}</div>`:''}
     ${fields.map(f=>`<label>${esc(f.label)}</label>`+(f.type==='textarea'?`<textarea data-k="${f.key}" placeholder="${esc(f.placeholder||'')}">${esc(f.value||'')}</textarea>`
        : f.type==='readonly'?`<textarea data-k="${f.key}" readonly>${esc(f.value||'')}</textarea>`
+       : f.type==='select'?`<select data-k="${f.key}">${(f.options||[]).map(o=>`<option value="${esc(o.value)}" ${o.value===f.value?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`
        : `<input data-k="${f.key}" placeholder="${esc(f.placeholder||'')}" value="${esc(f.value||'')}">`)).join('')}
     </div><div class="df"><button value="cancel" class="act">${t('cancel')}</button>${onSubmit?`<button value="ok" class="act ok">${esc(submitLabel)}</button>`:''}</div></form>`;
   dlg.showModal();

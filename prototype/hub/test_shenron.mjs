@@ -265,4 +265,13 @@ const a1 = addAllowRule(SEED_RULES, { tool: 'browser_click' });
 assert.equal(addAllowRule(a1, { tool: 'browser_click' }).length, a1.length, 'addAllowRule is idempotent');
 assert.ok(a1.some((r) => r.effect === 'allow' && r.tool === 'browser_click'), 'addAllowRule appended the allow rule');
 
+// gap toggle: 'off' → 解決不能 step を buildable gap にしない（missing 空・⚠️ なし＝既存ツールのみ）／'ask'(既定) → gap を作る
+const gapParsed = { plain_summary: 'x', steps: [{ action: 'get GitHub commits', kind: 'mcp', tool: null }] };
+const askIR = buildPlanIR('g', gapParsed);                 // default 'ask'
+assert.equal(askIR.missing.length, 1, 'gap=ask: unresolvable mcp step → 1 gap');
+assert.ok(askIR.nodes.some((n) => n.missing), 'gap=ask: ⚠️ placeholder node');
+const offIR = buildPlanIR('g', gapParsed, 'llm', 'off');
+assert.equal(offIR.missing.length, 0, 'gap=off: no buildable gap created');
+assert.ok(!offIR.nodes.some((n) => n.missing), 'gap=off: no ⚠️ node (best-effort prompt instead)');
+
 console.log('test_shenron OK');

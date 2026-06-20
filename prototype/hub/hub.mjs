@@ -696,7 +696,7 @@ const server = http.createServer((req, res) => {
           return r;
         } : null;
         // Wave 9: 承認済み生成部品は実 integration（kind:mcp, generated）になり tools(:660) に run tool として出る → 二重列挙回避で別注入しない
-        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context: j.context })   // Wave 5: context={prev_plan,instruction} で対話修正
+        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context: j.context, gap: j.gap })   // Wave 5: context で対話修正／gap:'off'|'ask'|'auto' = 道具生成の枝（既定 ask）
           .then((ir) => {
             const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
             const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
