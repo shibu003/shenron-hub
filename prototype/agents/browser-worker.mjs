@@ -5,7 +5,8 @@
 // node is one-shot (fresh session per call) → structurally can't multi-step browse; this worker is the
 // stateful seam that closes the "API 無し / UI のみ" branch of the decision tree (docs/13 §J).
 //
-//   node prototype/agents/browser-worker.mjs [--hub …] [--pw "npx @playwright/mcp@latest"] [--once] [--no-screenshot] [--vendor claude] [--max-steps 12]
+//   node prototype/agents/browser-worker.mjs [--hub …] [--once] [--vendor claude] [--max-steps 12] [--no-screenshot] [--isolated] [--pw "<cmd>"]
+//   default = persistent login profile (~/.giogio/browser-profile); --isolated = ephemeral (tests/CI)
 //
 // Handoff input is EITHER JSON {steps:[{tool, args}]} (pre-baked Playwright-MCP steps, 11a/b) OR a plain
 // natural-language goal (11c: the planner's agent:browser-control node hands off the intent). For an NL goal
@@ -22,12 +23,22 @@ import { openStdio } from '../mcp/mcp-client.mjs';
 import { redact } from '../trust.mjs';
 import { classify } from '../permissions.mjs';
 import { runVendorAsync } from '../runner.mjs';   // Wave 11c: the agent's brain — decide the next browser action from a goal + the live page
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 
 const argOf = (f) => { const i = process.argv.indexOf(f); return i > -1 ? process.argv[i + 1] : null; };
 const HUB = (argOf('--hub') || 'http://localhost:8795').replace(/\/$/, '');
-// --isolated → fresh in-memory profile so we don't collide with the operator's own browser/profile lock.
-// Wave 11b (persist the user's login as an asset) will swap this for a per-worker persistent profile dir.
-const PW = argOf('--pw') || 'npx @playwright/mcp@latest --isolated';
+// Persistent browser profile: the user logs in ONCE and the session (cookies/login) is reused across runs —
+// 「人のログイン session を資産化」, the no-API branch's substitute for an API key. The profile dir is OURS
+// (~/.giogio/browser-profile), separate from the operator's own Chrome → no collision. --isolated → ephemeral
+// in-memory profile (tests/CI, or to avoid touching the persistent one). --pw overrides the whole command.
+// ponytail: one shared profile dir → one worker at a time (the ticking guard already serializes). Per-worker
+// dirs if you ever run several. Path must be space-free (openStdio splits argv on whitespace).
+const PROFILE = path.join(os.homedir(), '.giogio', 'browser-profile');
+const ISOLATED = process.argv.includes('--isolated');
+const PW = argOf('--pw') || (ISOLATED ? 'npx @playwright/mcp@latest --isolated' : `npx @playwright/mcp@latest --user-data-dir ${PROFILE}`);
+if (!argOf('--pw') && !ISOLATED) fs.mkdirSync(PROFILE, { recursive: true });
 const ONCE = process.argv.includes('--once');
 const SHOT = !process.argv.includes('--no-screenshot');   // Wave 11b: capture a screenshot at each ask-checkpoint (default ON; --no-screenshot → text-only card)
 const VENDOR = argOf('--vendor') || 'claude';             // Wave 11c: brain for the agentic NL-goal loop (claude|codex|stub)
@@ -45,7 +56,8 @@ async function api(p, body) {
 // state bleeds across handoffs — fine for the single-service, human-in-loop scope (docs/13 §J Wave 11 risk).
 let pw = null;
 const browser = () => (pw ||= openStdio(PW, { timeoutMs: 60000 }));
-const dropBrowser = () => { if (pw) { try { pw.close(); } catch {} pw = null; } };
+const dropBrowser = () => { if (pw) { try { pw.close(); } catch {} pw = null; } };   // hard kill — for the mid-handoff error reset (clean slate next handoff)
+const closeBrowser = async () => { if (pw) { try { await pw.call('browser_close', {}, { timeoutMs: 15000 }); } catch {} dropBrowser(); } };   // graceful: flush the persistent profile (cookies/login) to disk before exit, THEN kill
 
 const textOf = (r) => {
   const t = (r?.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
@@ -163,5 +175,5 @@ async function boot() {
 }
 
 await boot();
-if (ONCE) tick().then((n) => { dropBrowser(); console.log(`done — ${n} run`); process.exit(0); }).catch((e) => { dropBrowser(); console.error('✗', e.message); process.exit(1); });
+if (ONCE) tick().then(async (n) => { await closeBrowser(); console.log(`done — ${n} run`); process.exit(0); }).catch(async (e) => { await closeBrowser(); console.error('✗', e.message); process.exit(1); });   // graceful close → persistent login flushed to disk
 else { const loop = () => tick().catch((e) => console.error('tick:', e.message)); loop(); setInterval(loop, 3000); }

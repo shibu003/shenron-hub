@@ -23,7 +23,7 @@ const FORM = 'https://www.selenium.dev/selenium/web/web-form.html';   // Seleniu
 const CLAUDE = process.argv.includes('--claude') && spawnSync('which', ['claude']).status === 0;   // opt-in real-claude agentic headline
 const STEPS = JSON.stringify({ steps: [{ tool: 'browser_navigate', args: { url: FORM } }, { tool: 'browser_press_key', args: { key: 'Tab' } }] });
 const runWorker = async (hid, vendor = 'stub', maxStep = 90) => {   // spawn worker --once; approve any checkpoint; return {paused, status}
-  const w = spawn('node', ['prototype/agents/browser-worker.mjs', '--hub', HUB, '--once', '--vendor', vendor, '--no-screenshot'], { cwd: ROOT, stdio: 'ignore' });
+  const w = spawn('node', ['prototype/agents/browser-worker.mjs', '--hub', HUB, '--once', '--vendor', vendor, '--no-screenshot', '--isolated'], { cwd: ROOT, stdio: 'ignore' });   // --isolated: tests use an ephemeral profile, not the persistent login one
   let paused = false;
   for (let i = 0; i < maxStep; i++) {
     const h = (await hubGet('/api/state')).handoffs.find((x) => x.id === hid);
