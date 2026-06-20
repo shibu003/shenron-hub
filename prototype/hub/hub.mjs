@@ -22,6 +22,7 @@ import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } fr
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
+import { plan as shenronPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
@@ -696,6 +697,15 @@ const server = http.createServer((req, res) => {
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
       if (p === '/api/ghostwrite') { ghostwrite(j).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }  // Wave L: NL → validated flow
+      if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR. steps[] via LLM, have/missing via LLM-resolve (§1.5-F), nodes/edges validated here.
+        const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill }));
+        const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name })));
+        const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name }));
+        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude' })
+          .then((ir) => { const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges); json(res, 200, { ...ir, edges: v.edges, warnings: v.warnings }); })
+          .catch((e) => json(res, 400, { error: e.message }));
+        return;
+      }
       if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
       let m;
       if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
