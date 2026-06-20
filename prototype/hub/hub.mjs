@@ -20,9 +20,9 @@ import path from 'node:path';
 import url from 'node:url';
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
 import { runVendorAsync } from '../runner.mjs';
-import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
+import { callMcpTool, safeEnv, pickEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
@@ -171,12 +171,12 @@ const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, '
 const COMP_FILE = path.join(HERE, '..', 'mcp', 'components.json');
 const readComponents = () => { try { return JSON.parse(fs.readFileSync(COMP_FILE, 'utf8')); } catch { return []; } };
 const writeComponents = (arr) => fs.writeFileSync(COMP_FILE, JSON.stringify(arr, null, 2));
-function saveComponent({ what, code, output, iters }) {                 // 収束した部品を pending(approved:false) で登録。人が承認するまで再利用しない（§I）
+function saveComponent({ what, code, output, iters, credentials }) {    // 収束した部品を pending(approved:false) で登録。人が承認するまで再利用しない（§I）
   const arr = readComponents();
   const slug = componentKey(what).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32);
   const id = 'cmp-' + (slug || randomUUID().slice(0, 6));
   const i = arr.findIndex((c) => c.id === id);
-  const comp = { id, what, code, output: output || '', iters: iters || 0, approved: i >= 0 ? arr[i].approved : false, createdAt: i >= 0 ? arr[i].createdAt : now() };   // 再生成は上書き・承認状態は維持
+  const comp = { id, what, code, output: output || '', iters: iters || 0, credentials: credentials || [], approved: i >= 0 ? arr[i].approved : false, createdAt: i >= 0 ? arr[i].createdAt : now() };   // credentials = BYO-credential 名のみ（値は env）。再生成は上書き・承認状態は維持
   if (i >= 0) arr[i] = comp; else arr.push(comp);
   writeComponents(arr); return comp;
 }
@@ -356,7 +356,8 @@ async function runMcp(h) {
     const pass = upstream?.passport?.share?.pass || [];            // capability passport: structured-args allowlist (default-deny when set)
     const pf = applyPass(config || {}, pass);                      // gate the CONFIG fields only; the scrubbed `input` payload always flows
     if (pf.dropped.length) trail('pass-drop', { handoff: h.id, to: `${server}.${tool}`, allowlist: pass, dropped: pf.dropped });
-    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv() } : {}) });   // Wave 9: 生成 server は untrusted → secret-strip した env で spawn（信頼済 server は env 継承のまま）
+    if (integ.generated && (integ.credentials || []).length) trail('credential-inject', { handoff: h.id, server, tool, names: integ.credentials });   // BYO-credential: 注入した名前のみ監査（値は絶対に出さない）
+    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv(pickEnv(integ.credentials || [])) } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ pickEnv で戻す（信頼済 server は env 継承のまま）
     trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length });
     postResult(h.id, { result: out }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
@@ -496,9 +497,9 @@ const searchIntegrationsRefs = (q = '', limit = 999) => {
     .filter((x) => x.s > 0 || !terms.length).sort((x, y) => y.s - x.s).slice(0, limit)
     .map(({ it }) => ({ id: it.id, label: it.label, kind: it.kind, enabled: it.enabled !== false, tools: (it.tools || []).length, tags: it.tags }));
 };
-function saveIntegration({ id, label, kind, command, url, enabled, tools, generated }) {
+function saveIntegration({ id, label, kind, command, url, enabled, tools, generated, credentials }) {
   id = id || (label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mcp-' + randomUUID().slice(0, 4);
-  const it = { id, label: label || id, kind: kind || 'mcp', command: command || '', url: url || '', enabled: enabled !== false, tools: Array.isArray(tools) ? tools : [], ...(generated ? { generated: true } : {}) };   // Wave 9: generated=神龍が作った untrusted server → run 時 safeEnv で fence
+  const it = { id, label: label || id, kind: kind || 'mcp', command: command || '', url: url || '', enabled: enabled !== false, tools: Array.isArray(tools) ? tools : [], ...(generated ? { generated: true } : {}), ...(credentials && credentials.length ? { credentials } : {}) };   // Wave 9: generated=神龍 untrusted server → run 時 safeEnv で fence。credentials=BYO-credential 名のみ(値は env・repo に乗せない)
   const arr = readIntegrations(); const i = arr.findIndex((x) => x.id === id);
   if (i >= 0) arr[i] = { ...arr[i], ...it }; else arr.push(it);
   writeIntegrations(arr); return it;
@@ -692,9 +693,10 @@ const server = http.createServer((req, res) => {
         const c = approveComponent(j.id);                                             // Wave 8: approved フラグ（gen-component cache の再利用ゲート）
         const GEN_DIR = path.join(HERE, '..', 'mcp', 'generated');                    // command は REPO_ROOT 相対 → runMcp が cwd:REPO_ROOT で spawn（echo と同形）
         fs.mkdirSync(GEN_DIR, { recursive: true }); fs.writeFileSync(path.join(GEN_DIR, c.id + '.py'), c.code);
-        const integ = saveIntegration({ id: c.id, label: c.what, kind: 'mcp', command: 'python3 prototype/mcp/generated/' + c.id + '.py', url: '', enabled: true, generated: true, tools: [{ name: 'run', accepts: ['*'], emits: ['*'] }] });
-        trail('component-approve', { id: c.id, integration: integ.id });
-        return json(res, 200, { ...c, integration: integ.id });
+        const credentials = c.credentials && c.credentials.length ? c.credentials : neededCredentials(c.code);   // BYO-credential allowlist（旧 component に未保存でも承認時に再 scan）
+        const integ = saveIntegration({ id: c.id, label: c.what, kind: 'mcp', command: 'python3 prototype/mcp/generated/' + c.id + '.py', url: '', enabled: true, generated: true, credentials, tools: [{ name: 'run', accepts: ['*'], emits: ['*'] }] });
+        trail('component-approve', { id: c.id, integration: integ.id, credentials });   // 名前のみ・値は出さない
+        return json(res, 200, { ...c, integration: integ.id, credentials });
       }
       if (p === '/api/shenron/build') {                                                // 神龍 Wave 3: plan IR → Langflow flow JSON (importLangflowFlow の逆)。cockpit が importLangflowFlow(flow) で描画。
         try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }   // §5 Wave3 fence: audit 記録（実 Langflow 登録は既存 /api/langflow/import = Wave 6）

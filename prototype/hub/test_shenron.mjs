@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
 
 const parsed = {
@@ -96,6 +96,19 @@ assert.ok(!r3.converged && r3.iters === 3 && r3.error === 'still broken' && r3.c
 assert.equal(c3.length, 3, 'maxIters LLM calls');
 await assert.rejects(() => genComponent({ what: '   ', run: fakeRun([]), sandbox: () => ({ ok: true }) }), /what required/, 'guard: empty what');
 
+// Wave 9.1 — BYO-credential: neededCredentials は secret-strip 対象の env 名だけ拾う（HOME 等は safeEnv が通すので allowlist 不要）。
+assert.deepEqual(neededCredentials(`x = os.environ.get('OPENWEATHER_API_KEY')\ny = os.getenv("FOO_TOKEN")\nz = os.environ['HOME']`),
+  ['OPENWEATHER_API_KEY', 'FOO_TOKEN'], 'scans env names, keeps secret-like, drops HOME');
+assert.deepEqual(neededCredentials('print("no env here")'), [], 'no env refs → empty allowlist');
+// genComponent: 宣言 cred が hub env に無ければ live verify せず needsCredentials を surface（repair 空回りを止める）
+const credCode = async () => '```python\nimport os\nx=os.environ.get("WEATHER_API_KEY")\n```';
+const rNoKey = await genComponent({ what: 'weather', run: credCode, sandbox: () => ({ ok: true }), hasEnv: () => false });
+assert.ok(!rNoKey.converged && rNoKey.needsCredentials.includes('WEATHER_API_KEY') && rNoKey.iters === 1, 'missing cred → surfaced, not verified/repaired');
+// 揃っていれば allowlist を sandbox に通し、converged 結果に credentials が載る
+const rKey = await genComponent({ what: 'weather', run: credCode, hasEnv: () => true,
+  sandbox: (code, opt) => { assert.deepEqual(opt.creds, ['WEATHER_API_KEY'], 'allowlist threaded to verify'); return { ok: true, output: 'sunny' }; } });
+assert.ok(rKey.converged && rKey.credentials.includes('WEATHER_API_KEY'), 'cred present → verified, credentials recorded for approval');
+
 // Wave 5 — refine: context={prev_plan,instruction} → 再生成。run 注入で LLM 不要。
 const prev = buildPlanIR('post commits to slack', { plain_summary: 'summarize commits, post to Slack',
   steps: [{ action: 'summarize commits', kind: 'prompt', tool: null }, { action: 'post to Slack', kind: 'mcp', tool: 'mcp:slack.post_message' }] }, 'llm');
@@ -187,7 +200,15 @@ for line in sys.stdin:
     'import os\ndef run(input=None, **kw): return "SECRET=" + os.environ.get("FAKE_API_KEY","") + " HOME=" + os.environ.get("HOME","")');
   const fenceR = await verifyMcpServer(snoop, { timeout: 8000 });
   assert.ok(fenceR.ok && /SECRET= /.test(fenceR.output) && /HOME=\S/.test(fenceR.output), 'safeEnv strips FAKE_API_KEY but keeps HOME (' + JSON.stringify(fenceR) + ')');
-  delete process.env.FAKE_API_KEY;
+  // BYO-credential: an allowlisted env name IS injected; a non-allowlisted secret stays stripped.
+  process.env.WEATHER_API_KEY = 'sunny-key';
+  const wsnoop = good.replace('def run(input=None, **kw): return "hello " + (input or "world")',
+    'import os\ndef run(input=None, **kw): return "W=" + os.environ.get("WEATHER_API_KEY","") + " F=" + os.environ.get("FAKE_API_KEY","")');
+  const credR = await verifyMcpServer(wsnoop, { timeout: 8000, creds: ['WEATHER_API_KEY'] });
+  assert.ok(credR.ok && /W=sunny-key/.test(credR.output) && !/F=\S/.test(credR.output), 'allowlisted WEATHER_API_KEY injected; non-allowlisted FAKE_API_KEY still stripped (' + JSON.stringify(credR) + ')');
+  const noCredR = await verifyMcpServer(wsnoop, { timeout: 8000, creds: [] });
+  assert.ok(noCredR.ok && !/W=sunny/.test(noCredR.output), 'empty allowlist → WEATHER_API_KEY stripped (Wave 9 default)');
+  delete process.env.WEATHER_API_KEY; delete process.env.FAKE_API_KEY;
 } else console.warn('  (skipped verifyMcpServer spawn test: no python3 on PATH)');
 
 console.log('test_shenron OK');

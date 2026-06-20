@@ -5,7 +5,7 @@
 //    プロンプトに「generic ツールは specific need を covered しない」を明記（spike0 でこれが効いた）。inventory を注入。
 //  - nodes/edges の port 検証・layout は hub 側（validateFlow/layoutFlow）に委譲。ここは raw を返す。
 import { runVendorAsync } from '../runner.mjs';
-import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
+import { callMcpTool, safeEnv, pickEnv, SECRET_RE } from '../mcp/mcp-client.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,7 +202,7 @@ The one tool:
 Hard rules:
 - Python STANDARD LIBRARY ONLY (urllib.request, json, sys, xml.etree.ElementTree, datetime, math…). No pip packages, no "requests".
 - run() MUST work with NO arguments (input defaults to a real working value) and ignore unknown keyword args via **kw.
-- Public / no-auth APIs only — the environment is stripped of credentials, so no API keys.
+- Prefer PUBLIC / no-auth APIs. If the service REQUIRES an API key, read it with os.environ.get('DESCRIPTIVE_NAME') (e.g. os.environ.get('OPENWEATHER_API_KEY')); if that env var is missing, RETURN a clear string naming exactly which env var to set. NEVER hard-code a secret.
 - stdout carries JSON-RPC ONLY: one compact JSON object per line, flush=True. Send any logging to sys.stderr, NEVER stdout.
 - run() must return a NON-EMPTY string (the real data).
 Output ONLY the Python code inside one \`\`\`python fence. No prose.`;
@@ -212,18 +212,28 @@ const REPAIR_PROMPT = (what, code, err) => `Your Python MCP server for "${what}"
 ${code}
 --- error / output (tail) ---
 ${err}
-Fix it so: it speaks JSON-RPC 2.0 over stdio (initialize → tools/list → tools/call name="run"); every reply is ONE line printed with flush=True; run(input=None,**kw) returns a NON-EMPTY string; stdlib only; no secrets; stdout carries JSON-RPC ONLY (logs to stderr).
+Fix it so: it speaks JSON-RPC 2.0 over stdio (initialize → tools/list → tools/call name="run"); every reply is ONE line printed with flush=True; run(input=None,**kw) returns a NON-EMPTY string; stdlib only; never hard-code a secret (a required key is read from os.environ.get('NAME')); stdout carries JSON-RPC ONLY (logs to stderr).
 Output ONLY the corrected Python in one \`\`\`python fence. No prose.`;
 
 // 使い捨てサンドボックス: 生成 MCP server を prod と同じ stdio client（callMcpTool）で spawn + handshake + `run` し、
 // 非空の実データを返すか検証。prod パス = 検証パス → stub-gap が消える（Wave 9）。失敗時は traceback / handshake error の
 // 末尾を返す（修復ループの入力）。fence: secret を抜いた env（safeEnv）で spawn = 生成コードからの credential exfil 防止。
 // 検証は `{input:''}` で呼ぶ＝prod の arg 形（hub runMcp が input を渡す）を再現。OS サンドボックス(seccomp/egress)は v2（§1.5-I）。
-export async function verifyMcpServer(code, { python = 'python3', timeout = 30000 } = {}) {
+// BYO-credential: 生成コードが読む env 名のうち secret-strip 対象（SECRET_RE 一致）を抽出 = この server の credential allowlist。
+// 承認後 runMcp はこの名前だけ process.env から戻す（値は repo に乗らない・integrations.json には名前のみ）。pure・test 対象。
+export function neededCredentials(code) {
+  const names = new Set(), re = /os\.(?:environ\.get|getenv)\(\s*['"]([A-Z0-9_]+)['"]|os\.environ\[\s*['"]([A-Z0-9_]+)['"]\s*\]/g;
+  let m; while ((m = re.exec(String(code || '')))) { const n = m[1] || m[2]; if (n && SECRET_RE.test(n)) names.add(n); }   // SECRET_RE 不一致(HOME 等)は safeEnv が元から通すので allowlist 不要
+  return [...names];
+}
+
+// creds = この server が宣言した credential allowlist。default-deny の safeEnv に pickEnv で**その名前だけ**戻して spawn
+// （= BYO-credential 注入）。allowlist 空なら従来通り全 secret strip。値は process.env のみ（repo に乗らない）。
+export async function verifyMcpServer(code, { python = 'python3', timeout = 30000, creds = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'shenron-'));
   try {
     writeFileSync(join(dir, 'server.py'), code);
-    const text = await callMcpTool({ command: `${python} server.py` }, 'run', { input: '' }, { cwd: dir, timeoutMs: timeout, env: safeEnv() });
+    const text = await callMcpTool({ command: `${python} server.py` }, 'run', { input: '' }, { cwd: dir, timeoutMs: timeout, env: safeEnv(pickEnv(creds)) });
     const out = String(text || '').trim();
     return out ? { ok: true, output: out.slice(0, 2000) } : { ok: false, error: 'run returned empty text' };
   } catch (e) {
@@ -231,15 +241,20 @@ export async function verifyMcpServer(code, { python = 'python3', timeout = 3000
   } finally { rmSync(dir, { recursive: true, force: true }); }            // 使い捨て
 }
 
-// 生成→収束→（失敗なら）修復ループ。run/sandbox は test 用に注入可。
-export async function genComponent({ what, vendor = 'claude', maxIters = 3, run = runVendorAsync, sandbox = verifyMcpServer }) {
+// 生成→収束→（失敗なら）修復ループ。run/sandbox/hasEnv は test 用に注入可。
+// BYO-credential: 各 iter でコードの宣言 cred を抽出。env に無い cred があれば live verify 不能 → repair 空回りを止めて
+// needsCredentials を surface（operator が key を hub env に入れて再生成する導線）。揃っていれば allowlist を verify に通す。
+export async function genComponent({ what, vendor = 'claude', maxIters = 3, run = runVendorAsync, sandbox = verifyMcpServer, hasEnv = (k) => process.env[k] != null }) {
   what = String(what || '').trim();
   if (!what) throw new Error('what required');
   let code = '', err = null;
   for (let i = 1; i <= maxIters; i++) {
     code = extractCode(await run(vendor, err ? REPAIR_PROMPT(what, code, err) : GEN_PROMPT(what), ''));
-    const r = await sandbox(code);
-    if (r.ok) return { what, code, iters: i, converged: true, output: r.output };
+    const creds = neededCredentials(code);
+    const missing = creds.filter((k) => !hasEnv(k));
+    if (missing.length) return { what, code, iters: i, converged: false, needsCredentials: missing, error: `needs credentials (set in hub env, then re-generate): ${missing.join(', ')}` };
+    const r = await sandbox(code, { creds });
+    if (r.ok) return { what, code, iters: i, converged: true, output: r.output, credentials: creds };   // credentials = approve 時に integration へ載せる allowlist
     err = r.error;
   }
   return { what, code, iters: maxIters, converged: false, error: err };

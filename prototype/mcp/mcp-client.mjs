@@ -15,6 +15,9 @@ const CLIENT_INFO = { name: 'buildhud', version: '0.1' };
 export const SECRET_RE = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_API|\bAPI_|AUTH|COOKIE/i;
 export const safeEnv = (extra = {}) =>
   ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !SECRET_RE.test(k))), ...extra });   // PATH/HOME/SSL stay
+// BYO-credential allowlist: pull ONLY the named keys out of process.env (values to re-add via safeEnv). Names live in
+// the (tracked) integration; values stay in the operator's env — never the repo. safeEnv(pickEnv(names)) = strip-all-then-readd.
+export const pickEnv = (names = []) => Object.fromEntries((names || []).filter((k) => process.env[k] != null).map((k) => [k, process.env[k]]));
 
 // Call `tool` on a connected MCP server (an integrations.json entry). Returns the tool's text output.
 export async function callMcpTool(integ, tool, args = {}, opts = {}) {
