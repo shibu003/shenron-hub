@@ -80,16 +80,14 @@ export async function discover(missing, search, cap = 3) {
 // Prompt に落とす（placeholder, 🔗 ゼロ維持・tool 名は template に残す）。
 // ponytail: 値の往復は primary field のみ。full template(outputs/base_classes/typed handles・auto-layout)は §5 Wave3 最終形。
 const wrap = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { value: v }]));   // {k:v} → Langflow template 形 {k:{value:v}}
-const lfModelType = (m) => (/claude|anthropic/.test(m) ? 'AnthropicModel' : /gemini|google/.test(m) ? 'GoogleGenerativeAIModel' : 'OpenAIModel');
 
 function lfNode(n, i) {
   const c = n.config || {};
   let type, tmpl;
   if (n.kind === 'input') { type = 'ChatInput'; tmpl = wrap({ input_value: c.text || '' }); }
   else if (n.kind === 'output') { type = 'ChatOutput'; tmpl = {}; }
-  else if (n.kind === 'structured') { type = 'StructuredOutput'; tmpl = wrap({ output_schema: c.schema || '', instructions: c.instructions || '' }); }
-  else if (n.kind === 'languagemodel') { type = lfModelType(String(c.model || '')); tmpl = wrap({ model_name: c.model || '', system_message: c.system || '', ...(c.temperature != null ? { temperature: c.temperature } : {}) }); }
   else {   // prompt | mcp | agent | gap → Prompt（描画可能）。tool step は何のツールか template に残す。
+           // ponytail: plan IR は input/output/prompt/mcp/agent しか出さない → languagemodel/structured 写像は caller 出るまで足さない（§5 Wave3 最終形）。
     type = 'Prompt';
     const label = n.kind === 'mcp' ? `[mcp:${n.server}.${n.tool}] ` : n.kind === 'agent' ? `[agent:${n.agent}] ` : '';
     tmpl = wrap({ template: label ? `${label}{input}` : (c.template || '{input}') });
