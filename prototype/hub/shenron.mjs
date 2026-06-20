@@ -71,6 +71,37 @@ export async function discover(missing, search, cap = 3) {
   }
 }
 
+// Wave 3: gio plan IR → Langflow flow JSON。ui.html の importLangflowFlow / LF_KIND の逆写像。
+// 描画可能 kind 限定 → 再 import で 🔗(unknown type) ゼロ。mcp/agent は native Langflow type 無し →
+// Prompt に落とす（placeholder, 🔗 ゼロ維持・tool 名は template に残す）。
+// ponytail: 値の往復は primary field のみ。full template(outputs/base_classes/typed handles・auto-layout)は §5 Wave3 最終形。
+const wrap = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { value: v }]));   // {k:v} → Langflow template 形 {k:{value:v}}
+const lfModelType = (m) => (/claude|anthropic/.test(m) ? 'AnthropicModel' : /gemini|google/.test(m) ? 'GoogleGenerativeAIModel' : 'OpenAIModel');
+
+function lfNode(n, i) {
+  const c = n.config || {};
+  let type, tmpl;
+  if (n.kind === 'input') { type = 'ChatInput'; tmpl = wrap({ input_value: c.text || '' }); }
+  else if (n.kind === 'output') { type = 'ChatOutput'; tmpl = {}; }
+  else if (n.kind === 'structured') { type = 'StructuredOutput'; tmpl = wrap({ output_schema: c.schema || '', instructions: c.instructions || '' }); }
+  else if (n.kind === 'languagemodel') { type = lfModelType(String(c.model || '')); tmpl = wrap({ model_name: c.model || '', system_message: c.system || '', ...(c.temperature != null ? { temperature: c.temperature } : {}) }); }
+  else {   // prompt | mcp | agent | gap → Prompt（描画可能）。tool step は何のツールか template に残す。
+    type = 'Prompt';
+    const label = n.kind === 'mcp' ? `[mcp:${n.server}.${n.tool}] ` : n.kind === 'agent' ? `[agent:${n.agent}] ` : '';
+    tmpl = wrap({ template: label ? `${label}{input}` : (c.template || '{input}') });
+  }
+  return { id: n.id, type: 'genericNode', position: { x: i * 320, y: 100 },
+    data: { id: n.id, type, display_name: c.name || type, node: { template: tmpl } } };
+}
+
+export function toLangflowFlow(ir) {
+  if (!ir || !Array.isArray(ir.nodes)) throw new Error('plan with nodes[] required');
+  const nodes = ir.nodes.map(lfNode);
+  const edges = (ir.edges || []).map((e) => ({ id: e.id, source: e.source, target: e.target,
+    data: { sourceHandle: { output_types: ['Message'] }, targetHandle: { inputTypes: ['Message'] } } }));   // typed handle → import が型整合線を引く
+  return { name: ir.plain_summary || ir.goal || 'shenron-flow', data: { nodes, edges } };
+}
+
 export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null }) {
   goal = String(goal || '').trim();
   if (!goal) throw new Error('goal required');

@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow } from './shenron.mjs';
 
 const parsed = {
   plain_summary: 'collect commits, summarize, post to Slack',
@@ -58,5 +58,19 @@ const throwy = async () => { throw new Error('no key'); };
 const g2 = [{ what: 'x', kind: 'mcp', step: 1 }];
 await discover(g2, throwy);                                                                    // must not throw (graceful fallback)
 assert.ok(!g2[0].suggestion, 'search failure → no suggestion, no throw');
+
+// Wave 3 — toLangflowFlow: 描画可能 kind 限定 → 再 import で 🔗 ゼロ + node/edge 数一致（round-trip）。
+// LF_KIND の描画可能サブセット（ui.html）を複写: unknown type → 'langflow'(🔗) で検出。
+const LF_KIND = { ChatInput: 'input', ChatOutput: 'output', Prompt: 'prompt', AnthropicModel: 'languagemodel', OpenAIModel: 'languagemodel', GoogleGenerativeAIModel: 'languagemodel', StructuredOutput: 'structured' };
+const flow = toLangflowFlow(ir);   // ir = github(gap→prompt) + summarize(prompt) + slack(mcp) plan
+assert.equal(flow.data.nodes.length, ir.nodes.length, 'node count preserved');
+assert.equal(flow.data.edges.length, ir.edges.length, 'edge count preserved');
+for (const n of flow.data.nodes) assert.ok(LF_KIND[n.data.type], `node type ${n.data.type} is renderable (🔗 ゼロ)`);   // 全 node が known type
+const mcpNode = flow.data.nodes.find((n) => /\[mcp:slack\.post_message\]/.test(n.data.node.template.template?.value || ''));
+assert.ok(mcpNode && mcpNode.data.type === 'Prompt', 'mcp step → Prompt placeholder, tool 名は template に残る');
+flow.data.edges.forEach((e) => assert.ok(e.data.sourceHandle.output_types.length && e.data.targetHandle.inputTypes.length, 'edge は typed handle'));
+assert.equal(flow.data.nodes[0].data.type, 'ChatInput', 'input → ChatInput');
+assert.equal(flow.data.nodes.at(-1).data.type, 'ChatOutput', 'output → ChatOutput');
+assert.throws(() => toLangflowFlow(null), /nodes\[\]/, 'guard: nodes[] required');
 
 console.log('test_shenron OK');
