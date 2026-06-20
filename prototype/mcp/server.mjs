@@ -130,8 +130,20 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'build_state', description: 'Summary of the BuildHUD state (counts, ids, attended/unattended). Summary only — not a full dump.',
     inputSchema: { type: 'object', properties: {} } },
-  { name: 'plan_flow', description: '神龍: turn a natural-language goal into a flow — ordered steps, which existing tools/agents cover each, and which are MISSING (gaps to build). Saves it to the workflow store so it is viewable in the web cockpit (🗂 Flows); pass save:false to design without saving. Designs, does not run — act on it with run_workflow.',
-    inputSchema: { type: 'object', properties: { goal: { type: 'string' }, save: { type: 'boolean' } }, required: ['goal'] } },
+  { name: 'plan_flow', description: '神龍: turn a natural-language goal into a flow — ordered steps, which existing tools/agents cover each, and which are MISSING (gaps to build). Saves it to the workflow store so it is viewable in the web cockpit (🗂 Flows); pass save:false to design without saving. gap controls self-extension: "ask" (default) surfaces gaps to build, "auto" auto-generates them, "off" plans with existing tools only. Designs, does not run — act on it with run_workflow.',
+    inputSchema: { type: 'object', properties: { goal: { type: 'string' }, save: { type: 'boolean' }, gap: { type: 'string', enum: ['off', 'ask', 'auto'] } }, required: ['goal'] } },
+  { name: 'gen_component', description: '神龍: BUILD a missing tool for a gap — generates a standalone MCP server (claude/codex writes stdlib code), then spawn+handshake+run verifies it and repairs in a loop. Returns the converged code + a pending component id. The self-extension step: when no existing tool/MCP covers a step, 神龍 writes one. Approve it with approve_component to make it usable.',
+    inputSchema: { type: 'object', properties: { what: { type: 'string' }, maxIters: { type: 'number' } }, required: ['what'] } },
+  { name: 'list_components', description: 'List generated components (the build→vet→remember store). Small refs (id/what/approved/iters); pending (approved:false) await approve_component, approved ones are live integrations. Pass id for the full code.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } } } },
+  { name: 'approve_component', description: 'Human gate: approve a generated component by id → writes prototype/mcp/generated/<id>.py and registers it as an MCP integration (ladder rejoin). After this, re-plan resolves the gap to a real mcp node and run_workflow can use it.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'get_permissions', description: 'Get the browser-control permission ruleset (allow/ask/deny). Read-only browser tools default allow; mutating/outbound default ask. Controls when the computer-use worker pauses for a human checkpoint.',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'set_permission', description: '「常に許可」: append an allow rule to the browser-control ruleset so a tool (optionally scoped to a domain) stops asking. Mirrors the cockpit always-allow button; audited.',
+    inputSchema: { type: 'object', properties: { tool: { type: 'string' }, domain: { type: 'string' } }, required: ['tool'] } },
+  { name: 'make_skill', description: '神龍 Wave 7: turn a saved workflow into a Claude Code SKILL.md (a thin wrapper that calls run_workflow). Returns the slug + path so a local agent can invoke the flow as a skill.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'run_handoff', description: 'ACT: send one handoff to an agent skill (A2A). confirm:true to execute; otherwise returns a dry-run plan (attended).',
     inputSchema: { type: 'object', properties: { toAgentId: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['toAgentId', 'skill', 'input'] } },
   { name: 'run_workflow', description: 'ACT: run a workflow end-to-end (chained A2A handoffs). confirm:true to execute; otherwise returns a dry-run plan (attended).',
@@ -171,7 +183,7 @@ async function callTool(name, args = {}) {
     case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,
       agentIds: Object.keys(AGENTS), workflowIds: WORKFLOWS.map((w) => w.id), automationIds: AUTOMATIONS.map((m) => m.id) };
     case 'plan_flow':                                            // 神龍 over MCP → hub plans (inventory+validate+layout) and SAVES it (save:false to skip) → viewable in the web cockpit 🗂
-      return await hub('/api/shenron/plan', { goal: args.goal, save: args.save !== false });
+      return await hub('/api/shenron/plan', { goal: args.goal, save: args.save !== false, ...(args.gap ? { gap: args.gap } : {}) });
     case 'run_handoff': {
       const a = AGENTS[args.toAgentId]; if (!a) throw new Error(`no agent "${args.toAgentId}"`);
       if (!shouldExec(args.confirm)) return { dryRun: true, plan: `would send skill "${args.skill}" to ${a.company} (${a.url}) — call again with confirm:true to execute` };
@@ -225,6 +237,13 @@ async function callTool(name, args = {}) {
     case 'approve_handoff': return hRef(await hub(`/api/handoffs/${args.id}/approve`, {}));
     case 'decline_handoff': return hRef(await hub(`/api/handoffs/${args.id}/decline`, {}));
     case 'set_policy': return await hub(`/api/agents/${args.agent}/policy`, { policy: args.policy });
+    // 神龍 self-extension + co-pilot gates over MCP (web cockpit no longer required for the full lifecycle)
+    case 'gen_component': return await hub('/api/shenron/gen-component', { what: args.what, ...(args.maxIters ? { maxIters: args.maxIters } : {}) });
+    case 'list_components': return await hub(args.id ? `/api/shenron/components?id=${encodeURIComponent(args.id)}` : '/api/shenron/components');
+    case 'approve_component': return await hub('/api/shenron/components/approve', { id: args.id });
+    case 'get_permissions': return await hub('/api/permissions');
+    case 'set_permission': return await hub('/api/permissions', { tool: args.tool, domain: args.domain });
+    case 'make_skill': return await hub('/api/shenron/skill', { id: args.id });
     default: throw new Error(`unknown tool: ${name}`);
   }
 }
