@@ -701,7 +701,14 @@ const server = http.createServer((req, res) => {
         const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill }));
         const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name })));
         const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name }));
-        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude' })
+        const si = readIntegrations().find((it) => it.kind === 'search' && it.enabled !== false);   // Wave 2: 有効な search MCP が在れば gap を外部発見、無ければ graceful skip（内部のみ）
+        const search = si ? async (q) => {                                                          // fence: redact で goal の secret を外部検索に流さない＋egress を audit
+          const fw = redact(String(q || ''), {});
+          const r = await callMcpTool(si, si.searchTool || 'search', { query: fw.text }, { cwd: REPO_ROOT });
+          trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
+          return r;
+        } : null;
+        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search })
           .then((ir) => {
             const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
             const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧

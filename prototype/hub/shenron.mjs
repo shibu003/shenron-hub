@@ -46,13 +46,43 @@ export function buildPlanIR(goal, parsed, source = 'llm') {
   return { goal, plain_summary: parsed.plain_summary || goal, steps, tools_needed, missing, nodes, edges, source };
 }
 
-export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude' }) {
+// Wave 2 外部発見: 1 件の MCP search 結果 → {title,url} or null。trust 境界の外部データ＝防御的に多 shape 受け。
+// 受ける形: MCP envelope {content:[{type:'text',text}], structuredContent} / 配列 / {results:[…]} / {title,url}。test では parsed 値を直接。
+export function suggestionFromSearch(result) {
+  let v = result;
+  if (v && Array.isArray(v.content)) {                                      // MCP tool result envelope
+    const text = v.content.filter((c) => c && c.type === 'text').map((c) => c.text).join('\n').trim();
+    try { v = JSON.parse(text); } catch { v = text; }                       // prose（JSON でない）→ 構造ヒット無し
+  } else if (v && v.structuredContent) v = v.structuredContent;
+  const ok = (x) => x && typeof x === 'object' && (x.url || x.link || x.title);   // typeof guard: bare strings have legacy .link/.anchor methods (truthy)
+  const arr = Array.isArray(v) ? v : Array.isArray(v?.results) ? v.results : ok(v) ? [v] : [];
+  const top = arr.find(ok);
+  if (!top) return null;
+  const url = String(top.url || top.link || '').slice(0, 300);
+  const title = String(top.title || top.name || url).slice(0, 120);
+  return title || url ? { title: title || url, url } : null;
+}
+
+// Wave 2: 各 gap を外部 search に通し missing[].suggestion を埋める。search: async (query)→MCP 結果（呼び出し側が redact+audit で fence）。
+// gap 1 個の失敗や変な結果が plan を落とさない（try/catch）。ponytail: cap 3 件（コスト）— 超過は capped で surface（沈黙の打ち切り禁止）。
+export async function discover(missing, search, cap = 3) {
+  for (const g of missing.slice(0, cap)) {
+    try { const s = suggestionFromSearch(await search(g.what)); if (s) g.suggestion = { ...s, source: 'external' }; }
+    catch { /* graceful: この gap は提案なし */ }
+  }
+  return { searched: Math.min(missing.length, cap), capped: Math.max(0, missing.length - cap) };
+}
+
+export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null }) {
   goal = String(goal || '').trim();
   if (!goal) throw new Error('goal required');
   const out = await runVendorAsync(vendor, PROMPT(goal, inventoryText({ agents, tools, workflows })), '');
+  let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (Array.isArray(parsed.steps) && parsed.steps.length) return buildPlanIR(goal, parsed, 'llm');
+    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal, parsed, 'llm');
   } catch { /* fall through to heuristic */ }
-  return buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // LLM 不在/壊れ → 1 prompt step
+  if (!ir) ir = buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic');   // LLM 不在/壊れ → 1 prompt step
+  if (search && ir.missing.length) ir.discovery = await discover(ir.missing, search);   // Wave 2: gap に外部ツール提案（caller が fence）
+  return ir;
 }

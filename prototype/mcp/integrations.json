@@ -33,5 +33,18 @@
     "tools": [
       { "name": "post_message", "accepts": ["*"], "emits": ["posted"] }
     ]
+  },
+  {
+    "id": "tavily",
+    "label": "Tavily web search (BYO key)",
+    "kind": "search",
+    "command": "npx -y tavily-mcp",
+    "url": "",
+    "enabled": false,
+    "searchTool": "search",
+    "tags": ["discover"],
+    "tools": [
+      { "name": "search", "accepts": ["*"], "emits": ["results"] }
+    ]
   }
 ]
