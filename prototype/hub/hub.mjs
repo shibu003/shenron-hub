@@ -670,8 +670,6 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
   if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
     try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } }
-  if (req.method === 'GET' && p === '/api/pubkey')               // the hub's ed25519 public key — verify receipts without the hub
-    return json(res, 200, { alg: 'ed25519', publicKey: HUB_KEY.publicKeyPem });
   if (req.method === 'GET' && p === '/api/buildstate')           // Wave J: the build-state IR vocabulary + match operators
     return json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) });
   if (req.method === 'GET' && p === '/api/capvocab')             // Wave B: the capability-passport vocabulary (drives the passport editor)

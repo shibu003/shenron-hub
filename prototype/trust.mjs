@@ -138,14 +138,14 @@ export function reputationFrom(audit = [], handoffs = [], agentIds = []) {
 // ed25519 signature. Honest: it attests integrity + authenticity under the hub's key, NOT identity/authority —
 // a self-generated hub key is TOFU (trust WHO signed only via an out-of-band public key). Receipt entries carry
 // labels+counts, never the redacted values. signReceipt/verifyReceipt are pure; key persistence lives in the hub.
-export function runSubchain(audit, handoffs, runId) {
+function runSubchain(audit, handoffs, runId) {
   const hById = new Map((handoffs || []).map((h) => [h.id, h]));
   return (audit || []).filter((e) => e.runId === runId || (e.handoff && hById.get(e.handoff) && hById.get(e.handoff).runId === runId));
 }
 // deterministic JSON (recursively sorted keys) so the signer and any verifier hash the EXACT same bytes.
 // Mirrors JSON semantics for `undefined` (object props with undefined values are dropped; undefined → null
 // elsewhere) so a sign-time in-memory `key:undefined` and a post-JSON-round-trip missing key canonicalize alike.
-export function canonical(obj) {
+function canonical(obj) {
   if (Array.isArray(obj)) return '[' + obj.map(canonical).join(',') + ']';
   if (obj && typeof obj === 'object') return '{' + Object.keys(obj).filter((k) => obj[k] !== undefined).sort().map((k) => JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
   return JSON.stringify(obj) ?? 'null';

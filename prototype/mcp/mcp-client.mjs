@@ -24,11 +24,11 @@ function resultText(result) {
   const c = Array.isArray(result.content)
     ? result.content.filter((x) => x && x.type === 'text').map((x) => x.text).join('\n').trim() : '';
   if (result.isError) throw new Error(c || 'tool returned isError');
-  return c || (result.structuredContent ? JSON.stringify(result.structuredContent) : (c || JSON.stringify(result)));
+  return c || (result.structuredContent ? JSON.stringify(result.structuredContent) : JSON.stringify(result));
 }
 
-// split a command string into argv, honoring simple double-quotes ("a b" → one arg)
-const argv = (cmd) => (cmd.match(/(?:[^\s"]+|"[^"]*")+/g) || []).map((s) => s.replace(/^"|"$/g, ''));
+// split a command string into argv (space-delimited; configured commands need no quoted-arg grammar)
+const argv = (cmd) => cmd.trim().split(/\s+/);
 
 function callStdio(command, tool, args, { timeoutMs = 30000, cwd } = {}) {
   return new Promise((resolve, reject) => {

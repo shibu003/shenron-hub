@@ -610,8 +610,7 @@ function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
 function typeColor(tp){ if(!tp||tp==='*') return '#9ca3af'; let h=0; for(let i=0;i<tp.length;i++) h=(h*31+tp.charCodeAt(i))>>>0; return TYPE_PALETTE[h%TYPE_PALETTE.length]; }
 // C1 — floating connections: no fixed left-in / right-out port dots. Wires ride the node border toward the
-// other end (borderPoint), and a wire is started by dragging from a node's edge. portHtml is now a no-op.
-const portHtml=(side,id,type)=>'';
+// other end (borderPoint); a wire is started by dragging from a node's edge.
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ---------- palette ---------- */
@@ -637,7 +636,7 @@ function renderPalette(){
     + `<div class="palrow"><div class="pm"><b>▦ ${esc(t('comp_generic'))}</b><span>${esc(t('comp_generic_sub'))}</span></div>
         <span class="pb" data-pcompadd="" title="${t('add_canvas')}">＋</span></div>`;
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
-  $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>copyMcp(el.getAttribute('data-pmcp')));
+  $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>openMcpModal(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
   $('#palList').querySelectorAll('[data-pmcpgeneric]').forEach(el=>el.onclick=()=>addMcpNode());
   $('#palList').querySelectorAll('[data-pcompadd]').forEach(el=>el.onclick=()=>addComp(el.getAttribute('data-pcompadd')));
@@ -752,12 +751,6 @@ function mcpCascade(mn, cls){
   const wrap=(inner)=>cls==='nf'?`<div class="nfrow">${inner}</div>`:`<div class="field">${inner}</div>`;
   return wrap(lbl('mcp_server_sel')+srvSel)+(mn.server?wrap(lbl('mcp_tool_sel')+toolSel):'');
 }
-// rebind an agent node to a different registry agent, in place: keep this canvas slot's position + wiring,
-// swap which agent it points at (hide the old, reveal the new), then re-validate ports. ("agent の中身変更")
-function rebindAgent(oldId, newId){ if(!newId||newId===oldId) return;
-  POS[newId]=POS[oldId]||POS[newId]||{x:60,y:60}; HIDDEN.delete(newId); HIDDEN.add(oldId);
-  EDGES.forEach(e=>{ if(e.source===oldId) e.source=newId; if(e.target===oldId) e.target=newId; });
-  revalidateEdges(newId); selectNode(newId); }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
@@ -814,8 +807,7 @@ function renderNodes(){
         +`<div class="nflabel">secrets: deny · ${t('cap_always')}</div>`
         +`<div class="nfrow"><label class="nflabel">${t('h_never')}</label><textarea class="nf" data-agnever="${esc(a.id)}" rows="2" placeholder="${esc(t('h_never_ph'))}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>`
         +`<button class="ibtn" data-ppsave="${esc(a.id)}">${t('h_pp_apply')}</button>`
-      +`</div>`
-      +`${portHtml('in',a.id,(a.accepts||[])[0])}${portHtml('out',a.id,(a.emits||[])[0])}`;
+      +`</div>`;
   }
   for(const tr of TRIGGERS){
     const nid='n_'+cssid(tr.id); seen.add(nid);
@@ -831,8 +823,7 @@ function renderNodes(){
     const stSel=tHasStatus?`<div class="nfrow"><label class="nflabel">${t('fire_result')}</label><select class="nf" data-trig="${esc(tr.id)}" data-trigfield="status"><option value="">—</option>${['green','red','changes_requested'].map(s=>`<option value="${s}" ${tr.match&&tr.match.status===s?'selected':''}>${esc(resultLabel(s))}</option>`).join('')}</select></div>`:'';
     n.innerHTML=`<div class="name">${collBtn(tr.id)}⚡ trigger</div>`
       +`<div class="co">${esc(triggerSummary(tr.match))}</div>`
-      +`<div class="nbody"><div class="nfrow"><label class="nflabel">${t('fire_what')}</label>${evSel}</div>${stSel}</div>`
-      +portHtml('out',tr.id,'*');
+      +`<div class="nbody"><div class="nfrow"><label class="nflabel">${t('fire_what')}</label>${evSel}</div>${stSel}</div>`;
   }
   for(const mn of MCP_NODES){
     const nid='n_'+cssid(mn.id); seen.add(nid);
@@ -851,8 +842,7 @@ function renderNodes(){
       ? `${cascade}<label class="nfbool"><input type="checkbox" class="nf" data-mcpnf="${esc(mn.id)}" data-mcpauto="1" ${mn.auto?'checked':''}> ${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}</label><div class="nfrow"><label class="nflabel">${t('f_args')}</label><textarea class="nf" data-mcpnf="${esc(mn.id)}" data-mcpargs="1" rows="2">${esc(JSON.stringify(mn.config||{}))}</textarea></div>${awaiting?`<div class="nflabel" style="color:var(--amber)">⏳ awaiting approval</div>`:busy?`<div class="nflabel" style="color:var(--blue)">▶ running</div>`:''}`
       : cascade;
     n.innerHTML=`<div class="name">${collBtn(mn.id)}🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="nbody">${body}</div>`
-      +`${portHtml('in',mn.id,(mn.accepts||[])[0])}${portHtml('out',mn.id,(mn.emits||[])[0])}`;
+      +`<div class="nbody">${body}</div>`;
   }
   for(const c of COMPONENTS){
     const nid='n_'+cssid(c.id); seen.add(nid);
@@ -869,9 +859,7 @@ function renderNodes(){
     const nameDesc=inlineField(c,{key:'name',label:t('comp_name'),ph:t('comp_name_ph')})+inlineField(c,{key:'desc',label:t('comp_desc'),type:'textarea',ph:t('comp_desc_ph')});
     const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
     n.innerHTML=`<div class="name">${collBtn(c.id)}${meta.icon||'▦'} ${esc(cname)}</div>`
-      +`<div class="nbody">${kindSel}${nameDesc}${fieldsHtml}${res!=null?`<div class="nfres">${esc(res).slice(0,240)}</div>`:''}</div>`
-      +(c.accepts.length?portHtml('in',c.id,c.accepts[0]):'')
-      +(c.emits.length?portHtml('out',c.id,c.emits[0]):'');
+      +`<div class="nbody">${kindSel}${nameDesc}${fieldsHtml}${res!=null?`<div class="nfres">${esc(res).slice(0,240)}</div>`:''}</div>`;
   }
   for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
     const nid='n_'+cssid(nt.id); seen.add(nid);
@@ -1005,8 +993,7 @@ function drawLinks(){
 /* ---------- inspector ---------- */
 function renderInspector(){
   // B3 — every NODE kind now edits on its own card; the right panel is only the edge firewall (edges have no
-  // card) + the run/trust/audit dashboard. (inspAgent/bindAgent are kept below but unreferenced until the
-  // parallel pass-allowlist WIP living inside them lands — then they can be deleted too.)
+  // card) + the run/trust/audit dashboard.
   const ins=$('#inspector'); const ed = selEdge && edgeOf(selEdge);
   if(ed) return void (ins.innerHTML = inspEdge(ed), bindEdge(ed));
   ins.innerHTML = inspDefault();
@@ -1023,52 +1010,6 @@ const TRUST_PRESETS = {
   trusted:   { net:'full', fs:'repo',      external_send:'allow',    secrets:'deny' },   // first-party, fully trusted
 };
 async function applyPreset(id,name){ const c=TRUST_PRESETS[name]; if(!c)return; await api(`/api/agents/${id}/passport`,{caps:c}); toast(`${t('preset_applied')}: ${name}`); refresh(); }
-function capRow(key,a){ const cur=(a.passport&&a.passport.caps&&a.passport.caps[key])||(CAPVOCAB[key]||[])[0];
-  const opts=(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('');
-  return `<div class="caprow"><span class="capk">${esc(key.replace('_',' '))}</span><select class="cin" data-cap="${key}">${opts}</select></div>`; }
-function inspAgent(a){
-  const rp=repOf(a.id);
-  return `<div class="ins-h">${t('insp_agent')} <span class="back" onclick="deselect()">${t('close')}</span></div>
-    <div class="helpbox"><b>${t('agent_help')}</b><div class="ports"><div><i></i>${t('legend_in')}</div><div><i class="out"></i>${t('legend_out')}</div></div></div>
-    <div class="field"><label>${t('ag_rebind')}</label><select class="cin" id="agSel">
-      ${state.agents.filter(x=>x.id===a.id||HIDDEN.has(x.id)).map(x=>`<option value="${esc(x.id)}" ${x.id===a.id?'selected':''}>${esc(x.id)}${x.skill?' · '+esc(x.skill):''}</option>`).join('')}
-    </select></div>
-    <div class="field"><label>id</label><div class="v">${esc(a.id)}</div></div>
-    <div class="field"><label>${t('f_company')}</label><div class="v">${esc(a.company||'—')}</div></div>
-    <div class="field"><label>${t('f_skill')}</label><div class="v">${esc(a.skill||'—')}</div></div>
-    <div class="field"><label>${t('f_presence')}</label><div class="v">${a.online?t('online'):t('offline')}${a.local?t('runs_hub'):''}</div></div>
-    ${rp?`<div class="field"><label>📇 ${t('rep_title')}</label>
-      <div class="capmini"><span class="${rp.tone}">${rp.label}${rp.score!=null?` · ${rp.score}%`:''}</span></div>
-      <div class="mini">${rp.counts}${rp.partial?` · ~ ${t('rep_partial')}`:''}${state.reputation&&!state.reputation.chainOk?` · <span style="color:var(--red)">${t('aud_bad')}</span>`:''}</div></div>`:''}
-    <div class="field"><label>${t('f_accepts')}</label><div class="chips">${(a.accepts||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    <div class="field"><label>${t('f_emits')}</label><div class="chips">${(a.emits||['*']).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div></div>
-    <div class="field"><label>${t('f_policy')}</label>
-      <button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
-    ${a.local?`<div class="field"><label>${t('f_autorun')}</label>
-      <button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button></div>`:''}
-    <div class="field"><label>${t('h_presets')}</label><div class="presetrow">
-      <button onclick="applyPreset('${esc(a.id)}','untrusted')" title="net:none · fs:diff-only · send:approval">${t('preset_untrusted')}</button>
-      <button onclick="applyPreset('${esc(a.id)}','internal')" title="net:read · fs:repo · send:approval">${t('preset_internal')}</button>
-      <button onclick="applyPreset('${esc(a.id)}','trusted')" title="net:full · fs:repo · send:allow">${t('preset_trusted')}</button>
-    </div></div>
-    <div class="field"><label>🔒 ${t('h_caps')}</label>
-      ${capRow('net',a)}${capRow('fs',a)}${capRow('external_send',a)}
-      <div class="caprow"><span class="capk">secrets</span><span class="chip">deny · ${t('cap_always')}</span></div>
-      <div class="mini">${t('cap_note')}</div>
-    </div>
-    <div class="field"><label>${t('h_never')}</label><textarea class="match" id="ppNever" placeholder="${t('h_never_ph')}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>
-    <div class="field"><label>${t('h_pass')}</label><textarea class="match" id="ppPass" placeholder="${t('h_pass_ph')}">${esc(((a.passport&&a.passport.share&&a.passport.share.pass)||[]).join('\n'))}</textarea><div class="mini">${t('h_pass_note')}</div></div>
-    <button class="ibtn" id="ppSave">${t('h_pp_apply')}</button>
-    <button class="ibtn" onclick="sendHandoff('${esc(a.id)}')">${t('btn_send')}</button>
-    <button class="ibtn" onclick="copyMcp('${esc(a.id)}')">${t('btn_copy_mcp')}</button>
-    <button class="ibtn danger" onclick="HIDDEN.add('${esc(a.id)}');deselect()">${t('btn_remove')}</button>`;
-}
-function bindAgent(a){ const sel=$('#agSel'); if(sel) sel.onchange=()=>rebindAgent(a.id, sel.value);
-  const b=$('#ppSave'); if(!b)return;
-  b.onclick=async()=>{ const caps={ secrets:'deny' }; $('#inspector').querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
-    const never=($('#ppNever').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
-    const pass=($('#ppPass').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
-    await api(`/api/agents/${a.id}/passport`,{ caps, share:{ never, pass } }); toast(t('h_pp_saved')); refresh(); }; }
 // Wave A — per-edge Data Firewall editor. The wire's `share.never` strips extra strings on THIS edge only;
 // secrets/PII are stripped on every edge regardless. Cross-company edges (source/target differ in company)
 // are deny-by-default (firewall mandatory). Lives client-side in the flow draft; saved with the flow.
@@ -1284,7 +1225,6 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
   $('#flowsClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
 }
-const sfName=(id)=>{ const w=WORKFLOWS.find(x=>x.id===id); return w?(w.name||w.id):id; };
 function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
     <label>${t('set_autorun_g')}</label>
@@ -1311,7 +1251,6 @@ function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
   $('#setClose').onclick=()=>{ const h=$('#lfHost').value.trim(); h?localStorage.setItem('lf_host',h):localStorage.removeItem('lf_host');
     const k=$('#lfKey').value.trim(); k?localStorage.setItem('lf_key',k):localStorage.removeItem('lf_key'); dlg.close(); }; }
 let mcpTool = 'send_handoff';
-function copyMcp(id){ openMcpModal(id); }
 function openMcpModal(id){
   const a=ag(id), skill=a?.skill||'task', tool=mcpTool;
   const nl = LANG==='ja'
