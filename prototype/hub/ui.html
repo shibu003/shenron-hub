@@ -291,9 +291,6 @@
         <button id="miFire" onclick="fireEvent()"></button>
         <div class="mh" id="mhShare"></div>
         <button id="miExport" onclick="exportFlow()"></button>
-        <div class="mh">Langflow</div>
-        <button id="miLfImport" onclick="pickLangflowFile();closeMenu()"></button>
-        <button id="miLfPush" onclick="pushToLangflow();closeMenu()"></button>
       </div>
     </div>
     <div class="menu">
@@ -304,7 +301,7 @@
         <button id="miShenronBuild" onclick="shenronBuild();closeMenu()" disabled></button>
         <button id="miShenronGaps" onclick="shenronGaps();closeMenu()" disabled></button>
         <div class="mh"></div>
-        <button id="miTrust" onclick="checkTrust();closeMenu()"></button>
+        <button id="miTrust" onclick="checkTrust();closeMenu()" style="display:none"></button>
         <button id="miCollapse" onclick="collapseSelection();closeMenu()" disabled></button>
       </div>
     </div>
@@ -546,11 +543,9 @@ function restorePanels(){
 let VIEW='builder';
 function viewSwitch(v){
   VIEW=v;
-  $('#app').hidden = v!=='builder';
-  $('#view-runs').hidden = v!=='runs';
-  $('#view-settings').hidden = v!=='settings';
-  $('#view-tutorial').hidden = v!=='tutorial';
-  document.querySelectorAll('.vn[data-view]').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  $('#app').hidden=v!=='builder';
+  ['runs','settings','tutorial'].forEach(n=>$('#view-'+n).hidden=v!==n);
+  document.querySelectorAll('.vn[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
   if(v==='runs') renderRunsView();
   if(v==='settings') renderSettingsView();
   if(v==='tutorial') renderCoach();
@@ -559,7 +554,7 @@ async function renderRunsView(){
   const el=$('#view-runs');
   await fetchWorkflows();
   const cards=WORKFLOWS.length
-    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}" onclick="loadFlowById('${esc(w.id)}')"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">📜</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
+    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}" onclick="(async()=>{const r=await api('/api/workflows?id='+encodeURIComponent('${esc(w.id)}')); if(r&&r.nodes){$('#flowName').value=r.id;loadFlow(r);viewSwitch('builder');toast(r.name||r.id);}else toast(t('flows_none'));})()"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">📜</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
     : `<div class="empty">${t('flows_none')}</div>`;
   let comps=[]; try{ comps=await api('/api/shenron/components'); }catch{}                 // Wave 10: 生成部品の登録庫（pending=人ゲート待ち）
   const pending=comps.filter(c=>!c.approved);
@@ -572,7 +567,6 @@ async function renderRunsView(){
   el.querySelectorAll('[data-compok]').forEach(b=>b.onclick=async()=>{ try{ const r=await api('/api/shenron/components/approve',{id:b.getAttribute('data-compok')}); toast('✅ '+(r.integration||r.id)); await fetchIntegrations(); renderRunsView(); }catch(e){ toast(e.message); } });   // 承認 → integration 登録（ladder rejoin）→ 以降 plan で実 mcp node に
   el.querySelectorAll('[data-compcode]').forEach(b=>b.onclick=async()=>{ const c=await api('/api/shenron/components?id='+encodeURIComponent(b.getAttribute('data-compcode'))); openModal({title:c.id,info:esc(c.what),submitLabel:t('m_copy'),fields:[{key:'code',label:'',type:'readonly',value:c.code||''}],onSubmit:()=>copyText(c.code||'',t('t_snip_copied'))}); });
 }
-async function loadFlowById(id){ const w=await api('/api/workflows?id='+encodeURIComponent(id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); viewSwitch('builder'); toast(w.name||w.id); } else toast(t('flows_none')); }
 function renderSettingsView(){
   const el=$('#view-settings'); if(!el) return;
   const g=state.autorun!==false;
@@ -619,7 +613,6 @@ function applyChrome(){   // static (non-state) chrome strings
   document.documentElement.lang = LANG;
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
-  $('#miLfImport').textContent=t('lf_import'); $('#miLfPush').textContent=t('lf_push');
   $('#btnShenron').textContent=t('shenron')+' ▾'; $('#miShenronPlan').textContent=t('sh_btn'); $('#miShenronRefine').textContent=t('sh_refine'); $('#miShenronBuild').textContent=t('sh_build');
   $('#miShenronGaps').textContent=t('sh_gaps'); $('#miTrust').textContent=t('check_trust'); $('#miCollapse').textContent=t('collapse').replace('{n}',selSet.size);
   $('#langVn').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
@@ -848,9 +841,9 @@ function mcpCascade(mn, cls){
 }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
-function canvasCenter(off=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+off), y:Math.round((r.height/2-PANY)/ZOOM+off*0.5) }; }
-function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24) }); selectNode(id); render(); }
-function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24) }); selectNode(id); render(); }   // (b) annotation card
+function canvasCenter(dx=0,dy=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+dx), y:Math.round((r.height/2-PANY)/ZOOM+dy) }; }
+function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24, TRIGGERS.length*16) }); selectNode(id); render(); }
+function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24, NOTES.length*16) }); selectNode(id); render(); }   // (b) annotation card
 function removeNote(id){ NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
 
 /* ---------- canvas nodes ---------- */
@@ -1328,31 +1321,6 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
   dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
   dlg.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });   // Wave 10: flow → Claude Code SKILL.md（Wave 7 endpoint）
 }
-function openSettings(){ const dlg=$('#modal'); const g=state.autorun!==false;
-  dlg.innerHTML=`<div class="dh">${t('settings')}</div><div class="db">
-    <label>${t('set_autorun_g')}</label>
-    <button class="ibtn toggle ${g?'auto':'approval'}" id="gAutorun">${g?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button>
-    <div class="minfo">${t('autorun_info')}</div>
-    <label style="margin-top:6px">${t('integrations')}</label>
-    ${INTEGRATIONS.map(it=>`<div class="palrow" style="border:1px solid var(--line);border-radius:7px">
-      <div class="pm"><b>${esc(it.label)}</b><span>${esc(it.kind||'mcp')} · ${it.tools||0} ${t('mcp_tools_word')}</span></div>
-      <span class="pb" data-ittoggle="${esc(it.id)}">${it.enabled?'⚡ ON':'⏸ OFF'}</span></div>`).join('')||`<div class="minfo">—</div>`}
-    <div class="row2" style="display:flex;gap:6px;margin-top:4px">
-      <input id="itLabel" placeholder="${t('it_label')}" style="flex:1"><input id="itConn" placeholder="${t('it_conn')}" style="flex:1"></div>
-    <input id="itTools" placeholder="${t('it_tools')}">
-    <button class="ibtn" id="itAdd">${t('add_mcp')}</button>
-    <label style="margin-top:6px">${t('lf_host_label')}</label>
-    <input id="lfHost" value="${esc(lfHost())}" placeholder="http://localhost:7860">
-    <input id="lfKey" value="${esc(lfKey())}" placeholder="${t('lf_key_label')}"></div>
-    <div class="df"><button class="act" id="setClose">${t('close')}</button></div>`;
-  if(!dlg.open) dlg.showModal();
-  $('#gAutorun').onclick=async()=>{ await api('/api/autorun',{on:!(state.autorun!==false)}); await refresh(); openSettings(); };
-  dlg.querySelectorAll('[data-ittoggle]').forEach(el=>el.onclick=async()=>{ const it=INTEGRATIONS.find(x=>x.id===el.getAttribute('data-ittoggle')); await api(`/api/integrations/${it.id}/toggle`,{on:!it.enabled}); await fetchIntegrations(); openSettings(); render(); });
-  $('#itAdd').onclick=async()=>{ const label=$('#itLabel').value.trim(); if(!label)return; const conn=$('#itConn').value.trim();
-    const tools=($('#itTools').value||'').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,accepts:['*'],emits:['*']}));
-    await api('/api/integrations',{ label, command: conn.startsWith('http')?'':conn, url: conn.startsWith('http')?conn:'', enabled:true, tools }); await fetchIntegrations(); openSettings(); render(); };
-  $('#setClose').onclick=()=>{ const h=$('#lfHost').value.trim(); h?localStorage.setItem('lf_host',h):localStorage.removeItem('lf_host');
-    const k=$('#lfKey').value.trim(); k?localStorage.setItem('lf_key',k):localStorage.removeItem('lf_key'); dlg.close(); }; }
 let mcpTool = 'send_handoff';
 function openMcpModal(id){
   const a=ag(id), skill=a?.skill||'task', tool=mcpTool;
