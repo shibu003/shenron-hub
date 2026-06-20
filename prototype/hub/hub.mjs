@@ -583,64 +583,6 @@ function layoutFlow(nodes, edges) {                          // left→right by 
   for (const n of nodes) { const d = depth.get(n.id) || 0; n.x = 40 + d * 240; n.y = 40 + (rows[d] = (rows[d] || 0)) * 120; rows[d]++; }
   return nodes;
 }
-const tok = (s) => (s || '').toLowerCase().match(/[a-z0-9]+/g) || [];   // tokenize on non-alphanumerics (so "find-prospects" ≈ "find prospects")
-const kw = (text, q) => { const hay = ' ' + tok(text).join(' ') + ' '; return [...new Set(tok(q))].filter((t) => t.length >= 3).reduce((n, t) => n + (hay.includes(` ${t} `) ? 1 : 0), 0); };  // ≥3 chars: skip stopwords like "a"/"is"/"to"
-function firstHit(p, a) { let m = Infinity; for (const t of tok(`${a.id} ${a.skill} ${a.company || ''}`)) { const i = p.indexOf(t); if (i >= 0) m = Math.min(m, i); } return m; }
-function heuristicFlow(prompt) {
-  const p = prompt.toLowerCase();
-  const cand = Object.values(state.agents).filter((a) => a.skill).map((a) => ({ a, s: kw(`${a.id} ${a.skill} ${a.company || ''}`, p), at: firstHit(p, a) })).filter((x) => x.s > 0);
-  cand.sort((x, y) => x.at - y.at || y.s - x.s);                // chain by order of mention, then score
-  const mid = []; let agentDraft = null;
-  if (cand.length) { cand.forEach(({ a }) => mid.push({ id: a.id, kind: 'agent', agent: a.id, skill: a.skill })); }
-  else {                                                       // no agent matched → a generic Prompt step + draft a fitting agent
-    mid.push({ id: 'prompt-1', kind: 'prompt', config: { template: `${prompt.trim()}\n\n{input}` } });
-    const slug = tok(prompt).slice(0, 3).join('-') + '-agent';
-    agentDraft = { name: slug || 'new-agent', skill: 'task', accepts: ['*'], emits: ['text', '*'], systemPrompt: `You are an agent that: ${prompt.trim()}` };
-  }
-  const mcp = matchMcpTool(p);                                  // append an external action if the prompt asks to send/post
-  if (mcp) mid.push({ id: 'mcp-1', kind: 'mcp', server: mcp.server, tool: mcp.tool, config: {} });
-  const trig = matchTrigger(p);                                 // event-driven → trigger is the entry (no Chat Input); else Chat Input
-  const entry = trig ? { id: 'trigger-1', kind: 'trigger', trigger: trig } : { id: 'input-1', kind: 'input', config: {} };
-  const nodes = [entry, ...mid, { id: 'output-1', kind: 'output', config: {} }];
-  const edges = []; for (let i = 0; i < nodes.length - 1; i++) edges.push({ source: nodes[i].id, target: nodes[i + 1].id });
-  return { nodes, edges, agentDraft };
-}
-function matchMcpTool(p) {
-  const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ server: it.id, tool: t.name })));
-  if (/email|e-mail|メール/.test(p)) { const t = tools.find((x) => /email|mail/.test(x.tool)); if (t) return t; }
-  if (/slack|post|message|通知|チャンネル|channel|notify/.test(p)) { const t = tools.find((x) => /post|message|chat/.test(x.tool)); if (t) return t; }
-  if (/\bsend\b|送/.test(p)) return tools.find((x) => /send|email|mail/.test(x.tool)) || tools[0] || null;
-  return null;
-}
-function matchTrigger(p) {
-  if (/\bpr\b|pull request|merge|マージ/.test(p)) return { type: 'build_state', match: { event: 'pr_merged' } };
-  if (/deploy|デプロイ|green|本番|release/.test(p)) return { type: 'build_state', match: { event: 'deploy_green' } };
-  if (/review|レビュー/.test(p)) return { type: 'build_state', match: { event: 'review_completed', status: 'green' } };
-  if (/when|whenever|on |毎|every|trigger|きっかけ|たら/.test(p)) return { type: 'build_state', match: { event: 'build_state' } };
-  return null;
-}
-async function llmFlow(prompt) {
-  const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill, company: a.company, accepts: a.accepts, emits: a.emits }));
-  const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ server: it.id, tool: t.name, accepts: t.accepts, emits: t.emits })));
-  const sys = `You design a BuildHUD flow as JSON. Output ONLY JSON: {"nodes":[...],"edges":[...]}.
-Node kinds: "input"(Chat Input, emits text), "agent"{agent:<id from AGENTS>}, "prompt"{config:{template}} (use {input}), "mcp"{server,tool from TOOLS}, "output"(Chat Output). Edges {source,target} by node id. An edge is valid only if source.emits ∩ target.accepts ≠ ∅ ("*"=any).
-AGENTS=${JSON.stringify(agents)}
-TOOLS=${JSON.stringify(tools)}
-TASK: ${prompt}`;
-  const out = await runVendorAsync(EXEC_VENDOR || 'claude', sys, '');
-  const m = out.match(/\{[\s\S]*\}/); if (!m) throw new Error('no JSON');
-  const flow = JSON.parse(m[0]); if (!Array.isArray(flow.nodes) || !flow.nodes.length) throw new Error('empty');
-  return { nodes: flow.nodes, edges: flow.edges || [], agentDraft: null };
-}
-async function ghostwrite({ prompt }) {
-  prompt = String(prompt || '').trim(); if (!prompt) throw new Error('prompt required');
-  let flow, source;
-  if (EXEC_VENDOR && EXEC_VENDOR !== 'stub') { try { flow = await llmFlow(prompt); source = 'llm'; } catch { flow = null; } }
-  if (!flow) { flow = heuristicFlow(prompt); source = 'heuristic'; }
-  for (const n of flow.nodes) if (n.kind === 'agent' && !n.skill) { const a = state.agents[n.agent || n.id]; if (a) n.skill = a.skill; }   // backfill skill from the index (covers the LLM path)
-  const v = validateFlow(flow.nodes, flow.edges); layoutFlow(flow.nodes, v.edges);
-  return { nodes: flow.nodes, edges: v.edges, agentDraft: flow.agentDraft || null, warnings: v.warnings, source };
-}
 
 // ---------- HTTP ----------
 const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
@@ -694,7 +636,6 @@ const server = http.createServer((req, res) => {
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
-      if (p === '/api/ghostwrite') { ghostwrite(j).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }  // Wave L: NL → validated flow
       if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR. steps[] via LLM, have/missing via LLM-resolve (§1.5-F), nodes/edges validated here.
         const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill }));
         const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name })));

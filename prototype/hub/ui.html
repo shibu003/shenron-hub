@@ -288,7 +288,6 @@
     </div>
     <button class="tb" id="btnShenron" onclick="shenronPlan()"></button>
     <button class="tb" id="btnShenronBuild" onclick="shenronBuild()" style="display:none"></button>
-    <button class="tb" id="btnGhost" onclick="ghostWrite()"></button>
     <button class="tb" id="btnLfImport" onclick="pickLangflowFile()"></button>
     <button class="tb" id="btnLfPush" onclick="pushToLangflow()"></button>
     <button class="tb" id="btnSettings" onclick="openSettings()"></button>
@@ -438,9 +437,8 @@ const I18N = {
   lf_host_label:{ja:'Langflow host（🔗 を含む flow の実行先）',en:'Langflow host (for running 🔗 flows)'}, lf_noflowid:{ja:'flowId 不明 — 先に「⤴ Langflow へ登録」するか flow を再取込してください',en:'no flowId — push to Langflow first, or re-import the flow'},
   lf_key_label:{ja:'Langflow API key（任意・secured 時のみ）',en:'Langflow API key (optional, secured instances)'}, lf_push:{ja:'⤴ Langflow へ登録',en:'⤴ Push to Langflow'}, lf_push_none:{ja:'先に Langflow flow を取込んでください',en:'import a Langflow flow first'}, lf_pushed:{ja:'Langflow に登録 → flowId {id}',en:'registered in Langflow → flowId {id}'},
   lf_run_info:{ja:'🔗 を含む flow は {host} の /v1/run へ丸ごと委譲。入力は firewall で除去・呼び出しは audit に記録。',en:'🔗 flow is delegated whole to {host} /v1/run. Input is firewalled, the call is audited.'}, lf_ran:{ja:'Langflow 実行完了（除去 {n} 件）',en:'Langflow run done ({n} redacted)'},
-  ghost:{ja:'✨ Ghost Writer',en:'✨ Ghost Writer'}, gw_title:{ja:'✨ Ghost Writer — 一文で flow を組む',en:'✨ Ghost Writer — describe a flow in one line'}, gw_info:{ja:'やりたい事を書くと、既存 agent を見つけて flow を canvas に組みます。Run 前に必ずレビュー（実行は承認フェンス維持）。',en:'Describe what you want; it finds existing agents and lays out a flow on the canvas. Review before Run (execution keeps the approval fence).'},
-  gw_ph:{ja:'例: 見込み客を探してアウトリーチ文を書き、メール送信',en:'e.g. find prospects, draft outreach, then send the email'}, gw_btn:{ja:'✨ 生成',en:'✨ Generate'}, gw_built:{ja:'flow を生成しました',en:'flow generated'}, gw_empty:{ja:'flow を生成できませんでした',en:'could not generate a flow'},
-  gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'}, gw_warn:{ja:'型不一致で外したエッジ',en:'edges dropped (type mismatch)'},
+  gw_empty:{ja:'生成できませんでした',en:'could not generate'},
+  gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'},
   shenron:{ja:'🐉 神龍',en:'🐉 Shenron'}, sh_build:{ja:'🔗 Langflow 化',en:'🔗 To Langflow'},
   sh_title:{ja:'🐉 神龍 — 願いを flow に',en:'🐉 Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
   sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'🐉 計画',en:'🐉 Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（🔗 ゼロ＝透明な往復）',en:'built Langflow flow (🔗-free = transparent round-trip)'},
@@ -532,7 +530,7 @@ function applyChrome(){   // static (non-state) chrome strings
   $('#flowName').placeholder=t('ph_flow'); $('#btnSave').textContent=t('save'); $('#btnFlows').textContent=t('flows'); $('#btnRun').textContent=t('run'); $('#btnStop').textContent=t('stop'); $('#btnCollapse').textContent=t('collapse').replace('{n}',selSet.size); $('#btnCollapse').title=t('collapse_hint'); $('#btnTrust').textContent=t('check_trust'); $('#btnAuto').textContent=t('automate');
   $('#mhTrig').textContent=t('mh_trig'); $('#miAuto').textContent=t('mi_auto'); $('#miFire').textContent=t('mi_fire'); $('#mhShare').textContent=t('mh_share'); $('#miExport').textContent=t('mi_export');
   $('#btnShenron').textContent=t('shenron'); $('#btnShenronBuild').textContent=t('sh_build');
-  $('#btnGhost').textContent=t('ghost'); $('#btnLfImport').textContent=t('lf_import'); $('#btnLfPush').textContent=t('lf_push'); $('#btnSettings').textContent=t('settings');
+  $('#btnLfImport').textContent=t('lf_import'); $('#btnLfPush').textContent=t('lf_push'); $('#btnSettings').textContent=t('settings');
   $('#lang').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
   $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger'); $('#btnAddNote').textContent=t('add_note');
@@ -1529,18 +1527,6 @@ function downloadJSON(name,obj){ const a=document.createElement('a'); a.href=URL
 async function exportReceipt(runId){ try{ const r=await api('/api/receipt?runId='+encodeURIComponent(runId)); if(r&&r.error) return toast(r.error); downloadJSON(runId+'-trust-receipt.json', r); conn(t('t_receipt_saved')); toast(t('t_receipt_saved')); }catch(e){ toast(e.message); } }
 
 /* ---------- Ghost Writer (Wave L): NL → flow on the canvas. Generate, review, Run (fence intact). ---------- */
-function ghostWrite(){
-  openModal({ title:t('gw_title'), info:t('gw_info'), submitLabel:t('gw_btn'),
-    fields:[{key:'prompt',label:'',type:'textarea',placeholder:t('gw_ph')}],
-    onSubmit:async v=>{ const prompt=(v.prompt||'').trim(); if(!prompt) return;
-      let r; try{ r=await api('/api/ghostwrite',{prompt}); }catch(e){ return toast(e.message||t('gw_empty')); }
-      if(!r.nodes||!r.nodes.length) return toast(t('gw_empty'));
-      loadFlow(r);
-      const msg=`${t('gw_built')} (${r.source}, ${r.nodes.length} nodes)`+((r.warnings&&r.warnings.length)?` · ${t('gw_warn')}: ${r.warnings.length}`:'');
-      conn(msg); toast(msg);
-      if(r.agentDraft) showAgentDraft(r.agentDraft);
-    } });
-}
 /* ---------- 神龍 Shenron (Wave 1+3): NL goal → plan IR on canvas, then 🔗 round-trip to Langflow. ---------- */
 let LAST_PLAN=null;                                                          // last shenron plan IR, for 🔗 build
 function shenronPlan(){
@@ -1553,6 +1539,8 @@ function shenronPlan(){
       const gaps=r.missing||[], sg=gaps.find(g=>g.suggestion);                       // Wave 2: surface first external suggestion
       const msg=`${t('sh_built')} (${r.source}, ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'')+')'+(sg?` · ${sg.suggestion.title} ${sg.suggestion.url}`:'');
       conn(msg); toast(msg);
+      const ag=gaps.find(g=>g.kind==='agent');                                     // 旧 Ghost Writer の agentDraft を統合: agent gap は下書き agent をワンクリック追加で埋める
+      if(ag){ const slug=((ag.what||'').toLowerCase().match(/[a-z0-9]+/g)||[]).slice(0,3).join('-'); showAgentDraft({ name:(slug||'new')+'-agent', skill:'task', accepts:['*'], emits:['text','*'], systemPrompt:`You are an agent that: ${ag.what}` }); }
     } });
 }
 async function shenronBuild(){                                              // plan IR → Langflow JSON → re-import on canvas (round-trip: 🔗 ゼロ なら透明)
