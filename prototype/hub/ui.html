@@ -278,6 +278,7 @@
 <header id="topbar">
   <div class="brand">BuildHUD <span>· cockpit</span></div>
   <input id="flowName">
+  <button class="tb" id="btnFlows" onclick="showFlows()" title="open saved flow">🗂</button>
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
@@ -563,8 +564,7 @@ async function renderRunsView(){
     <div class="pm"><b>${esc(c.what)}</b><span>${c.approved?'✅':'⚠️'} ${esc(c.id)} · iter ${c.iters||0}${(c.credentials&&c.credentials.length)?' · 🔑 '+c.credentials.map(esc).join(','):''}</span></div>
     <span class="pb" data-compcode="${esc(c.id)}">{ } code</span>${c.approved?'':`<span class="pb" data-compok="${esc(c.id)}">${t('sh_approve')}</span>`}</div>`;
   const compSection=comps.length ? `<h2 style="margin-top:8px">${t('comps_title')}${pending.length?` · ⚠️ ${pending.length} ${t('comps_pending')}`:''}</h2><div style="margin-bottom:20px">${pending.concat(comps.filter(c=>c.approved)).map(compRow).join('')}</div>` : '';
-  el.innerHTML=`<h2>${t('flows_title')}</h2><div class="flowgrid" style="margin-bottom:20px">${cards}</div>
-    ${compSection}<h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
+  el.innerHTML=`${compSection}<h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
   el.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });
   el.querySelectorAll('[data-compok]').forEach(b=>b.onclick=async()=>{ try{ const r=await api('/api/shenron/components/approve',{id:b.getAttribute('data-compok')}); toast('✅ '+(r.integration||r.id)); await fetchIntegrations(); renderRunsView(); }catch(e){ toast(e.message); } });   // 承認 → integration 登録（ladder rejoin）→ 以降 plan で実 mcp node に
   el.querySelectorAll('[data-compcode]').forEach(b=>b.onclick=async()=>{ const c=await api('/api/shenron/components?id='+encodeURIComponent(b.getAttribute('data-compcode'))); openModal({title:c.id,info:esc(c.what),submitLabel:t('m_copy'),fields:[{key:'code',label:'',type:'readonly',value:c.code||''}],onSubmit:()=>copyText(c.code||'',t('t_snip_copied'))}); });
@@ -598,7 +598,7 @@ function renderSettingsView(){
     const k=$('#lfKey').value.trim(); k?localStorage.setItem('lf_key',k):localStorage.removeItem('lf_key'); toast(LANG==='ja'?'保存しました':'saved'); };
 }
 // ---------- pan + zoom: the nodes/links live in #world (a transformed layer); chrome stays in #canvas ----------
-let ZOOM=1, PANX=0, PANY=0, panning=null;
+let ZOOM=0.75, PANX=0, PANY=0, panning=null;
 function applyView(){ const w=$('#world'); if(w) w.style.transform=`translate(${PANX}px,${PANY}px) scale(${ZOOM})`; const p=$('#zoomPct'); if(p) p.textContent=Math.round(ZOOM*100)+'%'; }
 const clampZoom = (z) => Math.min(2.5, Math.max(.35, z));
 function saveView(){ try{ localStorage.setItem('bh_view', JSON.stringify({ ZOOM, PANX, PANY })); }catch{} }
@@ -606,7 +606,7 @@ function setView(z, px, py){ ZOOM=clampZoom(z); PANX=px; PANY=py; applyView(); d
 function zoomAt(z, clientX, clientY){ const r=$('#canvas').getBoundingClientRect(), sx=clientX-r.left, sy=clientY-r.top;
   z=clampZoom(z); const wx=(sx-PANX)/ZOOM, wy=(sy-PANY)/ZOOM; setView(z, sx-wx*z, sy-wy*z); }   // keep the world point under the cursor fixed
 function zoomStep(d){ const r=$('#canvas').getBoundingClientRect(); zoomAt(ZOOM*(d>0?1.15:1/1.15), r.left+r.width/2, r.top+r.height/2); }
-function resetView(){ setView(1, 0, 0); }
+function resetView(){ setView(0.75, 0, 0); }
 function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.length) return resetView();
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const n of ns){ x0=Math.min(x0,n.offsetLeft); y0=Math.min(y0,n.offsetTop); x1=Math.max(x1,n.offsetLeft+n.offsetWidth); y1=Math.max(y1,n.offsetTop+n.offsetHeight); }
   const r=$('#canvas').getBoundingClientRect(), pad=60, z=clampZoom(Math.min((r.width-pad*2)/(x1-x0||1),(r.height-pad*2)/(y1-y0||1),1.4));
@@ -845,14 +845,20 @@ function mcpCascade(mn, cls){
 }
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
-function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, x:30, y:30+TRIGGERS.length*26 }); selectNode(id); render(); }
-function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', x:90, y:90+NOTES.length*24 }); selectNode(id); render(); }   // (b) annotation card
+function canvasCenter(off=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+off), y:Math.round((r.height/2-PANY)/ZOOM+off*0.5) }; }
+function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24) }); selectNode(id); render(); }
+function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24) }); selectNode(id); render(); }   // (b) annotation card
 function removeNote(id){ NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
 
 /* ---------- canvas nodes ---------- */
 function placeNodes(){
-  const COLW=248, ROWH=120, w=($('#canvas')?.clientWidth||900), per=Math.max(1,Math.floor((w-280)/COLW));
-  state.agents.filter(a=>!HIDDEN.has(a.id)).forEach((a,i)=>{ if(!POS[a.id]) POS[a.id]={ x:40+(i%per)*COLW, y:40+Math.floor(i/per)*ROWH }; });
+  const COLW=248, ROWH=120;
+  const all=state.agents.filter(a=>!HIDDEN.has(a.id));
+  if(!all.some(a=>!POS[a.id])) return;
+  const per=Math.max(1,Math.floor(($('#canvas')?.clientWidth||900)/COLW));
+  const c=canvasCenter(), rows=Math.ceil(all.length/per);
+  const ox=c.x-Math.min(all.length,per)*COLW/2, oy=c.y-rows*ROWH/2;
+  all.forEach((a,i)=>{ if(!POS[a.id]) POS[a.id]={ x:Math.round(ox+(i%per)*COLW), y:Math.round(oy+Math.floor(i/per)*ROWH) }; });
 }
 // in-node settings: render one component field as a compact inline widget bound live to config (data-nf/data-fk)
 function inlineField(c,f){ const id=esc(c.id), k=esc(f.key), val=c.config?.[f.key]??f.value??'';
