@@ -337,7 +337,7 @@
       <div id="palList"></div>
       <div class="pal-add">
         <input id="addName" onkeydown="if(event.key==='Enter')addAgent()">
-        <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button><button id="btnAddTrig" onclick="addTrigger()"></button><button id="btnAddNote" onclick="addNote()"></button></div>
+        <div class="row2"><button id="btnAddAgent" onclick="addAgent()"></button></div>
       </div>
     </div>
     <div id="sidebar-ins" hidden></div>
@@ -617,7 +617,7 @@ function applyChrome(){   // static (non-state) chrome strings
   $('#miShenronGaps').textContent=t('sh_gaps'); $('#miTrust').textContent=t('check_trust'); $('#miCollapse').textContent=t('collapse').replace('{n}',selSet.size);
   $('#langVn').textContent=t('lang_btn'); $('#palHead').textContent=t('palette'); $('#palSearch').placeholder=t('ph_search');
   $('#palTip').innerHTML=t('pal_tip');
-  $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent'); $('#btnAddTrig').textContent=t('add_trigger'); $('#btnAddNote').textContent=t('add_note');
+  $('#addName').placeholder=t('ph_newagent'); $('#btnAddAgent').textContent=t('add_agent');
   $('#hint').innerHTML=t('hint');
 }
 
@@ -705,7 +705,7 @@ const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`
 function renderPalette(){
   const q=($('#palSearch').value||'').toLowerCase();
   const agents=state.agents.filter(a=>!q||(a.id+' '+(a.skill||'')+' '+(a.company||'')).toLowerCase().includes(q));
-  $('#palList').innerHTML =
+  const rows =
     agents.map(a=>{ const on=!HIDDEN.has(a.id); const rp=repOf(a.id);
       const repChip=(rp&&rp.r.auditedRuns)?`<span class="rep-chip ${rp.tone}" title="${esc(rp.counts)}">${rp.score!=null?rp.score+'%':rp.label}</span>`:'';   // Wave R: longitudinal trust at a glance
       return `<div class="palrow ${on?'on':''}" title="${on?t('on_canvas'):t('add_canvas')}">
@@ -714,15 +714,11 @@ function renderPalette(){
         <span class="pb" data-pmcp="${esc(a.id)}" title="${t('copy_mcp_t')}">⧉</span></div>`; }).join('')
     + TRIGGERS.map(tr=>`<div class="palrow trig"><div class="pm"><b>⚡ ${esc(tr.id)}</b><span>${esc(tr.type)} ${esc(matchStr(tr))}</span></div>
         <span class="pb" data-psel="${esc(tr.id)}" title="${t('select_t')}">→</span></div>`).join('')
-    || `<div class="empty" style="padding:10px 12px">${t('pal_empty')}</div>`;
-  // MCP actions section — place a generic (blank) external-action node; choose & change its tool in the inspector.
-  $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('mcp_tools_head')}</div>`
     + `<div class="palrow"><div class="pm"><b>🔌 ${esc(t('mcp_generic'))}</b><span>${esc(t('mcp_generic_sub'))}</span></div>
-        <span class="pb" data-pmcpgeneric="1" title="${t('add_canvas')}">＋</span></div>`;
-  // Components section — place a generic (blank) node; choose & change its kind in the inspector.
-  $('#palList').innerHTML += `<div class="pal-head" style="border-top:1px solid var(--line);margin-top:6px">${t('comp_head')}</div>`
+        <span class="pb" data-pmcpgeneric="1" title="${t('add_canvas')}">＋</span></div>`
     + `<div class="palrow"><div class="pm"><b>▦ ${esc(t('comp_generic'))}</b><span>${esc(t('comp_generic_sub'))}</span></div>
         <span class="pb" data-pcompadd="" title="${t('add_canvas')}">＋</span></div>`;
+  $('#palList').innerHTML = rows || `<div class="empty" style="padding:10px 12px">${t('pal_empty')}</div>`;
   $('#palList').querySelectorAll('[data-padd]').forEach(el=>el.onclick=()=>{ HIDDEN.delete(el.getAttribute('data-padd')); render(); });
   $('#palList').querySelectorAll('[data-pmcp]').forEach(el=>el.onclick=()=>openMcpModal(el.getAttribute('data-pmcp')));
   $('#palList').querySelectorAll('[data-psel]').forEach(el=>el.onclick=()=>selectNode(el.getAttribute('data-psel')));
@@ -807,9 +803,9 @@ function setCompKind(cn, kind){ const m=COMP[kind];
   if(keepName) cn.config.name=keepName; if(keepDesc) cn.config.desc=keepDesc;
   revalidateEdges(cn.id); selectNode(cn.id); }
 function removeComp(id){ COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
-function addMcpNode(tl){ const id='mcp-'+(++mnidc); const y=40+MCP_NODES.length*26;
-  MCP_NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x:360, y }
-                   :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x:360, y });   // blank: choose the tool in the inspector
+function addMcpNode(tl){ const id='mcp-'+(++mnidc); const {x,y}=canvasCenter(MCP_NODES.length*24, MCP_NODES.length*16);
+  MCP_NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x, y }
+                   :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x, y });   // blank: choose the tool in the inspector
   selectNode(id); render(); }
 // an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
 const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool)) || (n.kind==='workflow' && !n.ref);
