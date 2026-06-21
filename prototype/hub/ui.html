@@ -19,6 +19,8 @@
   .tb:hover { border-color:var(--blue); }
   .tb.primary { border-color:var(--blue); color:var(--blue); } .tb.go { border-color:var(--green); color:var(--green); }
   .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
+  #ckptBadge { display:none; border:1px solid var(--amber); color:var(--amber); background:rgba(210,153,34,.12); border-radius:7px; padding:5px 11px; cursor:pointer; font:inherit; font-size:13px; white-space:nowrap; }
+  #ckptBadge:hover { background:rgba(210,153,34,.22); }
   .tb.collapse { border-color:#8957e5; color:#a371f7; } .tb.collapse:hover { border-color:#a371f7; background:rgba(137,87,229,.1); }
   .flowgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; max-height:58vh; overflow:auto; }
   .flowcard { text-align:left; padding:10px; cursor:pointer; position:relative; } .flowcard:hover { border-color:var(--blue); } .fc-name { font-weight:600; margin-bottom:3px; }
@@ -285,6 +287,7 @@
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none"></button>
+    <button id="ckptBadge" onclick="viewSwitch('builder');renderInspector()"></button>
     <div class="menu">
       <button class="tb" id="btnAuto" onclick="toggleMenu(event,'autoMenu')"></button>
       <div class="menu-pop" id="autoMenu">
@@ -671,15 +674,28 @@ async function api(path, body) {
   const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'content-type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
   return r.json();
 }
+let _prevRunStatuses = {};   // C: run完了検知用
 async function refresh() {
   try { const [s,a] = await Promise.all([api('/api/state'), api('/api/audit').catch(()=>AUDIT)]); state=s; AUDIT=a||AUDIT;
-    $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)'; render(); }
+    $('#conn').textContent=t('conn_live'); $('#conn').style.color='var(--green)';
+    // C: running → completed 遷移を検知してトーストに出力を表示
+    for(const run of (state.runs||[])){
+      if(_prevRunStatuses[run.id]==='running' && run.status==='completed'){
+        const outs=Object.values(run.outputs||{}); const out=outs[outs.length-1];
+        if(out) toast('✅ '+(String(out).slice(0,80)+(String(out).length>80?'…':'')));
+      }
+      _prevRunStatuses[run.id]=run.status;
+    }
+    render(); }
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
 function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach();
   const sb=$('#btnStop'); if(sb) sb.style.display=(state.runs||[]).some(r=>r.status==='running')?'inline-flex':'none';   // ⏹ visible only while a run is active
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('multi', selSet.has(n.dataset.id)));        // ③b-2 multi-select highlight
-  const mc=$('#miCollapse'); if(mc){ mc.disabled=selSet.size<2; mc.textContent=t('collapse').replace('{n}',selSet.size); } }
+  const mc=$('#miCollapse'); if(mc){ mc.disabled=selSet.size<2; mc.textContent=t('collapse').replace('{n}',selSet.size); }
+  // B: checkpoint badge — 承認待ちがあれば topbar に目立つバッジ
+  const ckN=(state.handoffs||[]).filter(h=>h.status==='awaiting_approval').length;
+  const cb=$('#ckptBadge'); if(cb){ cb.style.display=ckN?'inline-flex':'none'; cb.textContent=`⏸ ${ckN} ${LANG==='ja'?'承認待ち':'pending'}`; } }
 function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
