@@ -655,7 +655,8 @@ const bearerOk = (req) => { if (!oauthTokens.size) return true; const t = (req.h
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
 const mcpSessions = new Map(); // sessionId → SSE res
 const MCP_TOOLS = [
-  { name: 'plan_flow',          description: '利用可能なエージェント・ツール・フロー一覧を返す。Claudeがプランを立て、save_workflow で保存する。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' } }, required: ['goal'] } },
+  { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）も返す。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' } }, required: ['goal'] } },
+  { name: 'add_integration',    description: '自分の MCP server を giogio に登録 → plan_flow の available に出て、フローのノードとして解決される。client 接続は giogio から見えないので、使わせたいツールはこれで登録する。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', description: 'mcp（既定）| search' }, command: { type: 'string', description: 'stdio MCP の起動コマンド' }, url: { type: 'string', description: 'HTTP MCP の URL' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
   { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
   { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
   { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
@@ -663,13 +664,43 @@ const MCP_TOOLS = [
   { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
 ];
+// Wave B: 何が「使える」かの正直な要約。registered（agents/tools/workflows）＋組込（browser-control/prompt）。
+// 生成済み道具は integration.generated で印。⚠️ client が繋ぐ MCP（claude.ai の Gmail 等）は MCP 仕様上ここから見えない＝note で明示。
+function availableSummary() {
+  const integs = readIntegrations().filter((it) => it.enabled !== false);
+  return {
+    agents: publicAgents().map((a) => ({ id: a.id, skill: a.skill })),
+    tools: integs.flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name, ...(it.generated ? { generated: true } : {}) }))),
+    workflows: readWorkflows().map((w) => ({ id: w.id, name: w.name })),
+    builtin: [
+      { id: 'agent:browser-control', kind: 'computer-use', note: 'API のないサービスを実ブラウザで操作（ログイン session 利用）。送信系は実行時に人が承認。' },
+      { id: 'prompt', kind: 'llm', note: '組込 LLM ステップ（ツール不要）。' },
+    ],
+    note: 'あなたの MCP client が接続しているツール（例: claude.ai の Gmail）はここには出ません — MCP server は互いを見られない仕様です。使わせたい外部サービスは add_integration で登録、UI のみなら agent:browser-control に解決、無ければ gen_component で生成します。',
+  };
+}
+
+// Wave B③: server.mjs と hub remote-MCP で同一の「実 plan」エントリ。HTTP /api/shenron/plan と mcpDispatch(plan_flow) の両方が呼ぶ。
+async function planFlow({ goal, save, gap, context }) {
+  const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill }));
+  const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name })));
+  const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name }));
+  const si = readIntegrations().find((it) => it.kind === 'search' && it.enabled !== false);   // Wave 2: 有効な search MCP が在れば gap を外部発見、無ければ内部のみ
+  const search = si ? async (q) => {                                                          // fence: redact で goal の secret を外部に流さない＋egress を audit
+    const fw = redact(String(q || ''), {});
+    const r = await callMcpTool(si, si.searchTool || 'search', { query: fw.text }, { cwd: REPO_ROOT });
+    trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
+    return r;
+  } : null;
+  const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap });
+  const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
+  const saved = save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → cockpit 🗂 に出る
+  return { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}), available: availableSummary() };
+}
+
 async function mcpDispatch(name, args) {
-  if (name === 'plan_flow') {
-    const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill, accepts: a.accepts, emits: a.emits }));
-    const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ server: it.id, label: it.label, tool: t.name })));
-    const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '' }));
-    return { goal: args.goal, available: { agents, tools, workflows } };
-  }
+  if (name === 'plan_flow')          return planFlow({ goal: args.goal, save: args.save !== false, gap: args.gap, context: args.context });   // Wave B③: 在庫返しでなく実 plan（have/missing/図）に統一
+  if (name === 'add_integration')    return saveIntegration({ id: args.id, label: args.label, kind: args.kind || 'mcp', command: args.command || '', url: args.url || '', enabled: args.enabled, tools: args.tools || [] });
   if (name === 'save_workflow')      return saveWorkflow(args);
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length }));
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
@@ -817,24 +848,9 @@ const server = http.createServer((req, res) => {
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
-      if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR. steps[] via LLM, have/missing via LLM-resolve (§1.5-F), nodes/edges validated here.
-        const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill }));
-        const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name })));
-        const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name }));
-        const si = readIntegrations().find((it) => it.kind === 'search' && it.enabled !== false);   // Wave 2: 有効な search MCP が在れば gap を外部発見、無ければ graceful skip（内部のみ）
-        const search = si ? async (q) => {                                                          // fence: redact で goal の secret を外部検索に流さない＋egress を audit
-          const fw = redact(String(q || ''), {});
-          const r = await callMcpTool(si, si.searchTool || 'search', { query: fw.text }, { cwd: REPO_ROOT });
-          trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
-          return r;
-        } : null;
-        // Wave 9: 承認済み生成部品は実 integration（kind:mcp, generated）になり tools(:660) に run tool として出る → 二重列挙回避で別注入しない
-        shenronPlan({ goal: j.goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context: j.context, gap: j.gap })   // Wave 5: context で対話修正／gap:'off'|'ask'|'auto' = 道具生成の枝（既定 ask）
-          .then((ir) => {
-            const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
-            const saved = j.save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → visible in the cockpit 🗂 一覧
-            json(res, 200, { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}) });
-          })
+      if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR（Wave B③: planFlow に集約＝remote-MCP と同一経路。have/missing は LLM-resolve §1.5-F、nodes/edges validate+layout、available も返す）
+        planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context })       // Wave 5: context で対話修正／gap:'off'|'ask'|'auto' = 道具生成の枝（既定 ask）
+          .then((r) => json(res, 200, r))
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }

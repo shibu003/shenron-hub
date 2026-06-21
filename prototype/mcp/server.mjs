@@ -145,9 +145,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
   { name: 'get_integration', description: 'Get one integration\'s full definition (kind + command/url + tools with accepts/emits) by id.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'add_integration', description: 'Register an MCP server with giogio so its tools appear in plan_flow\'s available list and resolve as flow nodes. IMPORTANT: the tools YOUR client connects (e.g. claude.ai\'s Gmail) are invisible to giogio — MCP servers cannot see each other — so to let a flow use such a service, register it here (or rely on agent:browser-control for UI-only services). kind defaults to "mcp" ("search" for a search-provider). Provide command (stdio) or url (HTTP) and the tools it exposes.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', enum: ['mcp', 'search'] }, command: { type: 'string' }, url: { type: 'string' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
   { name: 'build_state', description: 'Summary of the BuildHUD state (counts, ids, attended/unattended). Summary only — not a full dump.',
     inputSchema: { type: 'object', properties: {} } },
-  { name: 'plan_flow', description: '神龍: turn a natural-language goal into a flow — ordered steps, which existing tools/agents cover each, and which are MISSING (gaps to build). Saves it to the workflow store so it is viewable in the web cockpit (🗂 Flows); pass save:false to design without saving. gap controls self-extension: "ask" (default) surfaces gaps to build, "auto" auto-generates them, "off" plans with existing tools only. Designs, does not run — act on it with run_workflow.',
+  { name: 'plan_flow', description: '神龍: turn a natural-language goal into a flow — ordered steps, which existing tools/agents cover each (have), and which are MISSING (gaps to build). Returns `available` (registered agents/tools/workflows + built-in agent:browser-control). Saves it to the workflow store so it is viewable in the web cockpit (🗂 Flows); pass save:false to design without saving. gap controls self-extension: "ask" (default) surfaces gaps to build, "auto" auto-generates them, "off" plans with existing tools only. NOTE: tools your client connects (e.g. claude.ai\'s Gmail) are NOT visible here — register them with add_integration, or a UI-only service resolves to agent:browser-control. Designs, does not run — act on it with run_workflow.',
     inputSchema: { type: 'object', properties: { goal: { type: 'string' }, save: { type: 'boolean' }, gap: { type: 'string', enum: ['off', 'ask', 'auto'] } }, required: ['goal'] } },
   { name: 'gen_component', description: '神龍: BUILD a missing tool for a gap — generates a standalone MCP server (claude/codex writes stdlib code), then spawn+handshake+run verifies it and repairs in a loop. Returns the converged code + a pending component id. The self-extension step: when no existing tool/MCP covers a step, 神龍 writes one. Approve it with approve_component to make it usable.',
     inputSchema: { type: 'object', properties: { what: { type: 'string' }, maxIters: { type: 'number' } }, required: ['what'] } },
@@ -197,6 +199,11 @@ async function callTool(name, args = {}) {
     case 'get_automation': { const m = AUTOMATIONS.find((x) => x.id === args.id); if (!m) throw new Error(`no automation "${args.id}"`); return m; }
     case 'search_integrations': return searchIntegrations(args.query || '', args.limit);
     case 'get_integration': { const it = INTEGRATIONS.find((x) => x.id === args.id); if (!it) throw new Error(`no integration "${args.id}"`); return it; }
+    case 'add_integration': {                                   // Wave B①: register an MCP server → hub saveIntegration → shows up in plan_flow available
+      const saved = await hub('/api/integrations', { id: args.id, label: args.label, kind: args.kind || 'mcp', command: args.command || '', url: args.url || '', tools: args.tools || [] });
+      INTEGRATIONS = loadJson('integrations.json', []);         // refresh local index so search_integrations/plan see it immediately
+      return saved;
+    }
     case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,
       agentIds: Object.keys(AGENTS), workflowIds: WORKFLOWS.map((w) => w.id), automationIds: AUTOMATIONS.map((m) => m.id) };
     case 'plan_flow':                                            // 神龍 over MCP → hub plans (inventory+validate+layout) and SAVES it (save:false to skip) → viewable in the web cockpit 🗂
