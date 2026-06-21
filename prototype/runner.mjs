@@ -38,9 +38,25 @@ async function runOllama(prompt, stub = '', model) {
   } catch (e) { return `[ollama failed → stub] ${e.message} (is \`ollama serve\` running?)\n` + stub; }
 }
 
+// Wave G: clean OpenAI/GPT provider（chat/completions・BYO OPENAI_API_KEY）。判断=Claude/別視点=GPT/合議 用。
+async function runOpenAiApi(prompt, stub = '', model) {
+  model = model || process.env.OPENAI_MODEL || 'gpt-4o-mini';   // 現行モデル名は OPENAI_MODEL で（config/env）。不正なら API が 400 → stub に理由が出る
+  try {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!r.ok) { const e = await r.text().catch(() => ''); return `[openai ${r.status} → stub] ${e.slice(0, 200)}\n` + stub; }
+    const j = await r.json();
+    return String(j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || '').trim() || `[openai empty → stub]\n` + stub;
+  } catch (e) { return `[openai failed → stub] ${e.message}\n` + stub; }
+}
+
 export function runVendorAsync(vendor, prompt, stub = '', { model } = {}) {   // Wave G: opts.model = この呼び出しだけ別モデル（flow の step ごと routing）
   const stubOut = stub || `[stub] (no vendor "${vendor}")`;
   if (vendor === 'ollama') return runOllama(prompt, stub, model);   // ローカル無料（cheap step 用）
+  if (vendor === 'openai' || vendor === 'gpt') return process.env.OPENAI_API_KEY ? runOpenAiApi(prompt, stub, model) : Promise.resolve(`[openai → stub] OPENAI_API_KEY 未設定\n` + stub);   // clean GPT（BYO-key）
   if (vendor === 'claude' && process.env.ANTHROPIC_API_KEY) return runAnthropicApi(prompt, stub, model);   // cloud: no CLI → direct API
   if (vendor !== 'codex' && vendor !== 'claude') return Promise.resolve(stubOut);
   const [cmd, args] = vendor === 'codex'

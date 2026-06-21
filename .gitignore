@@ -24,6 +24,8 @@ prototype/mcp/trigger/buildhud.schedules.ts
 prototype/hub/inbox.json
 # Wave: scheduler last-fired state — runtime, local only
 prototype/hub/schedule-state.json
+# Wave: 神龍 全設定（local・example はコミット）。secret は書かない方針だが念のため ignore
+prototype/hub/shenron.config.json
 # Wave 11b: browser-control permission rules — runtime user choices (seed lives in code), local only
 prototype/mcp/permissions.json
 

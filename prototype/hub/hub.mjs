@@ -32,6 +32,19 @@ const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
 const _SD = process.env.STATE_DIR ? path.resolve(process.env.STATE_DIR) : null;
 const sp = (name, fallback) => _SD ? path.join(_SD, name) : fallback;  // ponytail: STATE_DIR → all state to one volume; unset → original layout
+// Wave: 全設定を1か所に — shenron.config.json（STATE_DIR・gitignore）。⚠️ secret(API key)は置かない＝env/.dev.vars のみ。
+// env が優先（ops 上書き可）・未設定なら config 値を env に流す → 既存の env-read 全部が「この1ファイル」で効く（最小変更で集約）。
+const SHENRON_CFG = (() => { try { return JSON.parse(fs.readFileSync(sp('shenron.config.json', path.join(HERE, 'shenron.config.json')), 'utf8')); } catch { return {}; } })();
+(function applyCfg(c) {
+  const set = (k, v) => { if (v != null && process.env[k] == null) process.env[k] = String(v); };   // env 優先
+  const p = c.providers || {}, r = c.routing || {};
+  set('OLLAMA_HOST', p.ollama && p.ollama.host); set('OLLAMA_MODEL', p.ollama && p.ollama.model);
+  set('OPENAI_MODEL', p.openai && p.openai.model); set('ANTHROPIC_MODEL', p.anthropic && p.anthropic.model);
+  set('SHENRON_CHEAP_VENDOR', r.cheap && r.cheap.vendor); set('SHENRON_MODEL_CHEAP', r.cheap && r.cheap.model);
+  set('SHENRON_STRONG_VENDOR', r.strong && r.strong.vendor); set('SHENRON_MODEL_STRONG', r.strong && r.strong.model);
+  if (c.scheduler === false) set('SHENRON_NO_SCHEDULER', '1');
+})(SHENRON_CFG);
+const COST_DEFAULT = SHENRON_CFG.cost === 'paid_ok' ? 'paid_ok' : 'free';   // discover の既定 cost（config で）
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : Number(process.env.PORT) || 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
@@ -738,7 +751,7 @@ async function planFlow({ goal, save, gap, context, cost }) {
     trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
     return r;
   } : null;
-  const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap, cost });
+  const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap, cost: cost || COST_DEFAULT });   // cost 未指定なら config の既定
   if (ir.mode === 'clarify') return { ...ir, available: availableSummary(), ...renderPlan(ir) };   // discover: plan せず user に確認を返す（保存しない）
   const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
   const saved = save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → cockpit 🗂 に出る
