@@ -301,9 +301,13 @@ function fireNode(run, node, input) {
 // Wave K — a prompt component is INTERNAL compute (an inline LLM template), not an external side-effect:
 // it runs in-process via the vendor with NO approval fence (mirrors an auto agent). Reuses the run-handoff
 // for cockpit visibility + crash-resume. `{input}` in the template is substituted with the upstream text.
-// Wave G: per-step model routing — tier(cheap/strong) → model 名。env で上書き可（free 派は cheap→ローカル/haiku、余裕派は strong→opus 等・お財布適応）。
-const tierModel = (tier) => tier === 'cheap' ? (process.env.SHENRON_MODEL_CHEAP || 'claude-haiku-4-5')
-  : tier === 'strong' ? (process.env.SHENRON_MODEL_STRONG || 'claude-opus-4-8') : undefined;
+// Wave G: per-step routing — tier(cheap/strong) → {vendor, model}。env で per-budget 上書き（お財布適応）。
+// cheap を完全無料にしたい人: SHENRON_CHEAP_VENDOR=ollama（＋ ollama serve）→ cheap step は localhost で $0。
+const tierRoute = (tier) => {
+  if (tier === 'cheap') { const vendor = process.env.SHENRON_CHEAP_VENDOR || null; return { vendor, model: process.env.SHENRON_MODEL_CHEAP || (vendor === 'ollama' ? (process.env.OLLAMA_MODEL || 'llama3.2') : 'claude-haiku-4-5') }; }
+  if (tier === 'strong') return { vendor: process.env.SHENRON_STRONG_VENDOR || null, model: process.env.SHENRON_MODEL_STRONG || 'claude-opus-4-8' };
+  return { vendor: null, model: undefined };
+};
 function firePromptNode(run, node, input, from) {
   const c = node.config || {};
   const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'prompt', skill: 'prompt',
@@ -315,8 +319,9 @@ function firePromptNode(run, node, input, from) {
 function runPrompt(h) {
   if (running.has(h.id)) return; running.add(h.id);
   const p = h.prompt || {};
-  const vendor = p.vendor || EXEC_VENDOR || 'stub';                 // Wave G: node の vendor 指定 > 全体 EXEC_VENDOR > stub
-  const model = p.model || tierModel(p.tier);                       // node の model 指定 > tier→model（未指定なら runner の既定）
+  const route = tierRoute(p.tier);                                  // Wave G: tier→{vendor,model}（cheap は env で ollama に＝無料化可）
+  const vendor = p.vendor || route.vendor || EXEC_VENDOR || 'stub'; // node 明示 > tier route > 全体 EXEC_VENDOR > stub
+  const model = p.model || route.model;                             // node 明示 > tier route（未指定なら runner 既定）
   const tmpl = String(h.prompt.template || '{input}').split('{input}').join(h.input || '');
   touch(h, 'running', 'hub'); save();
   console.log(`▶ [hub] prompt ${h.id}`);

@@ -25,8 +25,22 @@ async function runAnthropicApi(prompt, stub = '', model) {
   } catch (e) { return `[anthropic failed → stub] ${e.message}\n` + stub; }
 }
 
+// Wave G: ローカル Ollama provider — cheap step を完全無料に（cloud/API path でも cheap だけ $0）。
+// `ollama serve` が localhost:11434 で動いてる前提。OLLAMA_HOST / OLLAMA_MODEL で上書き。Win/Linux/Mac 同じ。
+async function runOllama(prompt, stub = '', model) {
+  model = model || process.env.OLLAMA_MODEL || 'llama3.2';
+  const host = (process.env.OLLAMA_HOST || 'http://localhost:11434').replace(/\/$/, '');
+  try {
+    const r = await fetch(`${host}/api/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model, prompt, stream: false }) });
+    if (!r.ok) { const e = await r.text().catch(() => ''); return `[ollama ${r.status} → stub] ${e.slice(0, 150)}\n` + stub; }
+    const j = await r.json();
+    return String(j.response || '').trim() || `[ollama empty → stub]\n` + stub;
+  } catch (e) { return `[ollama failed → stub] ${e.message} (is \`ollama serve\` running?)\n` + stub; }
+}
+
 export function runVendorAsync(vendor, prompt, stub = '', { model } = {}) {   // Wave G: opts.model = この呼び出しだけ別モデル（flow の step ごと routing）
   const stubOut = stub || `[stub] (no vendor "${vendor}")`;
+  if (vendor === 'ollama') return runOllama(prompt, stub, model);   // ローカル無料（cheap step 用）
   if (vendor === 'claude' && process.env.ANTHROPIC_API_KEY) return runAnthropicApi(prompt, stub, model);   // cloud: no CLI → direct API
   if (vendor !== 'codex' && vendor !== 'claude') return Promise.resolve(stubOut);
   const [cmd, args] = vendor === 'codex'
