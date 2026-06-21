@@ -28,10 +28,13 @@ export const matchComponent = (components, what) => {
   return (components || []).find((c) => c.approved && componentKey(c.what) === k) || null;
 };
 
-const PROMPT = (goal, inv, choices) => `You plan an automation flow. Goal: "${goal}".${choices ? `\nThe user already answered these — use them and proceed to a plan:\n${choices}` : ''}
+const PROMPT = (goal, inv, choices, cost) => `You plan an automation flow. Goal: "${goal}".${choices ? `\nThe user already answered these — use them and proceed to a plan:\n${choices}` : ''}
 Inventory — tools/agents already registered here (use these exact ids in step.tool, or null):
 ${inv}
 Built-in: kind "prompt" (an LLM step, no tool) is always available. Agent "agent:browser-control" drives a REAL BROWSER with the user's own login (open/click/type/submit; outbound actions are human-approved at run time) — use it for a service that has a UI but NO usable API/MCP.
+COST MODE = ${cost === 'paid_ok' ? 'paid_ok' : 'free'}. ${cost === 'paid_ok'
+  ? 'You MAY use paid tools/APIs/services, but ALWAYS disclose each recurring or per-use cost in blockers/summary so the user knows what they are paying.'
+  : 'Prefer FREE / $0-marginal options only (free or free-tier APIs, free MCP servers, Apps Script free tier, browser-control on the user\'s own login, the user\'s own LLM subscription, local models). If a step can ONLY be done via a paid tool/service or a metered/paid API, DO NOT silently use it — surface it as a clarify/blocker so the user can opt in (or pick a free path).'}
 
 DISCOVER FIRST (Wave: mandatory). Before planning, RESEARCH the goal (use web search if you have it) across EVERY way to do it — the registered tools above, public/free APIs, free MCP servers, external platforms (e.g. Google Apps Script for Google+schedule, Zapier), browser-control, or generating a new tool — AND check for BLOCKERS (no API exists; the service's ToS forbids automation; it needs a paid/registered account or a license; legal risk; the goal needs SCHEDULED/recurring runs — classify it: if the recurring work is API-only (no login/browser needed) it can run with NO always-on machine via a free serverless cron (e.g. Google Apps Script / Cloudflare Cron) — recommend that; if it needs the user's own login/browser (browser-control), it must run on the user's machine — the in-hub scheduler fires while the hub host is up and catches up missed runs on next boot, but a fully-off phone-only user can't run it, so surface that and offer "keep a cheap always-on box / wake the machine on schedule").
 If the goal is AMBIGUOUS (several services/platforms could satisfy it — e.g. "start a social media" → X vs Instagram vs Facebook), or multiple mechanisms are genuinely viable, or you found a blocker the user must weigh — DO NOT invent steps. Output ONLY:
@@ -197,13 +200,13 @@ const choicesText = (c) => Array.isArray(c) ? c.map((x) => typeof x === 'string'
 
 // context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
 // Wave(discover・M1): planner が research→曖昧/地雷なら steps でなく {clarify,blockers} を返す→ caller(client) が user に聞いて context.choices で再呼び出し。検索は BYO AI 任せ（神龍は構造化のみ）。
-export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, gap = 'ask', run = runVendorAsync }) {
+export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, gap = 'ask', cost = 'free', run = runVendorAsync }) {
   goal = String(goal || '').trim();
   const refine = !!(context && context.instruction && context.prev_plan);
   if (!goal && !refine) throw new Error('goal required');
   const inv = inventoryText({ agents, tools, workflows });
   const choices = context && context.choices ? choicesText(context.choices) : '';
-  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv, choices), '');
+  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv, choices, cost), '');   // cost: 'free'(既定・従量0優先)|'paid_ok'(有料ツール可・要開示)
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);

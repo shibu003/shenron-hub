@@ -162,6 +162,14 @@ assert.notEqual(planned.mode, 'clarify', 'with choices → proceeds to a plan');
 assert.ok(/どのSNS.*X/s.test(answeredPrompt), 'choices passed into the prompt');
 assert.ok((planned.blockers || []).some((b) => /API/.test(b)), 'plan carries blockers alongside steps');
 
+// Wave: cost mode — free(既定)=有料は opt-in 化 / paid_ok=有料可だがコスト開示。プロンプトに反映されるか。
+let costPrompt = '';
+const capRun = async (_v, p) => { costPrompt = p; return '{"plain_summary":"x","steps":[{"action":"a","kind":"prompt","tool":null}]}'; };
+await plan({ goal: 'g', run: capRun });                                   // default
+assert.ok(/COST MODE = free/.test(costPrompt) && /Prefer FREE/.test(costPrompt), 'cost: default=free → prompt prefers free / opt-in for paid');
+await plan({ goal: 'g', cost: 'paid_ok', run: capRun });
+assert.ok(/COST MODE = paid_ok/.test(costPrompt) && /MAY use paid/.test(costPrompt) && /disclose/.test(costPrompt), 'cost: paid_ok → prompt allows paid but requires cost disclosure');
+
 // Wave 6 — 実行: a shenron flow is run AS-IS by the hub DAG executor (cockpit ▶ 実行 and MCP run_workflow's isDag
 // branch both POST /api/runflow). No per-Wave execution code — the invariant that makes that free is: every node
 // kind the planner emits is one hub.mjs fireNode() handles. This pins it; emit a kind fireNode can't run and it fails.
