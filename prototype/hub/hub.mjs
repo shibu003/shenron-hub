@@ -32,19 +32,26 @@ const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
 const _SD = process.env.STATE_DIR ? path.resolve(process.env.STATE_DIR) : null;
 const sp = (name, fallback) => _SD ? path.join(_SD, name) : fallback;  // ponytail: STATE_DIR → all state to one volume; unset → original layout
-// Wave: 全設定を1か所に — shenron.config.json（STATE_DIR・gitignore）。⚠️ secret(API key)は置かない＝env/.dev.vars のみ。
-// env が優先（ops 上書き可）・未設定なら config 値を env に流す → 既存の env-read 全部が「この1ファイル」で効く（最小変更で集約）。
-const SHENRON_CFG = (() => { try { return JSON.parse(fs.readFileSync(sp('shenron.config.json', path.join(HERE, 'shenron.config.json')), 'utf8')); } catch { return {}; } })();
-(function applyCfg(c) {
-  const set = (k, v) => { if (v != null && process.env[k] == null) process.env[k] = String(v); };   // env 優先
-  const p = c.providers || {}, r = c.routing || {};
+// Wave: 全設定を1か所に — shenron.config.json（STATE_DIR・gitignore）。⚠️ secret(API key) は置かない＝env/.dev.vars のみ。
+// runner-side（provider の既定 model/host）は起動時に env へ流す（runner は env を読む）。hub-side の hot 設定
+// （cost / routing / scheduler）は liveCfg() で都度ファイルを読む → set_config(MCP/NL) で再起動なしに即反映。env は ops 上書き。
+const CFG_PATH = sp('shenron.config.json', path.join(HERE, 'shenron.config.json'));
+const liveCfg = () => { try { return JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')); } catch { return {}; } };
+const writeCfg = (obj) => fs.writeFileSync(CFG_PATH, JSON.stringify(obj, null, 2));
+(function applyProvidersToEnv(c) {                                     // runner-side のみ env へ（変更は restart で反映）。env 優先。
+  const set = (k, v) => { if (v != null && process.env[k] == null) process.env[k] = String(v); };
+  const p = c.providers || {};
   set('OLLAMA_HOST', p.ollama && p.ollama.host); set('OLLAMA_MODEL', p.ollama && p.ollama.model);
   set('OPENAI_MODEL', p.openai && p.openai.model); set('ANTHROPIC_MODEL', p.anthropic && p.anthropic.model);
-  set('SHENRON_CHEAP_VENDOR', r.cheap && r.cheap.vendor); set('SHENRON_MODEL_CHEAP', r.cheap && r.cheap.model);
-  set('SHENRON_STRONG_VENDOR', r.strong && r.strong.vendor); set('SHENRON_MODEL_STRONG', r.strong && r.strong.model);
-  if (c.scheduler === false) set('SHENRON_NO_SCHEDULER', '1');
-})(SHENRON_CFG);
-const COST_DEFAULT = SHENRON_CFG.cost === 'paid_ok' ? 'paid_ok' : 'free';   // discover の既定 cost（config で）
+})(liveCfg());
+const schedulerOn = () => process.env.SHENRON_NO_SCHEDULER == null && liveCfg().scheduler !== false;   // env hard-off > config(live)
+const mergeCfg = (patch) => { const c = liveCfg(); const n = { ...c, ...patch, providers: { ...(c.providers || {}), ...(patch.providers || {}) }, routing: { ...(c.routing || {}), ...(patch.routing || {}) } }; delete n.providers.keyEnv; return n; };
+function configStatus() {   // 1か所の設定 + 初期設定 hint（secret は値でなく在否のみ）
+  const cfg = liveCfg(), env = process.env, needs = [];
+  if (!env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY) needs.push('LLM: ローカル `claude -p`(サブスク・従量0) で動く。クラウド/別 provider なら ANTHROPIC_API_KEY か OPENAI_API_KEY を env に。');
+  if (cfg.routing && cfg.routing.cheap && cfg.routing.cheap.vendor === 'ollama') needs.push('cheap=ollama: `ollama serve` 起動 + モデル pull（OLLAMA_MODEL）が必要。');
+  return { config: cfg, schedulerOn: schedulerOn(), keysPresent: { anthropic: !!env.ANTHROPIC_API_KEY, openai: !!env.OPENAI_API_KEY }, needs };
+}
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : Number(process.env.PORT) || 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
@@ -317,8 +324,9 @@ function fireNode(run, node, input) {
 // Wave G: per-step routing — tier(cheap/strong) → {vendor, model}。env で per-budget 上書き（お財布適応）。
 // cheap を完全無料にしたい人: SHENRON_CHEAP_VENDOR=ollama（＋ ollama serve）→ cheap step は localhost で $0。
 const tierRoute = (tier) => {
-  if (tier === 'cheap') { const vendor = process.env.SHENRON_CHEAP_VENDOR || null; return { vendor, model: process.env.SHENRON_MODEL_CHEAP || (vendor === 'ollama' ? (process.env.OLLAMA_MODEL || 'llama3.2') : 'claude-haiku-4-5') }; }
-  if (tier === 'strong') return { vendor: process.env.SHENRON_STRONG_VENDOR || null, model: process.env.SHENRON_MODEL_STRONG || 'claude-opus-4-8' };
+  const r = liveCfg().routing || {};   // live: set_config(MCP/NL) で即反映。env が ops 上書き。
+  if (tier === 'cheap') { const vendor = process.env.SHENRON_CHEAP_VENDOR || (r.cheap && r.cheap.vendor) || null; return { vendor, model: process.env.SHENRON_MODEL_CHEAP || (r.cheap && r.cheap.model) || (vendor === 'ollama' ? (process.env.OLLAMA_MODEL || 'llama3.2') : 'claude-haiku-4-5') }; }
+  if (tier === 'strong') return { vendor: process.env.SHENRON_STRONG_VENDOR || (r.strong && r.strong.vendor) || null, model: process.env.SHENRON_MODEL_STRONG || (r.strong && r.strong.model) || 'claude-opus-4-8' };
   return { vendor: null, model: undefined };
 };
 function firePromptNode(run, node, input, from) {
@@ -555,10 +563,9 @@ const readAutomations = () => { try { return JSON.parse(fs.readFileSync(AUTO_FIL
 // Wave: in-hub scheduler. ⚠️ HONEST — fires ONLY while THIS hub process runs (Mac on / 24/7 cloud host).
 // Phone-only users with no always-on hub: it can't fire. Operator sets SHENRON_NO_SCHEDULER=1 to turn it off,
 // and the planner then steers scheduled goals to an external always-on option (e.g. Google Apps Script).
-const SCHEDULER_ON = process.env.SHENRON_NO_SCHEDULER == null;
-const SCHEDULER_NOTE = SCHEDULER_ON
+const schedulerNote = () => schedulerOn()
   ? '⏰ fires only while this hub process is running (your Mac on, or a 24/7 cloud host). If you only use a phone with no always-on hub, it will NOT fire — use an external scheduler (e.g. Google Apps Script).'
-  : '⚠️ in-hub scheduler is OFF here (SHENRON_NO_SCHEDULER) — scheduled automations will NOT fire. Use an external scheduler (Apps Script / cron).';
+  : '⚠️ in-hub scheduler is OFF — scheduled automations will NOT fire. Enable in config (scheduler:true) or use an external scheduler (Apps Script / cron).';
 // ---------- integrations (Wave F.2): connected MCP servers, on/off. Only enabled servers' tools reach palette/executor ----------
 const INTEG_FILE = sp('integrations.json', path.join(HERE, '..', 'mcp', 'integrations.json'));
 const readIntegrations = () => { try { return JSON.parse(fs.readFileSync(INTEG_FILE, 'utf8')); } catch { return []; } };
@@ -610,7 +617,7 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   const arr = readAutomations(); const i = arr.findIndex((a) => a.id === id);
   if (i >= 0) arr[i] = m; else arr.push(m);
   fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
-  return trigger.type === 'schedule' ? { ...m, note: SCHEDULER_NOTE } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
+  return trigger.type === 'schedule' ? { ...m, note: schedulerNote() } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
 }
 const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
@@ -645,6 +652,7 @@ const writeSchedState = (s) => { try { fs.writeFileSync(SCHED_FILE, JSON.stringi
 // tick: 各 schedule automation の「直近 due」を見て、まだ発火してなければ発火（live も catch-up も同経路）。
 // first-sight は baseline のみ（インストール前の履歴は back-fire しない）。downtime で過ぎた due は次の tick/boot で1回だけ追い発火（coalesced）。
 function tickScheduler() {
+  if (!schedulerOn()) return;   // live gate: config scheduler:false / env hard-off で発火しない（再起動不要）
   const now = new Date(); const st = readSchedState(); let changed = false;
   for (const m of readAutomations()) {
     if (m.enabled === false || !m.trigger || m.trigger.type !== 'schedule') continue;
@@ -716,6 +724,8 @@ const MCP_TOOLS = [
   { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。DISCOVER-FIRST: 願いを全機構横断で研究し地雷(API無/ToS/許可)も検出。曖昧 or 地雷があれば plan でなく `clarify`(question+options・mode:"clarify") を返す→ ユーザーに提示し、回答を `context.choices`(例 [{question,answer}]) に入れて再呼び出し。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）と人間可読 `summary_text` + `diagram_mermaid`/`diagram_ascii` も返す。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' }, cost: { type: 'string', description: 'free(既定・従量0優先・有料は opt-in 化)|paid_ok(有料ツール可・コスト開示)' } }, required: ['goal'] } },
   { name: 'add_integration',    description: '自分の MCP server を giogio に登録 → plan_flow の available に出て、フローのノードとして解決される。client 接続は giogio から見えないので、使わせたいツールはこれで登録する。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', description: 'mcp（既定）| search' }, command: { type: 'string', description: 'stdio MCP の起動コマンド' }, url: { type: 'string', description: 'HTTP MCP の URL' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
   { name: 'add_automation',     description: 'スケジュール(cron) or build-state イベントで保存済み workflow を自動実行する automation を登録。schedule 例: trigger {type:"schedule", when:"0 9 * * 1"}（毎週月曜9時）。⚠️ in-hub scheduler は hub 起動中のみ発火（スマホのみ/常駐hub無しでは動かない→外部 scheduler を使う）。返りの note を確認。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, trigger: { type: 'object', description: '{type:"schedule",when:"<cron 5-field>"} or {type:"build_state",match:{...}}' }, workflow: { type: 'string', description: '実行する保存済み workflow id' }, input: { type: 'string' } }, required: ['name', 'trigger', 'workflow'] } },
+  { name: 'get_config',         description: '神龍の全設定を1か所で読む（cost / scheduler / routing(cheap・strong の vendor+model) / providers）＋初期設定 hint(needs)＋API key の在否。⚠️ secret 値は返らない。', inputSchema: { type: 'object', properties: {} } },
+  { name: 'set_config',         description: '神龍の設定を自然文/構造で更新（即反映・再起動不要）。例: {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}。⚠️ API key は設定不可（env/.dev.vars のみ）。返りは更新後の全設定。', inputSchema: { type: 'object', properties: { cost: { type: 'string', description: 'free|paid_ok' }, scheduler: { type: 'boolean' }, routing: { type: 'object', description: '{cheap:{vendor,model}, strong:{vendor,model}}' }, providers: { type: 'object', description: '{ollama:{host,model}, openai:{model}, anthropic:{model}}' } } } },
   { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
   { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
   { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
@@ -751,7 +761,7 @@ async function planFlow({ goal, save, gap, context, cost }) {
     trail('external-search', { integ: si.id, egress: true, removed: fw.removed });
     return r;
   } : null;
-  const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap, cost: cost || COST_DEFAULT });   // cost 未指定なら config の既定
+  const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap, cost: cost || (liveCfg().cost === 'paid_ok' ? 'paid_ok' : 'free') });   // cost 未指定なら config の既定（live）
   if (ir.mode === 'clarify') return { ...ir, available: availableSummary(), ...renderPlan(ir) };   // discover: plan せず user に確認を返す（保存しない）
   const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
   const saved = save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → cockpit 🗂 に出る
@@ -764,6 +774,8 @@ async function mcpDispatch(name, args) {
   if (name === 'plan_flow')          return planFlow({ goal: args.goal, save: args.save !== false, gap: args.gap, context: args.context, cost: args.cost });   // Wave B③: 在庫返しでなく実 plan（have/missing/図）に統一
   if (name === 'add_integration')    return saveIntegration({ id: args.id, label: args.label, kind: args.kind || 'mcp', command: args.command || '', url: args.url || '', enabled: args.enabled, tools: args.tools || [] });
   if (name === 'add_automation')     return saveAutomation({ name: args.name, trigger: args.trigger, workflow: args.workflow, input: args.input || '' });   // Wave: schedule/build-state 起点で workflow 自動実行（schedule は in-hub scheduler が hub 起動中に発火）
+  if (name === 'get_config')         return configStatus();
+  if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length }));
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
@@ -789,7 +801,7 @@ const server = http.createServer((req, res) => {
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: SCHEDULER_ON, note: SCHEDULER_NOTE } });   // Wave R: reputation. + scheduler 状態（client が「スマホでは使えない」を表示できる）
+    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
@@ -821,6 +833,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, CAP_VOCAB);
   if (req.method === 'GET' && p === '/api/mcp')                  // how to connect BuildHUD's MCP server (for "copy MCP call")
     return json(res, 200, { name: 'buildhud-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
+  if (req.method === 'GET' && p === '/api/config') return json(res, 200, configStatus());   // Wave: 全設定を1か所で読む（初期設定 hint 付き・secret は在否のみ）
   if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization' }); return res.end(); }
   // OAuth 2.1 discovery + auto-approve authorize
   if (p === '/.well-known/oauth-protected-resource') { const b = reqBase(req); return json(res, 200, { resource: b, authorization_servers: [b] }); }
@@ -910,7 +923,8 @@ const server = http.createServer((req, res) => {
       if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
-      if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: SCHEDULER_ON }); }   // Wave: 無料外部 cron(Cloudflare/cron-job.org 等)が叩く seam＝now due な schedule automation を発火（hub が起きてる時のみ届く）
+      if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: schedulerOn() }); }   // Wave: 無料外部 cron(Cloudflare/cron-job.org 等)が叩く seam＝now due な schedule automation を発火（hub が起きてる時のみ届く）
+      if (p === '/api/config') { writeCfg(mergeCfg(j)); trail('config-set', { keys: Object.keys(j) }); return json(res, 200, configStatus()); }   // Wave: 設定を1か所で更新（MCP/NL set_config も here）。secret は受けない（keyEnv は剥がす）
       if (p === '/api/fire/preview') return json(res, 200, firePreview(j.event || {})); // Wave 2: dry-run — what this event would fire (no run)
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
@@ -969,5 +983,5 @@ const server = http.createServer((req, res) => {
 });
 server.on('error', (e) => { console.error(`[hub] cannot listen on ${PORT}: ${e.message} — pass --port <free>`); process.exit(1); });
 server.listen(PORT, () => console.log(`[hub] BuildHUD durable handoff hub on http://localhost:${PORT}  (state: ${path.relative(process.cwd(), STATE_FILE)})`));
-if (SCHEDULER_ON) { setTimeout(tickScheduler, 1500); setInterval(tickScheduler, 60000); console.log('⏰ [hub] scheduler on — fires schedule automations while this hub runs + catch-up on boot for misses during downtime (not for phone-only/ephemeral; SHENRON_NO_SCHEDULER=1 to disable)'); }   // Wave: boot tick = downtime の取りこぼしを起動時に追い発火。
-else console.log('⏰ [hub] scheduler OFF (SHENRON_NO_SCHEDULER) — scheduled automations will NOT fire here');
+if (process.env.SHENRON_NO_SCHEDULER == null) { setTimeout(tickScheduler, 1500); setInterval(tickScheduler, 60000); console.log('⏰ [hub] scheduler armed — config.scheduler で live on/off・boot+60s tick で catch-up（SHENRON_NO_SCHEDULER=1 で hard 無効）'); }   // tick は schedulerOn() で live gate（config:false でも interval は回るが発火しない）
+else console.log('⏰ [hub] scheduler hard-OFF (SHENRON_NO_SCHEDULER)');
