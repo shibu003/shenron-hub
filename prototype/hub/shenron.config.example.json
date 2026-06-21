@@ -9,9 +9,10 @@
 
   "routing": {
     "cheap":  { "vendor": "claude", "model": "claude-haiku-4-5" },
-    "strong": { "vendor": "claude", "model": "claude-opus-4-8" }
+    "strong": { "vendor": "claude", "model": "claude-opus-4-8" },
+    "autoEscalate": true
   },
-  "_routing": "flow の step ごと: planner が tier(cheap/strong) を付与→ここで vendor/model に解決。cheap を完全無料にするなら cheap.vendor=\"ollama\"（+ providers.ollama・ollama serve）。",
+  "_routing": "flow の step ごと: planner が tier(cheap/strong) を付与→ここで vendor/model に解決。cheap を完全無料にするなら cheap.vendor=\"ollama\"（+ providers.ollama・ollama serve）。autoEscalate=cheap step が失敗(stub 落ち)した時だけ strong で1回再試行（成功すれば安いまま・失敗時だけ課金）。false で無効（env SHENRON_NO_ESCALATE=1 でも off）。node が vendor 明示時は尊重して上げない。",
 
   "providers": {
     "anthropic": { "model": "claude-opus-4-8", "keyEnv": "ANTHROPIC_API_KEY" },

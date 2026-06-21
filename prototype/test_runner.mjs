@@ -14,4 +14,9 @@ for (const v of ['openai', 'gpt']) {
   assert.ok(r.startsWith('[openai → stub]') && r.includes('STUB'), `${v} no-key → labeled openai stub`);
 }
 assert.equal(await runVendorAsync('nope', 'hi', 'STUB'), 'STUB', 'unknown vendor → stub passthrough');
+
+// auto-escalation (hub.runPrompt) の発火条件 = この失敗 sentinel。runner が format を変えたらここで落ちる＝契約固定。
+const failed = await runVendorAsync('gemini', 'hi', 'STUB');
+assert.ok(failed.startsWith('[') && failed.includes('→ stub]'), 'failure carries the → stub] sentinel (escalation trigger)');
+assert.ok(!'a normal model answer → maybe'.includes('→ stub]'), 'success text does not trip escalation');
 console.log('test_runner OK');

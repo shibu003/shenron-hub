@@ -337,19 +337,33 @@ function firePromptNode(run, node, input, from) {
   touch(h, 'approved', 'auto'); state.handoffs.push(h); save();
   runPrompt(h);
 }
-function runPrompt(h) {
+// Wave G: auto-escalation — cheap step が落ちた時だけ strong で1回再試行。お財布適応の背骨＝成功すれば安いまま、
+// 失敗時だけ課金。発火条件は (a) tier=cheap で (b) node が vendor 明示してない（明示は尊重）で (c) off でない。
+const escalateOn = (p) => p.tier === 'cheap' && !p.vendor && process.env.SHENRON_NO_ESCALATE !== '1' && (liveCfg().routing || {}).autoEscalate !== false;
+async function runPrompt(h) {
   if (running.has(h.id)) return; running.add(h.id);
-  const p = h.prompt || {};
-  const route = tierRoute(p.tier);                                  // Wave G: tier→{vendor,model}（cheap は env で ollama に＝無料化可）
-  const vendor = p.vendor || route.vendor || EXEC_VENDOR || 'stub'; // node 明示 > tier route > 全体 EXEC_VENDOR > stub
-  const model = p.model || route.model;                             // node 明示 > tier route（未指定なら runner 既定）
-  const tmpl = String(h.prompt.template || '{input}').split('{input}').join(h.input || '');
-  touch(h, 'running', 'hub'); save();
-  console.log(`▶ [hub] prompt ${h.id}`);
-  runVendorAsync(vendor, tmpl, `[prompt:stub] ${tmpl.slice(0, 120)}`, { model })
-    .then((result) => postResult(h.id, { result }, 'hub'))
-    .catch((e) => postResult(h.id, { error: e.message }, 'hub'))
-    .finally(() => { running.delete(h.id); console.log(`✓ [hub] prompt ${h.id} done`); });
+  try {
+    const p = h.prompt || {};
+    const route = tierRoute(p.tier);                                  // Wave G: tier→{vendor,model}（cheap は env で ollama に＝無料化可）
+    const vendor = p.vendor || route.vendor || EXEC_VENDOR || 'stub'; // node 明示 > tier route > 全体 EXEC_VENDOR > stub
+    const model = p.model || route.model;                             // node 明示 > tier route（未指定なら runner 既定）
+    const tmpl = String(h.prompt.template || '{input}').split('{input}').join(h.input || '');
+    const stub = `[prompt:stub] ${tmpl.slice(0, 120)}`;
+    touch(h, 'running', 'hub'); save();
+    console.log(`▶ [hub] prompt ${h.id}`);
+    let result = await runVendorAsync(vendor, tmpl, stub, { model });
+    // 失敗 sentinel = runner が必ず付ける `→ stub]` 接頭辞（成功テキストには出ない）。cheap が落ちたら strong に上げる。
+    if (escalateOn(p) && result.startsWith('[') && result.includes('→ stub]')) {
+      const s = tierRoute('strong'); const sv = s.vendor || EXEC_VENDOR || 'stub';
+      if (sv !== vendor || s.model !== model) {                       // 同じ宛先に上げ直しても無意味なので差がある時だけ
+        console.log(`⤴ [hub] prompt ${h.id} escalate cheap→strong (${vendor}→${sv})`);
+        const r2 = await runVendorAsync(sv, tmpl, stub, { model: s.model });
+        if (r2.startsWith('[') && r2.includes('→ stub]')) { /* strong も失敗 → cheap の理由を残す */ } else result = r2;
+      }
+    }
+    postResult(h.id, { result }, 'hub');
+  } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
+  finally { running.delete(h.id); console.log(`✓ [hub] prompt ${h.id} done`); }
 }
 // Wave I — consensus: fan the SAME task to N vendors in parallel, then pick the medoid (output most similar
 // to the others) and report an agreement score. A single vendor can't do this — it's the structural answer to
