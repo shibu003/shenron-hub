@@ -1,0 +1,8 @@
+.git
+node_modules
+*.pem
+prototype/hub/inbox.json
+prototype/hub/hub-key.pem
+prototype/mcp/generated/
+.env*
+.dev.vars*

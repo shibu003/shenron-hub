@@ -3,17 +3,87 @@
     "id": "sales-to-marketing",
     "name": "LinkedIn sales → marketing outreach",
     "summary": "A社 finds qualified prospects, B社 drafts personalized LinkedIn outreach per prospect.",
-    "tags": ["sales", "marketing", "gtm", "linkedin", "outreach"],
+    "tags": [
+      "sales",
+      "marketing",
+      "gtm",
+      "linkedin",
+      "outreach"
+    ],
     "nodes": [
-      { "id": "linkedin-sales-agent", "kind": "agent", "agent": "linkedin-sales-agent", "skill": "find-prospects", "x": 40, "y": 80 },
-      { "id": "marketing-outreach-agent", "kind": "agent", "agent": "marketing-outreach-agent", "skill": "draft-outreach", "x": 320, "y": 80 }
+      {
+        "id": "linkedin-sales-agent",
+        "kind": "agent",
+        "agent": "linkedin-sales-agent",
+        "skill": "find-prospects",
+        "x": 40,
+        "y": 80
+      },
+      {
+        "id": "marketing-outreach-agent",
+        "kind": "agent",
+        "agent": "marketing-outreach-agent",
+        "skill": "draft-outreach",
+        "x": 320,
+        "y": 80
+      }
     ],
     "edges": [
-      { "id": "e1", "source": "linkedin-sales-agent", "target": "marketing-outreach-agent" }
+      {
+        "id": "e1",
+        "source": "linkedin-sales-agent",
+        "target": "marketing-outreach-agent"
+      }
     ],
     "steps": [
-      { "agent": "linkedin-sales-agent", "skill": "find-prospects" },
-      { "agent": "marketing-outreach-agent", "skill": "draft-outreach" }
+      {
+        "agent": "linkedin-sales-agent",
+        "skill": "find-prospects"
+      },
+      {
+        "agent": "marketing-outreach-agent",
+        "skill": "draft-outreach"
+      }
     ]
+  },
+  {
+    "id": "csueb-gmail-assistant",
+    "name": "CSUEB Gmail Assistant",
+    "summary": "",
+    "tags": [],
+    "nodes": [
+      {
+        "id": "fetch-emails",
+        "type": "agent",
+        "agent": "sales-agent",
+        "label": "📥 受信メール取得",
+        "prompt": "あなたはGmailアシスタントです。Gmail MCPを使って受信トレイの最新10件を取得し、以下のJSON配列形式で返してください（マークダウン不要）:\n[{\"id\": string, \"from\": string, \"subject\": string, \"date\": string, \"body\": string}]\nbodyは最初の300文字。"
+      },
+      {
+        "id": "generate-draft",
+        "type": "agent",
+        "agent": "sales-agent",
+        "label": "✍️ 返信/質問文を生成",
+        "prompt": "あなたはCSU East Bayの学生をサポートするメールアシスタントです。\n入力: {input}\n\n入力にはmode(reply/question)、選択したメール情報、追加コンテキストが含まれます。\nそのmodeに応じて、丁寧で簡潔な英語のメール本文のみを生成してください。件名・前置き不要。"
+      },
+      {
+        "id": "send-email",
+        "type": "agent",
+        "agent": "sales-agent",
+        "label": "📤 メール送信",
+        "prompt": "あなたはGmailアシスタントです。Gmail MCPを使って以下の情報でメールを送信してください:\n入力: {input}\n\n送信完了後、SENT_OKとだけ返してください。"
+      }
+    ],
+    "edges": [
+      {
+        "from": "fetch-emails",
+        "to": "generate-draft"
+      },
+      {
+        "from": "generate-draft",
+        "to": "send-email"
+      }
+    ],
+    "steps": []
   }
 ]

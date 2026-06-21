@@ -1,0 +1,8 @@
+{
+  "name": "shenron-hub",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node prototype/hub/hub.mjs"
+  }
+}

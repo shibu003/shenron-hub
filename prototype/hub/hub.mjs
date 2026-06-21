@@ -18,7 +18,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
-import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
+import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
@@ -30,17 +30,19 @@ import { MATCH_OPS, triggerMatches } from '../match.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
-const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : 8795; })();
+const _SD = process.env.STATE_DIR ? path.resolve(process.env.STATE_DIR) : null;
+const sp = (name, fallback) => _SD ? path.join(_SD, name) : fallback;  // ponytail: STATE_DIR → all state to one volume; unset → original layout
+const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : Number(process.env.PORT) || 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
 const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (default on) AND-ed with the global master; off → broker-only (waits for a worker)
-const STATE_FILE = path.join(HERE, 'inbox.json');
+const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
 const UI_FILE = path.join(HERE, 'ui.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
 const parseFmt = (p, inp) => String(p || '{input}').split('{input}').join(inp || '');   // Parser node: substitute {input} (pure string transform)
-const WF_FILE = path.join(HERE, '..', 'mcp', 'workflows.json');   // shared workflow store (nodes/edges canonical + steps[] shim)
+const WF_FILE = sp('workflows.json', path.join(HERE, '..', 'mcp', 'workflows.json'));   // shared workflow store (nodes/edges canonical + steps[] shim)
 let state = load();
 state.runs ||= {};                          // runId -> { nodes, edges, outputs, status } for in-flight DAG runs
 state.audit ||= [];                         // Wave H: hash-chained, tamper-evident trust trail
@@ -55,7 +57,7 @@ function loadOrCreateKeypair(pemPath) {
   catch { const kp = generateKeyPairSync('ed25519'); fs.writeFileSync(pemPath, kp.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 }); privateKey = kp.privateKey; console.log('[hub] generated ed25519 receipt key →', path.relative(process.cwd(), pemPath)); }
   return { privateKey, publicKeyPem: createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }) };
 }
-const HUB_KEY = loadOrCreateKeypair(path.join(HERE, 'hub-key.pem'));
+const HUB_KEY = loadOrCreateKeypair(sp('hub-key.pem', path.join(HERE, 'hub-key.pem')));
 const receiptFor = (runId) => { if (!runId || !state.runs[runId]) throw new Error(`no run "${runId}"`); return signReceipt(buildReceipt({ hub: { id: 'buildhud-hub', publicKey: HUB_KEY.publicKeyPem }, runId, run: state.runs[runId], audit: state.audit, handoffs: state.handoffs, issuedAt: now() }), HUB_KEY.privateKey); };
 
 // ---------- helpers ----------
@@ -212,7 +214,7 @@ function sweep() {
 // — so per-agent approval pauses the run cleanly until approved, and the cockpit animates it via handoff edges.
 const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, 'utf8')); } catch { return []; } };
 // Wave 8 — 生成部品の登録庫（§H: 生成→収束→人が一度承認→cache・再利用）。workflows.json と同じ shared store パターン。
-const COMP_FILE = path.join(HERE, '..', 'mcp', 'components.json');
+const COMP_FILE = sp('components.json', path.join(HERE, '..', 'mcp', 'components.json'));
 const readComponents = () => { try { return JSON.parse(fs.readFileSync(COMP_FILE, 'utf8')); } catch { return []; } };
 const writeComponents = (arr) => fs.writeFileSync(COMP_FILE, JSON.stringify(arr, null, 2));
 function saveComponent({ what, code, output, iters, credentials }) {    // 収束した部品を pending(approved:false) で登録。人が承認するまで再利用しない（§I）
@@ -524,10 +526,10 @@ function advanceFrom(run, nodeId) {
 // ---------- automations (Wave C): trigger node + wired workflow; fire on manual / build_state event ----------
 // An automation = { trigger:{type:'manual'|'schedule'|'build_state', when?, match?}, workflow:<id>, input }.
 // "save as automation" splits the canvas: the trigger node's config + the agent chain saved as a workflow it refs.
-const AUTO_FILE = path.join(HERE, '..', 'mcp', 'automations.json');
+const AUTO_FILE = sp('automations.json', path.join(HERE, '..', 'mcp', 'automations.json'));
 const readAutomations = () => { try { return JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')); } catch { return []; } };
 // ---------- integrations (Wave F.2): connected MCP servers, on/off. Only enabled servers' tools reach palette/executor ----------
-const INTEG_FILE = path.join(HERE, '..', 'mcp', 'integrations.json');
+const INTEG_FILE = sp('integrations.json', path.join(HERE, '..', 'mcp', 'integrations.json'));
 const readIntegrations = () => { try { return JSON.parse(fs.readFileSync(INTEG_FILE, 'utf8')); } catch { return []; } };
 const writeIntegrations = (arr) => fs.writeFileSync(INTEG_FILE, JSON.stringify(arr, null, 2));
 // clean-mcp token-light index for integrations (mirrors server.mjs search_integrations): keyword score → SMALL refs.
@@ -642,6 +644,47 @@ function layoutFlow(nodes, edges) {                          // left→right by 
   return nodes;
 }
 
+// ---------- OAuth 2.1 minimal (personal server — auto-approve, PKCE only) ----------
+// ponytail: no user DB, no sessions — single-owner personal use via ngrok/Railway
+const oauthClients = new Map();  // client_id → {name}
+const oauthCodes   = new Map();  // code → {client_id, code_challenge}
+const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on restart)
+const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
+const bearerOk = (req) => { if (!oauthTokens.size) return true; const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim(); return oauthTokens.has(t); };
+
+// ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
+const mcpSessions = new Map(); // sessionId → SSE res
+const MCP_TOOLS = [
+  { name: 'plan_flow',          description: '利用可能なエージェント・ツール・フロー一覧を返す。Claudeがプランを立て、save_workflow で保存する。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' } }, required: ['goal'] } },
+  { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
+  { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
+  { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
+  { name: 'gen_component',      description: '不足ツールを Python MCP サーバーとして生成', inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
+  { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
+  { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
+];
+async function mcpDispatch(name, args) {
+  if (name === 'plan_flow') {
+    const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill, accepts: a.accepts, emits: a.emits }));
+    const tools = readIntegrations().filter((it) => it.enabled !== false).flatMap((it) => (it.tools || []).map((t) => ({ server: it.id, label: it.label, tool: t.name })));
+    const workflows = readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '' }));
+    return { goal: args.goal, available: { agents, tools, workflows } };
+  }
+  if (name === 'save_workflow')      return saveWorkflow(args);
+  if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length }));
+  if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
+  if (name === 'gen_component') {
+    const cached = matchComponent(readComponents(), args.what);
+    if (cached) return { what: cached.what, iters: 0, converged: true, id: cached.id, approved: true, cached: true };
+    const r = await genComponent({ what: args.what, vendor: EXEC_VENDOR || 'stub', maxIters: 3 });
+    const saved = r.converged ? saveComponent(r) : null;
+    return saved ? { ...r, id: saved.id, approved: false } : r;
+  }
+  if (name === 'get_checkpoint')     return state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
+  if (name === 'resolve_checkpoint') return ref(args.allow ? approve(args.id) : decline(args.id));
+  throw new Error(`unknown tool "${name}"`);
+}
+
 // ---------- HTTP ----------
 const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const server = http.createServer((req, res) => {
@@ -682,12 +725,82 @@ const server = http.createServer((req, res) => {
     return json(res, 200, CAP_VOCAB);
   if (req.method === 'GET' && p === '/api/mcp')                  // how to connect BuildHUD's MCP server (for "copy MCP call")
     return json(res, 200, { name: 'buildhud-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
+  if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization' }); return res.end(); }
+  // OAuth 2.1 discovery + auto-approve authorize
+  if (p === '/.well-known/oauth-protected-resource') { const b = reqBase(req); return json(res, 200, { resource: b, authorization_servers: [b] }); }
+  if (p === '/.well-known/oauth-authorization-server') { const b = reqBase(req); return json(res, 200, { issuer: b, registration_endpoint: `${b}/oauth/register`, authorization_endpoint: `${b}/oauth/authorize`, token_endpoint: `${b}/oauth/token`, response_types_supported: ['code'], grant_types_supported: ['authorization_code'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] }); }
+  if (p === '/oauth/authorize') {  // auto-approve: generate code and redirect immediately
+    const code = randomUUID().replace(/-/g, '');
+    oauthCodes.set(code, { client_id: u.searchParams.get('client_id'), code_challenge: u.searchParams.get('code_challenge') });
+    const loc = new URL(u.searchParams.get('redirect_uri') || 'http://localhost');
+    loc.searchParams.set('code', code);
+    if (u.searchParams.get('state')) loc.searchParams.set('state', u.searchParams.get('state'));
+    res.writeHead(302, { location: loc.toString(), 'access-control-allow-origin': '*' }); return res.end();
+  }
+  if (p === '/mcp/sse') {  // Remote MCP: Claude.ai connects here
+    if (!bearerOk(req)) { const b = reqBase(req); res.writeHead(401, { 'www-authenticate': `Bearer realm="${b}", resource_metadata="${b}/.well-known/oauth-protected-resource"`, 'access-control-allow-origin': '*' }); return res.end(); }
+    const sid = randomUUID().slice(0, 8);
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive', 'access-control-allow-origin': '*' });
+    res.write(`event: endpoint\ndata: /mcp/messages?sessionId=${sid}\n\n`);
+    mcpSessions.set(sid, res);
+    req.on('close', () => { mcpSessions.delete(sid); console.log(`[mcp] session ${sid} closed`); });
+    console.log(`[mcp] session ${sid} connected (${mcpSessions.size} active)`);
+    return;
+  }
   if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }
 
   let body = ''; req.on('data', (c) => { body += c; if (body.length > 32 * 1024 * 1024) req.destroy(); });
   req.on('end', () => {
-    let j = {}; try { j = body ? JSON.parse(body) : {}; } catch { return json(res, 400, { error: 'bad json' }); }
+    let j = {}; try { if (body) { const ct = req.headers['content-type'] || ''; j = ct.includes('x-www-form-urlencoded') ? Object.fromEntries(new URLSearchParams(body)) : JSON.parse(body); } } catch { return json(res, 400, { error: 'bad json' }); }
     try {
+      // Streamable HTTP MCP transport (POST /mcp or POST / — Claude.ai 2025 protocol)
+      if (p === '/mcp' || (p === '/' && j.jsonrpc === '2.0')) {
+        if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
+        const { id, method, params } = j;
+        if (method === 'initialize' || method === 'notifications/initialized') {
+          return json(res, 200, method === 'initialize' ? { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } } : {});
+        }
+        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+        if (method === 'tools/call') {
+          mcpDispatch((params || {}).name, (params || {}).arguments || {})
+            .then((r) => json(res, 200, { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
+            .catch((e) => json(res, 200, { jsonrpc: '2.0', id, error: { code: -32603, message: e.message } }));
+          return;
+        }
+        return json(res, 200, { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
+      }
+      // OAuth POST endpoints
+      if (p === '/oauth/register') { const client_id = randomUUID().replace(/-/g, ''); oauthClients.set(client_id, { name: j.client_name || 'client' }); return json(res, 201, { client_id, token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'] }); }
+      if (p === '/oauth/token') {
+        if (j.grant_type !== 'authorization_code') return json(res, 400, { error: 'unsupported_grant_type' });
+        const entry = oauthCodes.get(j.code);
+        if (!entry) return json(res, 400, { error: 'invalid_grant' });
+        if (entry.code_challenge && createHash('sha256').update(j.code_verifier || '').digest('base64url') !== entry.code_challenge) return json(res, 400, { error: 'invalid_grant' });
+        oauthCodes.delete(j.code);
+        const access_token = randomUUID().replace(/-/g, '');
+        oauthTokens.add(access_token); console.log(`[oauth] token issued (${oauthTokens.size} active)`);
+        return json(res, 200, { access_token, token_type: 'bearer', expires_in: 86400 * 365 });
+      }
+      if (p === '/mcp/messages') {  // Remote MCP: JSON-RPC 2.0 dispatch; response via SSE
+        if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
+        const sid = u.searchParams.get('sessionId');
+        const sse = sid && mcpSessions.get(sid);
+        const send = (obj) => { if (sse) sse.write(`event: message\ndata: ${JSON.stringify(obj)}\n\n`); };
+        json(res, 202, {});  // ack immediately; real response goes over SSE
+        const { id, method, params } = j;
+        if (method === 'initialize' || method === 'notifications/initialized') {
+          if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } });
+        } else if (method === 'tools/list') {
+          send({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+        } else if (method === 'tools/call') {
+          mcpDispatch((params || {}).name, (params || {}).arguments || {})
+            .then((r) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
+            .catch((e) => send({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } }));
+        } else {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
+        }
+        return;
+      }
       if (p === '/api/handoffs') return json(res, 200, ref(create(j)));
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
