@@ -660,7 +660,7 @@ const bearerOk = (req) => {                                 // valid if OAuth be
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
 const mcpSessions = new Map(); // sessionId → SSE res
 const MCP_TOOLS = [
-  { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）と、人間可読の `summary_text` + `diagram_mermaid`/`diagram_ascii`（cockpit 無しで「これで実行？」と確認できる）も返す。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' } }, required: ['goal'] } },
+  { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。DISCOVER-FIRST: 願いを全機構横断で研究し地雷(API無/ToS/許可)も検出。曖昧 or 地雷があれば plan でなく `clarify`(question+options・mode:"clarify") を返す→ ユーザーに提示し、回答を `context.choices`(例 [{question,answer}]) に入れて再呼び出し。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）と人間可読 `summary_text` + `diagram_mermaid`/`diagram_ascii` も返す。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' } }, required: ['goal'] } },
   { name: 'add_integration',    description: '自分の MCP server を giogio に登録 → plan_flow の available に出て、フローのノードとして解決される。client 接続は giogio から見えないので、使わせたいツールはこれで登録する。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', description: 'mcp（既定）| search' }, command: { type: 'string', description: 'stdio MCP の起動コマンド' }, url: { type: 'string', description: 'HTTP MCP の URL' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
   { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
   { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
@@ -698,6 +698,7 @@ async function planFlow({ goal, save, gap, context }) {
     return r;
   } : null;
   const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap });
+  if (ir.mode === 'clarify') return { ...ir, available: availableSummary(), ...renderPlan(ir) };   // discover: plan せず user に確認を返す（保存しない）
   const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
   const saved = save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → cockpit 🗂 に出る
   const out = { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}), available: availableSummary() };

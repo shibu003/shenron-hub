@@ -28,13 +28,18 @@ export const matchComponent = (components, what) => {
   return (components || []).find((c) => c.approved && componentKey(c.what) === k) || null;
 };
 
-const PROMPT = (goal, inv) => `You plan an automation flow. Goal: "${goal}".
-Inventory — the ONLY tools/agents that exist (use these exact ids in step.tool, or null):
+const PROMPT = (goal, inv, choices) => `You plan an automation flow. Goal: "${goal}".${choices ? `\nThe user already answered these — use them and proceed to a plan:\n${choices}` : ''}
+Inventory — tools/agents already registered here (use these exact ids in step.tool, or null):
 ${inv}
-Built-in step kind "prompt" (an LLM step) is always available and needs no tool.
-Built-in agent "agent:browser-control" drives a REAL BROWSER (open/click/type/submit, using the user's own login session) — use kind:"agent", tool:"agent:browser-control" for a step that needs a service with a UI but NO usable API/MCP tool (e.g. "register on site X", "apply on a job site", "message someone on a web app"). Outbound actions (submit/send) are human-approved at run time.
-Decompose the goal into ordered steps. For EACH step choose kind ("mcp" external tool / "agent" / "prompt") and, if an inventory item GENUINELY covers it, its exact id — otherwise null. A GENERIC tool does NOT cover a SPECIFIC need (a generic HTTP fetch does NOT cover "get GitHub commits"); use null so the missing tool is surfaced. Prefer an mcp tool/API when one exists; fall back to agent:browser-control ONLY when the service is UI-only (no API).
-Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
+Built-in: kind "prompt" (an LLM step, no tool) is always available. Agent "agent:browser-control" drives a REAL BROWSER with the user's own login (open/click/type/submit; outbound actions are human-approved at run time) — use it for a service that has a UI but NO usable API/MCP.
+
+DISCOVER FIRST (Wave: mandatory). Before planning, RESEARCH the goal (use web search if you have it) across EVERY way to do it — the registered tools above, public/free APIs, free MCP servers, external platforms (e.g. Google Apps Script for Google+schedule, Zapier), browser-control, or generating a new tool — AND check for BLOCKERS (no API exists; the service's ToS forbids automation; it needs a paid/registered account or a license; legal risk).
+If the goal is AMBIGUOUS (several services/platforms could satisfy it — e.g. "start a social media" → X vs Instagram vs Facebook), or multiple mechanisms are genuinely viable, or you found a blocker the user must weigh — DO NOT invent steps. Output ONLY:
+{"clarify":[{"question":"<ask the user>","options":["<opt>","<opt>"],"why":"<why it matters>"}],"blockers":["<blocker + the reason, e.g. ToS/license/no-API>"]}
+Only when it is unambiguous (or the answers above resolve it), output the plan ONLY:
+{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}
+Per step: use the exact inventory id ONLY if it GENUINELY covers the need (a generic tool does NOT cover a specific need → null). Prefer an mcp tool/API; fall back to agent:browser-control only when UI-only (no API).
+Output ONLY the JSON object.`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
 // gap: 'off'|'ask'|'auto' — 解決不能 step（既存ツールで埋まらない mcp/agent）をどう扱うか。off=buildable gap を作らず
@@ -70,6 +75,13 @@ function nodeLabel(n, stepByN) {
   return n.missing ? `⚠️ ${act || 'gap'} (needs a tool)` : `💬 ${act || 'prompt'}`;
 }
 export function renderPlan(ir) {
+  if (ir.mode === 'clarify' || (ir.clarify && ir.clarify.length)) {              // discover: plan の前に user に確認（図でなく質問を出す）
+    const lines = [`🐉 まず確認させて（最適な道具を選ぶため）:`, ''];
+    (ir.clarify || []).forEach((c, i) => { lines.push(`Q${i + 1}. ${c.question}${c.options && c.options.length ? `  [${c.options.join(' / ')}]` : ''}`); if (c.why) lines.push(`    （${c.why}）`); });
+    if ((ir.blockers || []).length) { lines.push('', '⚠️ 注意/地雷:'); for (const b of ir.blockers) lines.push(`  - ${b}`); }
+    lines.push('', '答えを選んだら、その回答を context.choices に入れて plan_flow を再度呼んでください。');
+    return { diagram_mermaid: '', diagram_ascii: '', summary_text: lines.join('\n') };
+  }
   const stepByN = Object.fromEntries((ir.steps || []).map((s) => [s.n, s]));
   const nodes = ir.nodes || [], label = (n) => nodeLabel(n, stepByN);
   const safe = (id) => String(id).replace(/[^a-zA-Z0-9]/g, '_');
@@ -80,6 +92,7 @@ export function renderPlan(ir) {
   const lines = [`🐉 ${ir.plain_summary || ir.goal}`, '', 'Steps:'];
   for (const s of (ir.steps || [])) lines.push(`  ${s.n}. ${s.action}` + (s.have ? `  → ✅ ${s.tool || s.kind}` : `  → ⚠️ needs a tool${s.kind === 'agent' ? ' (or browser-control)' : ''}`));
   if ((ir.missing || []).length) { lines.push('', 'Missing — build with gen_component → approve_component:'); for (const m of ir.missing) lines.push(`  - ${m.what} (${m.kind})`); }
+  if ((ir.blockers || []).length) { lines.push('', '⚠️ 注意/地雷:'); for (const b of ir.blockers) lines.push(`  - ${b}`); }
   lines.push('', 'Flow:', diagram_ascii, '', 'Run it with run_workflow (or re-plan to adjust).');
   return { diagram_mermaid, diagram_ascii, summary_text: lines.join('\n') };
 }
@@ -179,17 +192,24 @@ ${inv}
 Built-in step kind "prompt" (an LLM step) is always available and needs no tool. A GENERIC tool does NOT cover a SPECIFIC need; use null so the missing tool is surfaced.
 Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>"}]}`;
 
+// Wave(discover): clarify 再呼び出しの user 回答を prompt 文に。{question,answer} / 文字列どちらも受ける。
+const choicesText = (c) => Array.isArray(c) ? c.map((x) => typeof x === 'string' ? x : `${x.question}: ${x.answer ?? x.choice ?? ''}`).join('\n') : String(c || '');
+
 // context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
+// Wave(discover・M1): planner が research→曖昧/地雷なら steps でなく {clarify,blockers} を返す→ caller(client) が user に聞いて context.choices で再呼び出し。検索は BYO AI 任せ（神龍は構造化のみ）。
 export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, gap = 'ask', run = runVendorAsync }) {
   goal = String(goal || '').trim();
   const refine = !!(context && context.instruction && context.prev_plan);
   if (!goal && !refine) throw new Error('goal required');
   const inv = inventoryText({ agents, tools, workflows });
-  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv), '');
+  const choices = context && context.choices ? choicesText(context.choices) : '';
+  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv, choices), '');
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (Array.isArray(parsed.steps) && parsed.steps.length) ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', gap);
+    if (!refine && Array.isArray(parsed.clarify) && parsed.clarify.length)        // discover: 曖昧/地雷 → plan せず user に確認を返す（再呼び出しで context.choices）
+      return { goal, mode: 'clarify', clarify: parsed.clarify, blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [], plain_summary: goal, source: 'clarify', nodes: [], edges: [], steps: [], missing: [], tools_needed: [] };
+    if (Array.isArray(parsed.steps) && parsed.steps.length) { ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', gap); if (Array.isArray(parsed.blockers) && parsed.blockers.length) ir.blockers = parsed.blockers; }   // 計画と一緒に残った注意点(blocker)を載せる
   } catch { /* fall through */ }
   if (!ir) ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
     : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic', gap);   // 初回 LLM 不在/壊れ → 1 prompt step

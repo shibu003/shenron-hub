@@ -141,6 +141,27 @@ assert.equal(kept, prev, 'refine parse fail → prev_plan returned unchanged');
 // 初回(context 無し)は従来通り goal 必須
 await assert.rejects(() => plan({ goal: '', run: async () => '{}' }), /goal required/, 'initial plan still needs a goal');
 
+// Wave(discover・M1) — 曖昧な願い → planner が clarify を返す → plan せず user に確認（再呼び出しで context.choices）
+let promptSeen = '';
+const clarifyRun = async (_v, p) => { promptSeen = p; return '{"clarify":[{"question":"どのSNS？","options":["X","Instagram","Facebook"],"why":"機構が変わる"}],"blockers":["転売の自動購入は ToS 違反"]}'; };
+const cl = await plan({ goal: 'SNSを始めたい', run: clarifyRun });
+assert.equal(cl.mode, 'clarify', 'discover: ambiguous goal → clarify mode (not a plan)');
+assert.equal(cl.nodes.length, 0, 'discover: clarify returns no plan nodes');
+assert.equal(cl.clarify[0].options.length, 3, 'discover: options carried (X/Insta/FB)');
+assert.ok(cl.blockers.length && /ToS/.test(cl.blockers[0]), 'discover: blockers surfaced');
+assert.ok(/DISCOVER FIRST/.test(promptSeen), 'discover: prompt mandates research-first');
+const clr = renderPlan(cl);
+assert.ok(/どのSNS/.test(clr.summary_text) && /context\.choices/.test(clr.summary_text), 'discover: renderPlan shows questions + re-call hint');
+assert.equal(clr.diagram_ascii, '', 'discover: no flow diagram while clarifying');
+
+// 回答(context.choices)を渡すと prompt に乗り、plan へ進む（blocker も計画に同梱）
+let answeredPrompt = '';
+const stepsRun = async (_v, p) => { answeredPrompt = p; return '{"plain_summary":"X に投稿","blockers":["X API は有料枠あり"],"steps":[{"action":"投稿する","kind":"agent","tool":"agent:browser-control"}]}'; };
+const planned = await plan({ goal: 'SNSを始めたい', context: { choices: [{ question: 'どのSNS？', answer: 'X' }] }, run: stepsRun });
+assert.notEqual(planned.mode, 'clarify', 'with choices → proceeds to a plan');
+assert.ok(/どのSNS.*X/s.test(answeredPrompt), 'choices passed into the prompt');
+assert.ok((planned.blockers || []).some((b) => /API/.test(b)), 'plan carries blockers alongside steps');
+
 // Wave 6 — 実行: a shenron flow is run AS-IS by the hub DAG executor (cockpit ▶ 実行 and MCP run_workflow's isDag
 // branch both POST /api/runflow). No per-Wave execution code — the invariant that makes that free is: every node
 // kind the planner emits is one hub.mjs fireNode() handles. This pins it; emit a kind fireNode can't run and it fails.
