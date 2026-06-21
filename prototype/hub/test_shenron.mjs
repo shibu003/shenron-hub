@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
 import { openStdio } from '../mcp/mcp-client.mjs';
 import { classify, SEED_RULES, addAllowRule } from '../permissions.mjs';
@@ -281,5 +281,20 @@ assert.equal(uiIR.missing.length, 0, '11c: browser-control step is resolved, not
 const bc = uiIR.nodes.find((n) => n.kind === 'agent' && n.agent === 'browser-control');
 assert.ok(bc, '11c: emits an agent node targeting browser-control');
 assert.ok(uiIR.tools_needed.find((t) => t.name === 'agent:browser-control' && t.have), '11c: browser-control marked have (computer-use covers it)');
+
+// Wave A — renderPlan: plan IR → 人間可読（Mermaid + ASCII + plain 要約）。cockpit 無しで確認できる。
+const rp = renderPlan(buildPlanIR('email the team', { plain_summary: 'Email the team', steps: [
+  { action: 'draft it', kind: 'prompt', tool: null },
+  { action: 'send via gmail', kind: 'mcp', tool: 'mcp:gmail.send' },
+  { action: 'post on the careers site', kind: 'agent', tool: 'agent:browser-control' },
+  { action: 'scrape github stars', kind: 'mcp', tool: null },   // gap
+] }));
+assert.ok(rp.diagram_mermaid.startsWith('flowchart LR'), 'renderPlan: mermaid header');
+assert.ok(/mcp:gmail\.send/.test(rp.diagram_mermaid), 'renderPlan: mermaid has the gmail node');
+assert.ok(/input_1\[/.test(rp.diagram_mermaid) && !/input-1\[/.test(rp.diagram_mermaid), 'renderPlan: mermaid sanitizes hyphenated ids');
+assert.ok(rp.diagram_mermaid.includes('-->'), 'renderPlan: mermaid has edges');
+assert.ok(rp.diagram_ascii.includes('↓') && rp.diagram_ascii.includes('🌐 agent:browser-control'), 'renderPlan: ascii chain + browser-control');
+assert.ok(/✅ mcp:gmail\.send/.test(rp.summary_text), 'renderPlan: summary marks resolved tool');
+assert.ok(/Missing/.test(rp.summary_text) && /scrape github stars/.test(rp.summary_text), 'renderPlan: summary surfaces the gap');
 
 console.log('test_shenron OK');

@@ -60,6 +60,30 @@ export function buildPlanIR(goal, parsed, source = 'llm', gap = 'ask') {
   return { goal, plain_summary: parsed.plain_summary || goal, steps, tools_needed, missing, nodes, edges, source };
 }
 
+// Wave A: plan IR → 人間可読（Mermaid + ASCII 図 + plain 要約）。CLI/Claude がそのまま描画＝cockpit 不要で「これで実行？」と確認できる。pure。
+function nodeLabel(n, stepByN) {
+  if (n.kind === 'input') return '📥 input';
+  if (n.kind === 'output') return '📤 output';
+  if (n.kind === 'mcp') return `🔧 mcp:${n.server}.${n.tool}`;
+  if (n.kind === 'agent') return `${n.agent === 'browser-control' ? '🌐' : '🤖'} agent:${n.agent}`;
+  const act = ((stepByN[Number(String(n.id).replace(/^s/, ''))] || {}).action || '').slice(0, 40);
+  return n.missing ? `⚠️ ${act || 'gap'} (needs a tool)` : `💬 ${act || 'prompt'}`;
+}
+export function renderPlan(ir) {
+  const stepByN = Object.fromEntries((ir.steps || []).map((s) => [s.n, s]));
+  const nodes = ir.nodes || [], label = (n) => nodeLabel(n, stepByN);
+  const safe = (id) => String(id).replace(/[^a-zA-Z0-9]/g, '_');
+  const diagram_mermaid = ['flowchart LR',
+    ...nodes.map((n) => `  ${safe(n.id)}["${label(n).replace(/"/g, "'")}"]`),
+    ...(ir.edges || []).map((e) => `  ${safe(e.source)} --> ${safe(e.target)}`)].join('\n');
+  const diagram_ascii = nodes.map((n, i) => `${i ? '  ↓\n' : ''}  ${label(n)}`).join('\n');
+  const lines = [`🐉 ${ir.plain_summary || ir.goal}`, '', 'Steps:'];
+  for (const s of (ir.steps || [])) lines.push(`  ${s.n}. ${s.action}` + (s.have ? `  → ✅ ${s.tool || s.kind}` : `  → ⚠️ needs a tool${s.kind === 'agent' ? ' (or browser-control)' : ''}`));
+  if ((ir.missing || []).length) { lines.push('', 'Missing — build with gen_component → approve_component:'); for (const m of ir.missing) lines.push(`  - ${m.what} (${m.kind})`); }
+  lines.push('', 'Flow:', diagram_ascii, '', 'Run it with run_workflow (or re-plan to adjust).');
+  return { diagram_mermaid, diagram_ascii, summary_text: lines.join('\n') };
+}
+
 // Wave 2 外部発見: MCP search 結果 → {title,url} or null。実 Tavily 未検証なので shape は最小（envelope→array|{results}）に絞る。
 // 当て推量(.name/.link/単一オブジェクト)は実 shape を見てから足す。non-JSON/対象無しは null（graceful）。
 export function suggestionFromSearch(result) {
