@@ -199,11 +199,11 @@ function schedule(h) {
 }
 function runLocal(h) {
   if (running.has(h.id)) return; running.add(h.id);
-  const lc = agent(h.to).local; const vendor = EXEC_VENDOR || lc.vendor || 'stub';
+  const lc = agent(h.to).local; const vendor = h.vendor || EXEC_VENDOR || lc.vendor || 'stub';   // Wave G: per-node 明示 > 全体 EXEC_VENDOR > agent 既定
   if (h.skill !== lc.skillId) { running.delete(h.id); return void postResult(h.id, { error: `agent ${h.to} does not serve skill "${h.skill}"` }); }
   touch(h, 'running', 'hub'); save();
-  console.log(`▶ [hub] running ${h.id} (${h.skill}) for ${h.to} — ${vendor}`);
-  runVendorAsync(vendor, `${lc.systemPrompt}\n\n--- INPUT ---\n${h.input}\n--- END INPUT ---`, lc.stub)
+  console.log(`▶ [hub] running ${h.id} (${h.skill}) for ${h.to} — ${vendor}${h.model ? ' / ' + h.model : ''}`);
+  runVendorAsync(vendor, `${lc.systemPrompt}\n\n--- INPUT ---\n${h.input}\n--- END INPUT ---`, lc.stub, { model: h.model })   // per-node model（未指定なら runner 既定）
     .then((result) => postResult(h.id, { result }, 'hub'))
     .catch((e) => postResult(h.id, { error: e.message }, 'hub'))
     .finally(() => { running.delete(h.id); console.log(`✓ [hub] ${h.id} done`); });
@@ -316,7 +316,10 @@ function fireNode(run, node, input) {
   if (node.kind === 'languagemodel') return firePromptNode(run, { ...node, config: { template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from);   // = prompt + system preamble (in-process vendor)
   if (node.kind === 'structured') return firePromptNode(run, { ...node, config: { template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from);   // structured-output ≈ prompt asking for JSON
   const h = create({ from, to: node.agent, skill: node.skill, input });
-  h.runId = run.id; h.node = node.id; save();
+  h.runId = run.id; h.node = node.id;
+  const nv = node.vendor || (node.config && node.config.vendor); if (nv) h.vendor = nv;   // Wave G: per-node vendor on an agent node（flow で「この step は別 AI」）
+  const nm = node.model || (node.config && node.config.model); if (nm) h.model = nm;      // per-node model（同上）
+  save();
 }
 // Wave K — a prompt component is INTERNAL compute (an inline LLM template), not an external side-effect:
 // it runs in-process via the vendor with NO approval fence (mirrors an auto agent). Reuses the run-handoff
