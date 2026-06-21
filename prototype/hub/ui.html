@@ -148,6 +148,37 @@
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
   body.wiring, body.wiring .node { cursor:crosshair; }
 
+  /* wish bar */
+  #wishWrap { padding:9px 11px 0; }
+  #wishWrap textarea { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.45 inherit; resize:none; box-sizing:border-box; }
+  #wishWrap textarea:focus { border-color:var(--blue); outline:none; }
+  #wishWrap .row2 { display:flex; gap:6px; margin:5px 0 8px; }
+  #wishWrap .row2 button { flex:1; border:1px solid var(--green); background:#0d1117; color:var(--green); border-radius:7px; padding:6px; cursor:pointer; font:inherit; font-size:12px; }
+  #wishWrap .row2 button:hover { background:rgba(63,185,80,.1); }
+  #wishWrap .row2 button:disabled { opacity:.5; cursor:default; }
+  #wishClarify { background:#0d1117; border:1px solid var(--amber); border-radius:8px; margin-bottom:8px; padding:9px; font-size:11px; color:#d4aa70; }
+  #wishClarify .wq { margin-bottom:8px; } #wishClarify .wq b { color:var(--txt); display:block; margin-bottom:5px; }
+  #wishClarify .opts { display:flex; flex-wrap:wrap; gap:5px; }
+  #wishClarify .opts button { background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); padding:3px 8px; cursor:pointer; font:11px inherit; }
+  #wishClarify .opts button.sel { border-color:var(--blue); color:var(--blue); }
+  /* tier badge */
+  .tier-badge { font-size:10px; padding:1px 6px; border-radius:999px; margin-left:auto; flex-none; }
+  .tier-badge.cheap { background:rgba(63,185,80,.15); color:var(--green); border:1px solid #2ea043; }
+  .tier-badge.strong { background:rgba(88,166,255,.15); color:var(--blue); border:1px solid #2a5a9e; }
+  /* cost toggle */
+  #btnCost { font-size:12px; }
+  #btnCost.paid { border-color:var(--amber); color:var(--amber); }
+  /* inspector agent section */
+  .ins-agent { padding-bottom:10px; margin-bottom:10px; border-bottom:2px solid var(--line); }
+  .ins-agent .ia-name { font-size:14px; font-weight:600; color:var(--txt); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .ins-agent .ia-row { margin-bottom:7px; }
+  .ins-agent .ia-label { font-size:10px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px; }
+  .ins-agent select.ia-sel { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); padding:5px 7px; font:12px inherit; }
+  .ins-agent textarea.ia-ta { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); padding:5px 7px; font:11px/1.4 ui-monospace,Menlo,monospace; resize:vertical; min-height:40px; }
+  .ins-agent .ia-presets { display:flex; gap:5px; flex-wrap:wrap; }
+  .ins-agent .ia-presets button { flex:1; min-width:60px; font-size:10px; padding:4px 5px; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); cursor:pointer; }
+  .ins-agent .ia-presets button:hover { border-color:var(--blue); }
+
   .ins-h { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:2px 2px 10px; display:flex; align-items:center; }
   .ins-h .back { margin-left:auto; cursor:pointer; color:var(--blue); text-transform:none; letter-spacing:0; }
   .field { margin-bottom:11px; } .field label { display:block; font-size:11px; color:var(--dim); margin-bottom:3px; }
@@ -288,6 +319,7 @@
     <button class="tb go" id="btnRun" onclick="runFlow()"></button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none"></button>
     <button id="ckptBadge" onclick="viewSwitch('builder');renderInspector()"></button>
+    <button class="tb" id="btnCost" onclick="toggleCost()" title="cost mode: free=0円ツールのみ / paid_ok=有料ツール許可">🆓 free</button>
     <div class="menu">
       <button class="tb" id="btnAuto" onclick="toggleMenu(event,'autoMenu')"></button>
       <div class="menu-pop" id="autoMenu">
@@ -325,6 +357,11 @@
 </nav>
 <div id="app">
   <aside id="sidebar-pal">
+    <div id="wishWrap">
+      <textarea id="wishText" rows="2" placeholder="何を自動化したい？（例: 毎週月曜に Slack でレポート）"></textarea>
+      <div id="wishClarify" hidden></div>
+      <div class="row2"><button id="btnWish" onclick="wishPlan()">🐉 計画する</button></div>
+    </div>
     <input id="palSearch" oninput="renderPalette()">
     <div id="palList"></div>
     <div class="pal-add">
@@ -558,13 +595,20 @@ async function renderRunsView(){
   const cards=WORKFLOWS.length
     ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}" onclick="(async()=>{const r=await api('/api/workflows?id='+encodeURIComponent('${esc(w.id)}')); if(r&&r.nodes){$('#flowName').value=r.id;loadFlow(r);viewSwitch('builder');toast(r.name||r.id);}else toast(t('flows_none'));})()"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">📜</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
     : `<div class="empty">${t('flows_none')}</div>`;
+  let autos=[]; try{ autos=await api('/api/automations'); }catch{}
+  const autoSection=autos.length?`<h2>⏰ Automations</h2><div style="margin-bottom:20px">${autos.map(a=>{
+    const tr=a.trigger||{}; const trigLabel=tr.type==='schedule'?`⏰ ${tr.cron||'cron'}`:tr.event?`⚡ ${tr.event}`:'—';
+    return `<div class="palrow" style="border:1px solid var(--line);border-radius:7px;margin-bottom:5px">
+      <div class="pm"><b>${esc(a.name||a.id)}</b><span>${trigLabel} → ${esc(a.workflow||'')}</span></div>
+      <span style="font-size:11px;color:${a.enabled!==false?'var(--green)':'var(--dim)'}">●</span></div>`;
+  }).join('')}</div>`:'';
   let comps=[]; try{ comps=await api('/api/shenron/components'); }catch{}                 // Wave 10: 生成部品の登録庫（pending=人ゲート待ち）
   const pending=comps.filter(c=>!c.approved);
   const compRow=c=>`<div class="palrow" style="border:1px solid var(--line);border-radius:7px">
     <div class="pm"><b>${esc(c.what)}</b><span>${c.approved?'✅':'⚠️'} ${esc(c.id)} · iter ${c.iters||0}${(c.credentials&&c.credentials.length)?' · 🔑 '+c.credentials.map(esc).join(','):''}</span></div>
     <span class="pb" data-compcode="${esc(c.id)}">{ } code</span>${c.approved?'':`<span class="pb" data-compok="${esc(c.id)}">${t('sh_approve')}</span>`}</div>`;
   const compSection=comps.length ? `<h2 style="margin-top:8px">${t('comps_title')}${pending.length?` · ⚠️ ${pending.length} ${t('comps_pending')}`:''}</h2><div style="margin-bottom:20px">${pending.concat(comps.filter(c=>c.approved)).map(compRow).join('')}</div>` : '';
-  el.innerHTML=`${compSection}<h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
+  el.innerHTML=`${autoSection}${compSection}<h2>${t('insp_flow')}</h2>${trustSummary()}${reputationPanel()}${auditPanel()}`;
   el.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });
   el.querySelectorAll('[data-compok]').forEach(b=>b.onclick=async()=>{ try{ const r=await api('/api/shenron/components/approve',{id:b.getAttribute('data-compok')}); toast('✅ '+(r.integration||r.id)); await fetchIntegrations(); renderRunsView(); }catch(e){ toast(e.message); } });   // 承認 → integration 登録（ladder rejoin）→ 以降 plan で実 mcp node に
   el.querySelectorAll('[data-compcode]').forEach(b=>b.onclick=async()=>{ const c=await api('/api/shenron/components?id='+encodeURIComponent(b.getAttribute('data-compcode'))); openModal({title:c.id,info:esc(c.what),submitLabel:t('m_copy'),fields:[{key:'code',label:'',type:'readonly',value:c.code||''}],onSubmit:()=>copyText(c.code||'',t('t_snip_copied'))}); });
@@ -802,7 +846,7 @@ function addComp(kind){ const c=COMP[kind]; const id=(c?kind:'node')+'-'+(++cidc
   if(c){ const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
     COMPONENTS.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y }); }
   else { COMPONENTS.push({ id, kind:'unset', accepts:['*'], emits:['*'], config:{}, x:200, y }); }   // blank node: choose the kind in the inspector
-  selectNode(id); render(); }
+  COLLAPSED.add(id); selectNode(id); render(); }
 // the node's ports change when its kind/中身 changes → drop wires that no longer type-match (and say so)
 function revalidateEdges(id){ const before=EDGES.length;
   EDGES=EDGES.filter(e=>(e.source!==id&&e.target!==id)||canConnect(e.source,e.target));
@@ -818,7 +862,7 @@ function removeComp(id){ COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES
 function addMcpNode(tl){ const id='mcp-'+(++mnidc); const {x,y}=canvasCenter(MCP_NODES.length*24, MCP_NODES.length*16);
   MCP_NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x, y }
                    :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x, y });   // blank: choose the tool in the inspector
-  selectNode(id); render(); }
+  COLLAPSED.add(id); selectNode(id); render(); }
 // an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
 const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool)) || (n.kind==='workflow' && !n.ref);
 // A2 cascade: pick a server first (loads its tools), then a tool. accepts/emits come from the cached full server.
@@ -850,7 +894,7 @@ function mcpCascade(mn, cls){
 function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function canvasCenter(dx=0,dy=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+dx), y:Math.round((r.height/2-PANY)/ZOOM+dy) }; }
-function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24, TRIGGERS.length*16) }); selectNode(id); render(); }
+function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24, TRIGGERS.length*16) }); COLLAPSED.add(id); selectNode(id); render(); }
 function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24, NOTES.length*16) }); selectNode(id); render(); }   // (b) annotation card
 function removeNote(id){ NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
 
@@ -894,22 +938,24 @@ function renderNodes(){
     n.classList.toggle('collapsed',COLLAPSED.has(a.id));
     if(n.contains(document.activeElement)) continue;   // B2: don't rebuild the card while its passport editor is focused (protects a half-typed never-list)
     const rp=repOf(a.id), caps=(a.passport&&a.passport.caps)||{};
+    const isCollapsed=COLLAPSED.has(a.id);
     const capRowNf=(key)=>{ const cur=caps[key]||(CAPVOCAB[key]||[])[0]; return `<div class="nfrow"><label class="nflabel">${esc(key.replace('_',' '))}</label><select class="nf" data-cap="${key}" data-agcap="${esc(a.id)}">${(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('')}</select></div>`; };
     const policyBtn=`<button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button>`;
     const autorunBtn=a.local?`<button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button>`:'';
     const presets=`<div class="presetrow">${['untrusted','internal','trusted'].map(p=>`<button data-agpreset="${esc(a.id)}" data-preset="${p}">${t('preset_'+p)}</button>`).join('')}</div>`;
-    n.innerHTML=`<div class="name">${collBtn(a.id)}<span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${rp?` · 📇 ${esc(rp.label)}${rp.score!=null?' '+rp.score+'%':''}`:''}${busy?' · ▶ running':a.online?'':' · offline'}</div>`
-      +`<div class="nbody">`
-        +`<div class="nfrow"><label class="nflabel">${t('f_policy')}</label>${policyBtn}</div>`
+    // when collapsed: show empty body (settings live in inspector); when expanded: show full form
+    const nbody=isCollapsed ? '' :
+        `<div class="nfrow"><label class="nflabel">${t('f_policy')}</label>${policyBtn}</div>`
         +(autorunBtn?`<div class="nfrow"><label class="nflabel">${t('f_autorun')}</label>${autorunBtn}</div>`:'')
         +`<div class="nfrow"><label class="nflabel">${t('h_presets')}</label>${presets}</div>`
         +`<div class="nfrow"><label class="nflabel">🔒 ${t('h_caps')}</label></div>`
         +capRowNf('net')+capRowNf('fs')+capRowNf('external_send')
         +`<div class="nflabel">secrets: deny · ${t('cap_always')}</div>`
         +`<div class="nfrow"><label class="nflabel">${t('h_never')}</label><textarea class="nf" data-agnever="${esc(a.id)}" rows="2" placeholder="${esc(t('h_never_ph'))}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>`
-        +`<button class="ibtn" data-ppsave="${esc(a.id)}">${t('h_pp_apply')}</button>`
-      +`</div>`;
+        +`<button class="ibtn" data-ppsave="${esc(a.id)}">${t('h_pp_apply')}</button>`;
+    n.innerHTML=`<div class="name">${collBtn(a.id)}<span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+      +`<div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${rp?` · 📇 ${esc(rp.label)}${rp.score!=null?' '+rp.score+'%':''}`:''}${busy?' · ▶ running':a.online?'':' · offline'}</div>`
+      +`<div class="nbody">${nbody}</div>`;
   }
   for(const tr of TRIGGERS){
     const nid='n_'+cssid(tr.id); seen.add(nid);
@@ -960,7 +1006,8 @@ function renderNodes(){
     // B1 — name + desc now edit on the card (was inspector-only); reuse inlineField so the delegated input listener live-binds config.name/desc
     const nameDesc=inlineField(c,{key:'name',label:t('comp_name'),ph:t('comp_name_ph')})+inlineField(c,{key:'desc',label:t('comp_desc'),type:'textarea',ph:t('comp_desc_ph')});
     const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
-    n.innerHTML=`<div class="name">${collBtn(c.id)}${meta.icon||'▦'} ${esc(cname)}</div>`
+    const tierBadge=c.tier?`<span class="tier-badge ${c.tier}">${c.tier}</span>`:'';
+    n.innerHTML=`<div class="name">${collBtn(c.id)}${meta.icon||'▦'} ${esc(cname)}${tierBadge}</div>`
       +`<div class="nbody">${kindSel}${nameDesc}${fieldsHtml}${res!=null?`<div class="nfres">${esc(res).slice(0,240)}</div>`:''}</div>`;
   }
   for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
@@ -1095,11 +1142,30 @@ function drawLinks(){
 }
 
 /* ---------- inspector ---------- */
+function inspAgent(a){
+  const caps=(a.passport&&a.passport.caps)||{};
+  const capRow=(key)=>{ const cur=caps[key]||(CAPVOCAB[key]||[])[0];
+    return `<div class="ia-row"><div class="ia-label">${esc(key.replace('_',' '))}</div><select class="ia-sel" data-cap="${key}">${(CAPVOCAB[key]||[]).map(v=>`<option value="${v}" ${v===cur?'selected':''}>${v}</option>`).join('')}</select></div>`; };
+  const presets=`<div class="ia-presets">${['untrusted','internal','trusted'].map(p=>`<button data-agpreset="${esc(a.id)}" data-preset="${p}">${t('preset_'+p)}</button>`).join('')}</div>`;
+  const rp=repOf(a.id);
+  return `<div class="ins-agent">
+    <div class="ia-name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${rp?`<span style="margin-left:auto;font-size:11px;color:var(--dim)">📇 ${esc(rp.label)}${rp.score!=null?' '+rp.score+'%':''}</span>`:''}${a.local?'':''}</div>
+    <div class="ia-row"><button class="ibtn toggle ${a.policy}" onclick="togglePolicy('${esc(a.id)}')">${a.policy==='auto'?t('pol_auto'):t('pol_appr')}${t('toggle_sfx')}</button></div>
+    ${a.local?`<div class="ia-row"><button class="ibtn toggle ${a.autorun!==false?'auto':'approval'}" onclick="toggleAutorun('${esc(a.id)}')">${a.autorun!==false?t('autorun_on'):t('autorun_off')}${t('toggle_sfx')}</button></div>`:''}
+    <div class="ia-row"><div class="ia-label">${t('h_presets')}</div>${presets}</div>
+    <div class="ia-row"><div class="ia-label">🔒 ${t('h_caps')}</div></div>
+    ${capRow('net')}${capRow('fs')}${capRow('external_send')}
+    <div class="ia-row"><div class="ia-label">${t('h_never')}</div><textarea class="ia-ta" data-agnever="${esc(a.id)}" rows="2" placeholder="${esc(t('h_never_ph'))}">${esc(((a.passport&&a.passport.share&&a.passport.share.never)||[]).join('\n'))}</textarea></div>
+    <button class="ibtn" data-ppsave="${esc(a.id)}">${t('h_pp_apply')}</button>
+  </div>`;
+}
 function renderInspector(){
   const ins=$('#sidebar-ins'); if(!ins) return;
   const ed = selEdge && edgeOf(selEdge);
   if(ed) return void (ins.innerHTML = inspEdge(ed), bindEdge(ed));
-  ins.innerHTML = inspDefault();
+  const selAgent = selected ? ag(selected) : null;
+  const agSec = (selAgent && COLLAPSED.has(selected)) ? inspAgent(selAgent) : '';
+  ins.innerHTML = agSec + inspDefault();
   ins.querySelectorAll('.cnt[data-f]').forEach(el=>el.onclick=()=>{ filter=(filter===el.dataset.f)?null:el.dataset.f; renderInspector(); });
   ins.querySelectorAll('.h').forEach(el=>el.onclick=()=>{ const id=el.dataset.id; expanded.has(id)?expanded.delete(id):expanded.add(id); renderInspector(); });
   ins.querySelectorAll('[data-ok]').forEach(b=>b.onclick=e=>{e.stopPropagation();act(b.getAttribute('data-ok'),'approve');});
@@ -1624,7 +1690,8 @@ function shenronPlan(){
             {key:'gap',label:t('sh_gap_label'),type:'select',value:gapMode,options:[{value:'ask',label:t('sh_gap_ask')},{value:'auto',label:t('sh_gap_auto')},{value:'off',label:t('sh_gap_off')}]}],
     onSubmit:async v=>{ const goal=(v.goal||'').trim(); if(!goal) return;
       const gap=v.gap||'ask'; localStorage.setItem('sh_gap',gap);
-      let r; try{ r=await api('/api/shenron/plan',{goal,save:true,gap}); }catch(e){ return toast(e.message||t('gw_empty')); }
+      const cost=localStorage.getItem('sh_cost')||'free';
+      let r; try{ r=await api('/api/shenron/plan',{goal,save:true,gap,cost}); }catch(e){ return toast(e.message||t('gw_empty')); }
       applyPlan(r);
       if(gap==='auto'&&(r.missing||[]).length){ toast(t('sh_gap_autogen')); for(const g of r.missing){ try{ await api('/api/shenron/gen-component',{what:g.what}); }catch{} } renderRunsView&&renderRunsView(); }   // auto: 各 gap を自動生成（登録 approve は pending パネルで人が・co-pilot 線）
     } });
@@ -1673,11 +1740,53 @@ function loadFlow(flow){                         // materialize a generated/save
     else if(n.kind==='trigger'){ TRIGGERS.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }
     else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
     else if(n.kind==='note'){ NOTES.push({ id:n.id, text:n.text||'', color:n.color||'amber' }); }
-    else if(COMP[n.kind]){ const m=COMP[n.kind]; const config=n.config||{}; if(n.kind==='workflow'&&n.ref&&!config.ref) config.ref=n.ref; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config }); }
+    else if(COMP[n.kind]){ const m=COMP[n.kind]; const config=n.config||{}; if(n.kind==='workflow'&&n.ref&&!config.ref) config.ref=n.ref; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config, tier:n.tier||null }); }
   }
   EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}), ...(e.branch?{branch:e.branch}:{}) }));
+  // collapse all newly loaded nodes by default (settings visible in inspector on click)
+  for(const n of flow.nodes) COLLAPSED.add(n.id);
+  localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED]));
   deselect(); render();
 }
+// ---------- wish bar (discover-first) ----------
+let WISH_CLARIFY_STATE = null;
+async function wishPlan(){
+  const goal=($('#wishText').value||'').trim(); if(!goal)return;
+  const btn=$('#btnWish'); if(btn) btn.disabled=true;
+  const cost=localStorage.getItem('sh_cost')||'free';
+  const gap=localStorage.getItem('sh_gap')||'ask';
+  let r; try{ r=await api('/api/shenron/plan',{goal,save:true,gap,cost}); }
+  catch(e){ toast(e.message||t('gw_empty')); if(btn)btn.disabled=false; return; }
+  if(btn) btn.disabled=false;
+  if(r.mode==='clarify'||(r.clarify&&r.clarify.length)){
+    WISH_CLARIFY_STATE={goal, clarify:r.clarify||[], blockers:r.blockers||[]};
+    showWishClarify(r.clarify||[], r.blockers||[]); return;
+  }
+  $('#wishText').value=''; hideWishClarify(); applyPlan(r);
+}
+async function wishSubmitChoices(){
+  if(!WISH_CLARIFY_STATE)return;
+  const choices=(WISH_CLARIFY_STATE.clarify||[]).map((q,i)=>{
+    const sel=document.querySelector(`#wq_${i} .opts button.sel`);
+    return {question:q.question, answer:sel?sel.textContent:''};
+  }).filter(c=>c.answer);
+  const cost=localStorage.getItem('sh_cost')||'free';
+  let r; try{ r=await api('/api/shenron/plan',{goal:WISH_CLARIFY_STATE.goal,save:true,gap:localStorage.getItem('sh_gap')||'ask',cost,context:{choices}}); }
+  catch(e){ return toast(e.message); }
+  if(r.mode==='clarify'||(r.clarify&&r.clarify.length)){ showWishClarify(r.clarify||[],r.blockers||[]); return; }
+  WISH_CLARIFY_STATE=null; hideWishClarify(); $('#wishText').value=''; applyPlan(r);
+}
+function showWishClarify(clarify, blockers){
+  const el=$('#wishClarify'); if(!el)return; el.removeAttribute('hidden');
+  let html=clarify.map((q,i)=>`<div class="wq" id="wq_${i}"><b>${esc(q.question)}</b><div class="opts">${(q.options||[]).map(o=>`<button onclick="this.closest('.opts').querySelectorAll('button').forEach(b=>b.classList.remove('sel'));this.classList.add('sel')">${esc(o)}</button>`).join('')}</div>${q.why?`<div style="color:var(--dim);font-size:10px;margin-top:2px">${esc(q.why)}</div>`:''}</div>`).join('');
+  if(blockers.length) html+=`<div style="color:var(--amber);font-size:10px;margin-top:4px">⚠️ ${blockers.map(esc).join(' · ')}</div>`;
+  html+=`<div class="row2" style="margin-top:7px"><button style="flex:1;border:1px solid var(--green);background:#0d1117;color:var(--green);border-radius:7px;padding:5px;cursor:pointer;font:11px inherit" onclick="wishSubmitChoices()">✓ 確定して計画</button><button style="border:1px solid var(--line);background:#0d1117;color:var(--dim);border-radius:7px;padding:5px;cursor:pointer;font:11px inherit" onclick="hideWishClarify()">✕</button></div>`;
+  el.innerHTML=html;
+}
+function hideWishClarify(){ const el=$('#wishClarify'); if(el){el.setAttribute('hidden','');el.innerHTML='';} WISH_CLARIFY_STATE=null; }
+// ---------- cost toggle ----------
+function toggleCost(){ const c=(localStorage.getItem('sh_cost')||'free')==='free'?'paid_ok':'free'; localStorage.setItem('sh_cost',c); updateCostBtn(); }
+function updateCostBtn(){ const c=localStorage.getItem('sh_cost')||'free'; const b=$('#btnCost'); if(b){b.textContent=c==='free'?'🆓 free':'💰 paid_ok'; b.classList.toggle('paid',c==='paid_ok');} }
 // ---- Wave B: import a Langflow flow export (.json) → cockpit nodes/edges, so any Langflow flow lands here and
 // gets the trust dimension Langflow lacks (per-edge firewall + per-agent passport + audit). Langflow node:
 // { id, position:{x,y}, data:{ type:<Component>, display_name, node:{ outputs/base_classes, template } } }.
@@ -1770,10 +1879,13 @@ document.addEventListener('click', e=>{ const el=e.target.closest('[data-collaps
   else if(el.dataset.agpreset!=null) applyPreset(el.dataset.agpreset, el.dataset.preset); });
 // B2 — apply the agent card's passport editor (caps + never) to the hub. Caps commit on this button (not on
 // change) so each select doesn't fire an API round-trip + refresh that would fight the focus guard.
-async function saveAgentPassport(id){ const card=document.getElementById('n_'+cssid(id)); if(!card)return;
-  const caps={ secrets:'deny' }; card.querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
-  const never=(card.querySelector('textarea[data-agnever]')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
-  await api(`/api/agents/${id}/passport`,{ caps, share:{ never } }); toast(t('h_pp_saved')); refresh(); }
+async function saveAgentPassport(id){
+  // collapsed: settings are in the inspector; expanded: settings are in the node card
+  const src = COLLAPSED.has(id) ? $('#sidebar-ins') : document.getElementById('n_'+cssid(id));
+  if(!src) return;
+  const caps={secrets:'deny'}; src.querySelectorAll('select[data-cap]').forEach(s=>caps[s.dataset.cap]=s.value);
+  const never=(src.querySelector('textarea[data-agnever]')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  await api(`/api/agents/${id}/passport`,{caps,share:{never}}); toast(t('h_pp_saved')); refresh(); }
 document.addEventListener('keydown', e=>{
   const tag=(e.target.tagName||'').toLowerCase(), typing=tag==='input'||tag==='textarea'||e.target.isContentEditable;
   if(e.key==='/' && !typing){ e.preventDefault(); $('#palSearch').focus(); return; }
@@ -1783,5 +1895,8 @@ document.addEventListener('keydown', e=>{
 function deleteSelected(){ const id=selected; if(!id)return;
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id); else if(noteOf(id)) removeNote(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
-applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); updateCostBtn();
+// collapse all visible nodes on first session load (fresh default)
+if(!sessionStorage.getItem('bh_init')){ sessionStorage.setItem('bh_init','1'); setTimeout(()=>{ state.agents.forEach(a=>{ if(!HIDDEN.has(a.id)) COLLAPSED.add(a.id); }); localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED])); render(); }, 600); }
+setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 </script>
