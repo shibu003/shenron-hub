@@ -276,7 +276,10 @@ export async function genComponent({ what, vendor = 'claude', maxIters = 3, run 
   if (!what) throw new Error('what required');
   let code = '', err = null;
   for (let i = 1; i <= maxIters; i++) {
-    code = extractCode(await run(vendor, err ? REPAIR_PROMPT(what, code, err) : GEN_PROMPT(what), ''));
+    const raw = String(await run(vendor, err ? REPAIR_PROMPT(what, code, err) : GEN_PROMPT(what), '') || '').trim();
+    if (raw.startsWith('[') && raw.includes('stub]'))                                              // vendor unavailable/failed (runner returns `[... → stub]`) — feeding that to the sandbox crashes every iter (実機で判明). Fail fast with the fix.
+      return { what, code: '', iters: i, converged: false, error: `no LLM vendor for codegen — set EXEC_VENDOR=claude (local) or ANTHROPIC_API_KEY (cloud). vendor said: ${raw.slice(0, 100)}` };
+    code = extractCode(raw);
     const creds = neededCredentials(code);
     const missing = creds.filter((k) => process.env[k] == null);
     if (missing.length) return { what, code, iters: i, converged: false, needsCredentials: missing, error: `needs credentials (set in hub env, then re-generate): ${missing.join(', ')}` };

@@ -101,6 +101,14 @@ assert.ok(!r3.converged && r3.iters === 3 && r3.error === 'still broken' && r3.c
 assert.equal(c3.length, 3, 'maxIters LLM calls');
 await assert.rejects(() => genComponent({ what: '   ', run: fakeRun([]), sandbox: () => ({ ok: true }) }), /what required/, 'guard: empty what');
 
+// Wave C fix — no LLM vendor (runner returns a `[... → stub]` marker): fail fast with the fix, do NOT feed the stub
+// to the sandbox and crash every iter (the 実機 red-team bug). converged:false + a clear "set EXEC_VENDOR/ANTHROPIC_API_KEY" error.
+let stubSandboxed = 0;
+const rStub = await genComponent({ what: 'fetch stars', run: async () => '[claude failed → stub] exit 1\n', sandbox: () => { stubSandboxed++; return { ok: true }; } });
+assert.equal(rStub.converged, false, 'stub vendor: not converged');
+assert.equal(stubSandboxed, 0, 'stub vendor: never reaches the sandbox (no crash-loop)');
+assert.match(rStub.error, /EXEC_VENDOR|ANTHROPIC_API_KEY/, 'stub vendor: error names the fix');
+
 // Wave 9.1 — BYO-credential: neededCredentials は secret-strip 対象の env 名だけ拾う（HOME 等は safeEnv が通すので allowlist 不要）。
 assert.deepEqual(neededCredentials(`x = os.environ.get('OPENWEATHER_API_KEY')\ny = os.getenv("FOO_TOKEN")\nz = os.environ['HOME']`),
   ['OPENWEATHER_API_KEY', 'FOO_TOKEN'], 'scans env names, keeps secret-like, drops HOME');

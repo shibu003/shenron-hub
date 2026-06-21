@@ -714,7 +714,7 @@ async function mcpDispatch(name, args) {
   if (name === 'gen_component') {
     const cached = matchComponent(readComponents(), args.what);
     if (cached) return { what: cached.what, iters: 0, converged: true, id: cached.id, approved: true, cached: true };
-    const r = await genComponent({ what: args.what, vendor: EXEC_VENDOR || 'stub', maxIters: 3 });
+    const r = await genComponent({ what: args.what, vendor: EXEC_VENDOR || 'claude', maxIters: 3 });   // Wave C fix: remote-MCP も実生成（claude -p / API）。旧 'stub' は claude.ai 経由で必ず crash していた（実機 red-team で判明）
     const saved = r.converged ? saveComponent(r) : null;
     return saved ? { ...r, id: saved.id, approved: false } : r;
   }
