@@ -183,6 +183,7 @@ let costPrompt = '';
 const capRun = async (_v, p) => { costPrompt = p; return '{"plain_summary":"x","steps":[{"action":"a","kind":"prompt","tool":null}]}'; };
 await plan({ goal: 'g', run: capRun });                                   // default
 assert.ok(/COST MODE = free/.test(costPrompt) && /Prefer FREE/.test(costPrompt), 'cost: default=free → prompt prefers free / opt-in for paid');
+assert.ok(/MINIMIZE COST/.test(costPrompt) && /FEWEST LLM steps/.test(costPrompt), 'cost: planner actively minimizes (fewest LLM steps, reuse, default cheap, escalate only when outcome-changing)');
 await plan({ goal: 'g', cost: 'paid_ok', run: capRun });
 assert.ok(/COST MODE = paid_ok/.test(costPrompt) && /MAY use paid/.test(costPrompt) && /disclose/.test(costPrompt), 'cost: paid_ok → prompt allows paid but requires cost disclosure');
 
