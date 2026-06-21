@@ -50,12 +50,13 @@ function configStatus() {   // 1か所の設定 + 初期設定 hint（secret は
   const cfg = liveCfg(), env = process.env, needs = [];
   if (!env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY) needs.push('LLM: ローカル `claude -p`(サブスク・従量0) で動く。クラウド/別 provider なら ANTHROPIC_API_KEY か OPENAI_API_KEY を env に。');
   if (cfg.routing && cfg.routing.cheap && cfg.routing.cheap.vendor === 'ollama') needs.push('cheap=ollama: `ollama serve` 起動 + モデル pull（OLLAMA_MODEL）が必要。');
-  return { config: cfg, schedulerOn: schedulerOn(), keysPresent: { anthropic: !!env.ANTHROPIC_API_KEY, openai: !!env.OPENAI_API_KEY }, needs };
+  return { config: cfg, schedulerOn: schedulerOn(), keysPresent: { anthropic: !!env.ANTHROPIC_API_KEY, openai: !!env.OPENAI_API_KEY }, managed: managedMode(), needs };
 }
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : Number(process.env.PORT) || 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
 const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (default on) AND-ed with the global master; off → broker-only (waits for a worker)
+const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no local browser worker, no login credentials
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
 const UI_FILE = path.join(HERE, 'ui.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
@@ -110,6 +111,7 @@ save();
 let browserWorkerProc = null;
 function ensureBrowserWorker() {
   if (process.env.BUILDHUD_NO_AUTOSPAWN) return;          // tests drive their own worker
+  if (managedMode()) return;                              // managed hub: no login profile → browser-control unavailable
   if (browserWorkerProc) return;                          // already auto-spawned by us
   const a = state.agents['browser-control'];
   if (a && online(a)) return;                             // a worker (manual or prior) is already polling
@@ -133,6 +135,7 @@ function create({ from, to, skill, input }) {
   state.handoffs.push(h);
   if (fw.removed.length) trail('redact', { handoff: h.id, from: from || '?', to, removed: fw.removed });   // record WHAT was stripped (never the values)
   save();
+  if (to === 'browser-control' && managedMode()) throw new Error('browser-control は managed hub では利用できません（ログイン session は本人マシン上の神龍が必要）。');
   if (to === 'browser-control') ensureBrowserWorker();   // computer-use: bring up the worker on demand (no manual start)
   schedule(h);                              // local agent → hub runs it in-process; remote → waits in durable inbox
   return h;
@@ -764,7 +767,9 @@ function availableSummary() {
     tools: integs.flatMap((it) => (it.tools || []).map((t) => ({ id: `${it.id}.${t.name}`, name: t.name, ...(it.generated ? { generated: true } : {}) }))),
     workflows: readWorkflows().map((w) => ({ id: w.id, name: w.name })),
     builtin: [
-      { id: 'agent:browser-control', kind: 'computer-use', note: 'API のないサービスを実ブラウザで操作（ログイン session 利用）。送信系は実行時に人が承認。' },
+      managedMode()
+        ? { id: 'agent:browser-control', kind: 'computer-use', unavailable: true, note: 'managed hub では利用不可（ログイン session 無し）。ローカル神龍または常駐箱で使えます。' }
+        : { id: 'agent:browser-control', kind: 'computer-use', note: 'API のないサービスを実ブラウザで操作（ログイン session 利用）。送信系は実行時に人が承認。' },
       { id: 'prompt', kind: 'llm', note: '組込 LLM ステップ（ツール不要）。' },
     ],
     note: 'あなたの MCP client が接続しているツール（例: claude.ai の Gmail）はここには出ません — MCP server は互いを見られない仕様です。使わせたい外部サービスは add_integration で登録、UI のみなら agent:browser-control に解決、無ければ gen_component で生成します。',
@@ -808,8 +813,8 @@ async function mcpDispatch(name, args) {
     const saved = r.converged ? saveComponent(r) : null;
     return saved ? { ...r, id: saved.id, approved: false } : r;
   }
-  if (name === 'get_checkpoint')     return state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
-  if (name === 'resolve_checkpoint') return ref(args.allow ? approve(args.id) : decline(args.id));
+  if (name === 'get_checkpoint')     return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
+  if (name === 'resolve_checkpoint') return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : ref(args.allow ? approve(args.id) : decline(args.id));
   throw new Error(`unknown tool "${name}"`);
 }
 

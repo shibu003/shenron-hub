@@ -1,0 +1,22 @@
+app = "shenron-hub"
+primary_region = "nrt"
+kill_signal = "SIGINT"
+
+[build]
+  dockerfile = "prototype/hub/Dockerfile"
+
+[http_service]
+  internal_port = 8795
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[env]
+  PORT = "8795"
+  SHENRON_MANAGED = "1"
+
+[[mounts]]
+  source = "shenron_data"
+  destination = "/data"
+  initial_size = "1gb"
