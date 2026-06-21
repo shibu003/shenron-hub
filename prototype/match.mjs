@@ -31,6 +31,14 @@ export function cronMatch(expr, d) {
   return ok(f[0], v[0], 0, 59) && ok(f[1], v[1], 0, 23) && ok(f[2], v[2], 1, 31) && ok(f[3], v[3], 1, 12) && ok(f[4], v[4], 0, 6);
 }
 
+// Wave: catch-up の頭脳 — now 以前で直近の cron 一致「分」を返す（epoch ms・分床）。downtime 後の取りこぼし判定に使う。
+// capMin（既定 8 日）まで遡って無ければ null（疎すぎる/不可能 cron）。pure。
+export function lastDue(expr, now, capMin = 8 * 24 * 60) {
+  const d = new Date(now.getTime()); d.setSeconds(0, 0); d.setMilliseconds(0);
+  for (let i = 0; i <= capMin; i++) { if (cronMatch(expr, d)) return d.getTime(); d.setMinutes(d.getMinutes() - 1); }
+  return null;
+}
+
 // ponytail: one runnable self-check — `node prototype/match.mjs` asserts the DSL still matches. upgrade: more cases if a new operator lands.
 if (process.argv[1] && process.argv[1].endsWith('match.mjs')) {
   const ok = (c, m) => { if (!c) throw new Error('match.mjs self-check failed: ' + m); };
@@ -49,5 +57,10 @@ if (process.argv[1] && process.argv[1].endsWith('match.mjs')) {
   ok(!cronMatch('*/15 * * * *', new Date(2026, 5, 22, 13, 31)), 'cron */15 no match :31');
   ok(cronMatch('0 9-17 * * 1-5', new Date(2026, 5, 22, 14, 0)), 'cron range hour+dow matches');
   ok(!cronMatch('bad', mon0900), 'cron malformed → false');
+  // lastDue (catch-up): most recent cron match ≤ now
+  ok(lastDue('0 9 * * 1', new Date(2026, 5, 22, 10, 30)) === new Date(2026, 5, 22, 9, 0).getTime(), 'lastDue: Mon 10:30 → this Mon 9:00');
+  ok(lastDue('*/15 * * * *', new Date(2026, 5, 22, 13, 37)) === new Date(2026, 5, 22, 13, 30).getTime(), 'lastDue: 13:37 → 13:30');
+  ok(lastDue('0 9 * * 1', new Date(2026, 5, 22, 8, 30)) === new Date(2026, 5, 15, 9, 0).getTime(), 'lastDue: before this week → previous Mon (catch-up window)');
+  ok(lastDue('0 9 31 2 *', mon0900) === null, 'lastDue: impossible cron → null within cap');
   console.log('match.mjs self-check OK');
 }

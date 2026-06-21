@@ -26,7 +26,7 @@ import { langflowRun, langflowImport } from './langflow.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
-import { MATCH_OPS, triggerMatches, cronMatch } from '../match.mjs';
+import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');           // spawn MCP servers from here so integrations.json can use repo-relative commands
@@ -614,17 +614,26 @@ function firePreview(event) {                               // read-only: same m
   return { event, matches };
 }
 
-const _firedMin = new Map();   // automation id → "YYYY-MM-DDTHH:MM" already fired (no double-fire within the same minute)
+// Wave: persisted schedule state（automation id → 最後に発火した epoch ms）。STATE_DIR に置く＝再起動/volume を跨いで catch-up が効く。
+const SCHED_FILE = sp('schedule-state.json', path.join(HERE, 'schedule-state.json'));
+const readSchedState = () => { try { return JSON.parse(fs.readFileSync(SCHED_FILE, 'utf8')); } catch { return {}; } };
+const writeSchedState = (s) => { try { fs.writeFileSync(SCHED_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };
+// tick: 各 schedule automation の「直近 due」を見て、まだ発火してなければ発火（live も catch-up も同経路）。
+// first-sight は baseline のみ（インストール前の履歴は back-fire しない）。downtime で過ぎた due は次の tick/boot で1回だけ追い発火（coalesced）。
 function tickScheduler() {
-  const now = new Date(); const stamp = now.toISOString().slice(0, 16);
+  const now = new Date(); const st = readSchedState(); let changed = false;
   for (const m of readAutomations()) {
     if (m.enabled === false || !m.trigger || m.trigger.type !== 'schedule') continue;
-    const expr = m.trigger.when || m.trigger.cron;
-    if (!expr || !cronMatch(expr, now) || _firedMin.get(m.id) === stamp) continue;
-    _firedMin.set(m.id, stamp);
-    try { trail('schedule-fire', { automation: m.id, when: expr }); runFlow({ id: m.workflow, input: m.input || '' }); }
+    const expr = m.trigger.when || m.trigger.cron; if (!expr) continue;
+    const due = lastDue(expr, now); if (due == null) continue;
+    if (!(m.id in st)) { st[m.id] = due; changed = true; continue; }   // 初見=baseline（過去履歴を追い発火しない）
+    if (st[m.id] >= due) continue;                                      // この due（以降）は処理済み → 重複/再発火しない
+    st[m.id] = now.getTime(); changed = true;
+    const catchUp = due < now.getTime() - 90000;                       // due が過去（>1.5分前）= downtime 後の追い発火
+    try { trail('schedule-fire', { automation: m.id, when: expr, due: new Date(due).toISOString(), catchUp }); runFlow({ id: m.workflow, input: m.input || '' }); }
     catch (e) { trail('schedule-fire', { automation: m.id, error: e.message }); }
   }
+  if (changed) writeSchedState(st);
 }
 
 // ---------- Ghost Writer (Wave L): NL → a validated, laid-out flow. Generation ≠ execution — the human
@@ -877,6 +886,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
+      if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: SCHEDULER_ON }); }   // Wave: 無料外部 cron(Cloudflare/cron-job.org 等)が叩く seam＝now due な schedule automation を発火（hub が起きてる時のみ届く）
       if (p === '/api/fire/preview') return json(res, 200, firePreview(j.event || {})); // Wave 2: dry-run — what this event would fire (no run)
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
@@ -935,5 +945,5 @@ const server = http.createServer((req, res) => {
 });
 server.on('error', (e) => { console.error(`[hub] cannot listen on ${PORT}: ${e.message} — pass --port <free>`); process.exit(1); });
 server.listen(PORT, () => console.log(`[hub] BuildHUD durable handoff hub on http://localhost:${PORT}  (state: ${path.relative(process.cwd(), STATE_FILE)})`));
-if (SCHEDULER_ON) { setInterval(tickScheduler, 60000); console.log('⏰ [hub] scheduler on — fires schedule automations while this hub runs (not for phone-only/ephemeral; SHENRON_NO_SCHEDULER=1 to disable)'); }   // Wave: in-hub cron. honest limit = hub must be up.
+if (SCHEDULER_ON) { setTimeout(tickScheduler, 1500); setInterval(tickScheduler, 60000); console.log('⏰ [hub] scheduler on — fires schedule automations while this hub runs + catch-up on boot for misses during downtime (not for phone-only/ephemeral; SHENRON_NO_SCHEDULER=1 to disable)'); }   // Wave: boot tick = downtime の取りこぼしを起動時に追い発火。
 else console.log('⏰ [hub] scheduler OFF (SHENRON_NO_SCHEDULER) — scheduled automations will NOT fire here');

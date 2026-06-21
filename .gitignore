@@ -22,6 +22,8 @@ prototype/config.json
 prototype/mcp/trigger/buildhud.schedules.ts
 # hub runtime state (durable inbox) — local, not committed
 prototype/hub/inbox.json
+# Wave: scheduler last-fired state — runtime, local only
+prototype/hub/schedule-state.json
 # Wave 11b: browser-control permission rules — runtime user choices (seed lives in code), local only
 prototype/mcp/permissions.json
 
