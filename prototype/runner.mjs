@@ -5,8 +5,29 @@ import { spawnSync, spawn } from 'node:child_process';
 
 // Async sibling of runVendor — for the HUB's in-process executor, which must NOT block its event loop
 // on a 180s LLM call (the worker.mjs process can use the sync one; the single-process hub cannot).
+// Cloud/remote path: a Docker'd hub has no `claude` CLI, so route the 'claude' vendor to the Anthropic API
+// when ANTHROPIC_API_KEY is set (local dev keeps spawning `claude -p` = BYO subscription, 従量0).
+// Same contract as runVendorAsync: resolves to the model's text, or a `[... → stub]` fallback string on failure.
+// ponytail: raw fetch (Node ≥18 global), no SDK dep; no streaming — 16k max_tokens is well under the HTTP timeout.
+async function runAnthropicApi(prompt, stub = '') {
+  const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!r.ok) { const e = await r.text().catch(() => ''); return `[anthropic ${r.status} → stub] ${e.slice(0, 200)}\n` + stub; }
+    const j = await r.json();
+    if (j.stop_reason === 'refusal') return `[anthropic refusal → stub]\n` + stub;   // safety decline: empty content
+    const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    return text || `[anthropic empty → stub]\n` + stub;
+  } catch (e) { return `[anthropic failed → stub] ${e.message}\n` + stub; }
+}
+
 export function runVendorAsync(vendor, prompt, stub = '') {
   const stubOut = stub || `[stub] (no vendor "${vendor}")`;
+  if (vendor === 'claude' && process.env.ANTHROPIC_API_KEY) return runAnthropicApi(prompt, stub);   // cloud: no CLI → direct API
   if (vendor !== 'codex' && vendor !== 'claude') return Promise.resolve(stubOut);
   const [cmd, args] = vendor === 'codex'
     ? ['codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', prompt]]

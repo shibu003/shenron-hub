@@ -719,7 +719,7 @@ async function mcpDispatch(name, args) {
 }
 
 // ---------- HTTP ----------
-const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(obj)); };   // Wave C: CORS so claude.ai Artifacts (sandbox origin ≠ claude.ai) can fetch /api/runflow etc. OPTIONS preflight already handled. ponytail: '*' fits self-host/ngrok; gate act routes with bearer when public.
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
   const p = u.pathname;
