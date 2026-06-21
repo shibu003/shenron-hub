@@ -362,4 +362,21 @@ assert.equal(cir.missing.length, 0, 'consensus is built-in, not a gap');
 assert.ok(cir.steps.find((s) => s.kind === 'consensus' && s.have), 'consensus step marked have');
 assert.ok(/🗳️ consensus/.test(renderPlan(cir).diagram_ascii), 'renderPlan labels the consensus node');
 
+// Wave G — auto-routing 提案: planner の tier + 財布設定(ctx) → 各 step の vendor/model/cost を plan に surface。
+const rir = buildPlanIR('mixed routing', { plain_summary: 'Mixed', steps: [
+  { action: 'summarize', kind: 'prompt', tier: 'cheap' },
+  { action: 'decide architecture', kind: 'prompt', tier: 'strong' },
+  { action: 'send via gmail', kind: 'mcp', tool: 'mcp:gmail.send' },
+  { action: 'final go/no-go', kind: 'consensus' },
+] });
+const fakeCtx = { cost: 'free', cheap: { vendor: 'ollama', model: 'llama3.2' }, strong: { vendor: null, model: 'claude-opus-4-8' }, consensusVendors: 'claude,codex,ollama', autoEscalate: true };
+const rr = renderPlan(rir, fakeCtx);
+assert.ok(/🧭 Routing 提案/.test(rr.summary_text), 'routing: posture line present');
+assert.ok(/cheap → ollama \(llama3.2\) · local \$0 ↑strong on fail/.test(rr.summary_text), 'routing: cheap→ollama $0 + escalate note');
+assert.ok(/strong → your Claude \(claude-opus-4-8\) · subscription/.test(rr.summary_text), 'routing: strong→your Claude subscription');
+assert.equal(rr.routing.length, 4, 'routing: one entry per step');
+assert.equal(rr.routing.find((r) => r.action === 'send via gmail').cost, '$0', 'routing: mcp tool call is $0 (no model)');
+assert.equal(rr.routing.find((r) => r.kind === 'consensus').cost, '3×', 'routing: consensus is 3× (3 vendors)');
+assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backward compat)');
+
 console.log('test_shenron OK');

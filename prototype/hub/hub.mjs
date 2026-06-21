@@ -383,6 +383,9 @@ function consensusOf(results) {
 }
 // 既定 vendors は cost 連動（お財布適応）: free=本人サブスク+ローカル($0)・paid_ok=多様な frontier も。node が明示してたら尊重。
 const defaultConsensusVendors = () => (liveCfg().cost === 'paid_ok' ? 'claude,codex,gemini' : 'claude,codex,ollama');
+// Wave G: auto-routing 提案の ctx — 実行時と同じ解決（tierRoute / defaultConsensusVendors / cost / escalate）を renderPlan に渡す＝提案が truthful。
+const routingCtx = () => ({ cost: liveCfg().cost === 'paid_ok' ? 'paid_ok' : 'free', cheap: tierRoute('cheap'), strong: tierRoute('strong'),
+  consensusVendors: defaultConsensusVendors(), autoEscalate: process.env.SHENRON_NO_ESCALATE !== '1' && (liveCfg().routing || {}).autoEscalate !== false });
 function fireConsensusNode(run, node, input, from) {
   const vendors = String((node.config && node.config.vendors) || defaultConsensusVendors()).split(',').map((s) => s.trim()).filter(Boolean);
   const task = `${(node.config && node.config.prompt) || ''}\n${input || ''}`.trim();
@@ -740,7 +743,7 @@ const bearerOk = (req) => {                                 // valid if OAuth be
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
 const mcpSessions = new Map(); // sessionId → SSE res
 const MCP_TOOLS = [
-  { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。DISCOVER-FIRST: 願いを全機構横断で研究し地雷(API無/ToS/許可)も検出。曖昧 or 地雷があれば plan でなく `clarify`(question+options・mode:"clarify") を返す→ ユーザーに提示し、回答を `context.choices`(例 [{question,answer}]) に入れて再呼び出し。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）と人間可読 `summary_text` + `diagram_mermaid`/`diagram_ascii` も返す。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' }, cost: { type: 'string', description: 'free(既定・従量0優先・有料は opt-in 化)|paid_ok(有料ツール可・コスト開示)' } }, required: ['goal'] } },
+  { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。DISCOVER-FIRST: 願いを全機構横断で研究し地雷(API無/ToS/許可)も検出。曖昧 or 地雷があれば plan でなく `clarify`(question+options・mode:"clarify") を返す→ ユーザーに提示し、回答を `context.choices`(例 [{question,answer}]) に入れて再呼び出し。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）と人間可読 `summary_text` + `diagram_mermaid`/`diagram_ascii` も返す。ROUTING 提案(お財布適応): 各 step に model 経路を付けて summary_text + `routing` 配列で返す — step の tier(cheap/strong・planner が内容から判定) を財布設定に応じた vendor/model+cost に対応(cheap→無料サブスク/ローカル ~$0・strong→本人 Claude・high-stakes→N モデル consensus)。cheap は失敗時だけ strong に自動昇格。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' }, cost: { type: 'string', description: 'free(既定・従量0優先・有料は opt-in 化)|paid_ok(有料ツール可・コスト開示)' }, context: { type: 'object', description: 'discover の clarify 回答 { choices:[{question,answer}] } を入れて再呼び出し→plan へ' } }, required: ['goal'] } },
   { name: 'add_integration',    description: '自分の MCP server を giogio に登録 → plan_flow の available に出て、フローのノードとして解決される。client 接続は giogio から見えないので、使わせたいツールはこれで登録する。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', description: 'mcp（既定）| search' }, command: { type: 'string', description: 'stdio MCP の起動コマンド' }, url: { type: 'string', description: 'HTTP MCP の URL' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
   { name: 'add_automation',     description: 'スケジュール(cron) or build-state イベントで保存済み workflow を自動実行する automation を登録。schedule 例: trigger {type:"schedule", when:"0 9 * * 1"}（毎週月曜9時）。⚠️ in-hub scheduler は hub 起動中のみ発火（スマホのみ/常駐hub無しでは動かない→外部 scheduler を使う）。返りの note を確認。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, trigger: { type: 'object', description: '{type:"schedule",when:"<cron 5-field>"} or {type:"build_state",match:{...}}' }, workflow: { type: 'string', description: '実行する保存済み workflow id' }, input: { type: 'string' } }, required: ['name', 'trigger', 'workflow'] } },
   { name: 'get_config',         description: '神龍の全設定を1か所で読む（cost / scheduler / routing(cheap・strong の vendor+model) / providers）＋初期設定 hint(needs)＋API key の在否。⚠️ secret 値は返らない。', inputSchema: { type: 'object', properties: {} } },
@@ -785,7 +788,7 @@ async function planFlow({ goal, save, gap, context, cost }) {
   const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
   const saved = save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → cockpit 🗂 に出る
   const out = { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}), available: availableSummary() };
-  return { ...out, ...renderPlan(out) };   // Wave A: Mermaid + ASCII 図 + plain 要約を同梱＝cockpit 無しで「これで実行？」確認できる
+  return { ...out, ...renderPlan(out, routingCtx()) };   // Wave A: 図+要約／Wave G: + auto-routing 提案（各 step の宛先 vendor/model/cost）＝cockpit 無しで「これで実行？」確認できる
 
 }
 

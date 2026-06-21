@@ -83,7 +83,24 @@ function nodeLabel(n, stepByN) {
   const act = ((stepByN[Number(String(n.id).replace(/^s/, ''))] || {}).action || '').slice(0, 40);
   return n.missing ? `⚠️ ${act || 'gap'} (needs a tool)` : `💬 ${act || 'prompt'}`;
 }
-export function renderPlan(ir) {
+// Wave G: auto-routing 提案 — planner の tier(=capability) と user の cost 設定(=vendor) を合成し、各 step が
+// 「どの AI で・いくらか」を plan に surface する。moat 整合: planner は vendor を押し付けず tier だけ決め、vendor は
+// 財布設定(ctx)が決める。ctx は hub が実 tierRoute / defaultConsensusVendors から作る → 提案は実行時と同じ解決＝truthful。
+// ctx = { cost, cheap:{vendor,model}, strong:{vendor,model}, consensusVendors, autoEscalate } | null（null=従来通り表示無し）。
+const vendorName = (v) => v == null ? 'your Claude' : v;                          // vendor=null は本人 claude -p（subscription）
+const vendorCost = (v) => v == null ? 'subscription ~$0' : v === 'ollama' ? 'local $0' : 'BYO-key (metered)';
+export function routeFor(node, step, ctx) {
+  if (!ctx || !node) return null;
+  if (node.kind === 'mcp') return { kind: 'mcp', cost: '$0', label: 'tool call (no model · $0)' };
+  if (node.kind === 'agent') return { kind: 'agent', cost: '$0', label: node.agent === 'browser-control' ? 'browser-control (your login · $0)' : `agent:${node.agent} (· $0)` };
+  if (node.kind === 'consensus') { const vs = ctx.consensusVendors || ''; const n = vs.split(',').filter(Boolean).length || 1; return { kind: 'consensus', vendors: vs, cost: `${n}×`, label: `🗳️ consensus → ${vs || '—'} (${n}× cost)` }; }
+  const tier = (step && step.tier) || (node.config && node.config.tier) || 'cheap';   // prompt: tier→cheap/strong route（既定 cheap）
+  const r = (tier === 'strong' ? ctx.strong : ctx.cheap) || {};
+  const esc = tier === 'cheap' && !(node.config && node.config.vendor) && ctx.autoEscalate;   // cheap が落ちた時だけ strong に自動昇格
+  return { kind: 'prompt', tier, vendor: r.vendor, model: r.model, cost: vendorCost(r.vendor),
+    label: `${tier} → ${vendorName(r.vendor)}${r.model ? ` (${r.model})` : ''} · ${vendorCost(r.vendor)}${esc ? ' ↑strong on fail' : ''}` };
+}
+export function renderPlan(ir, ctx = null) {
   if (ir.mode === 'clarify' || (ir.clarify && ir.clarify.length)) {              // discover: plan の前に user に確認（図でなく質問を出す）
     const lines = [`🐉 まず確認させて（最適な道具を選ぶため）:`, ''];
     (ir.clarify || []).forEach((c, i) => { lines.push(`Q${i + 1}. ${c.question}${c.options && c.options.length ? `  [${c.options.join(' / ')}]` : ''}`); if (c.why) lines.push(`    （${c.why}）`); });
@@ -98,12 +115,17 @@ export function renderPlan(ir) {
     ...nodes.map((n) => `  ${safe(n.id)}["${label(n).replace(/"/g, "'")}"]`),
     ...(ir.edges || []).map((e) => `  ${safe(e.source)} --> ${safe(e.target)}`)].join('\n');
   const diagram_ascii = nodes.map((n, i) => `${i ? '  ↓\n' : ''}  ${label(n)}`).join('\n');
+  const nodeByN = Object.fromEntries(nodes.map((n) => [String(n.id).replace(/^s/, ''), n]));   // s<N> → node（routing 解決用）
+  const routing = ctx ? (ir.steps || []).map((s) => { const r = routeFor(nodeByN[String(s.n)], s, ctx); return r ? { step: s.n, action: s.action, ...r } : null; }).filter(Boolean) : [];
+  const routeByN = Object.fromEntries(routing.map((r) => [r.step, r]));
   const lines = [`🐉 ${ir.plain_summary || ir.goal}`, '', 'Steps:'];
-  for (const s of (ir.steps || [])) lines.push(`  ${s.n}. ${s.action}` + (s.have ? `  → ✅ ${s.tool || s.kind}` : `  → ⚠️ needs a tool${s.kind === 'agent' ? ' (or browser-control)' : ''}`));
+  for (const s of (ir.steps || [])) { const rt = routeByN[s.n];
+    lines.push(`  ${s.n}. ${s.action}` + (s.have ? `  → ✅ ${s.tool || s.kind}` : `  → ⚠️ needs a tool${s.kind === 'agent' ? ' (or browser-control)' : ''}`) + (rt ? `  · ${rt.label}` : '')); }
   if ((ir.missing || []).length) { lines.push('', 'Missing — build with gen_component → approve_component:'); for (const m of ir.missing) lines.push(`  - ${m.what} (${m.kind})`); }
   if ((ir.blockers || []).length) { lines.push('', '⚠️ 注意/地雷:'); for (const b of ir.blockers) lines.push(`  - ${b}`); }
+  if (ctx) lines.push('', `🧭 Routing 提案 (お財布適応・COST=${ctx.cost || 'free'}): cheap→${vendorName(ctx.cheap && ctx.cheap.vendor)} / strong→${vendorName(ctx.strong && ctx.strong.vendor)} / consensus→${ctx.consensusVendors || '—'}（各 step の宛先は上の "·" 以降）。${ctx.autoEscalate ? 'cheap が失敗した時だけ strong に自動昇格。' : ''}`);
   lines.push('', 'Flow:', diagram_ascii, '', 'Run it with run_workflow (or re-plan to adjust).');
-  return { diagram_mermaid, diagram_ascii, summary_text: lines.join('\n') };
+  return { diagram_mermaid, diagram_ascii, summary_text: lines.join('\n'), ...(ctx ? { routing } : {}) };
 }
 
 // Wave 2 外部発見: MCP search 結果 → {title,url} or null。実 Tavily 未検証なので shape は最小（envelope→array|{results}）に絞る。
