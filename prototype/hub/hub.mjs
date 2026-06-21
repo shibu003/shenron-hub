@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
@@ -82,6 +83,22 @@ for (const a of Object.values(state.agents)) a.passport = normalizePassport(a.pa
 save();
 
 // ---------- core ops ----------
+// Wave: 登録だけで動く — computer-use の worker を hub がオンデマンド自動起動（手動 `node browser-worker.mjs` 不要）。
+// 二重起動防止: 自分が spawn したプロセスを保持 + 既に worker が poll 中（online）なら起こさない。worker は永続 profile を使う。
+let browserWorkerProc = null;
+function ensureBrowserWorker() {
+  if (process.env.BUILDHUD_NO_AUTOSPAWN) return;          // tests drive their own worker
+  if (browserWorkerProc) return;                          // already auto-spawned by us
+  const a = state.agents['browser-control'];
+  if (a && online(a)) return;                             // a worker (manual or prior) is already polling
+  const script = path.join(HERE, '..', 'agents', 'browser-worker.mjs');
+  try {
+    browserWorkerProc = spawn(process.execPath, [script, '--hub', `http://localhost:${PORT}`], { cwd: REPO_ROOT, stdio: 'ignore' });
+    browserWorkerProc.on('exit', () => { browserWorkerProc = null; });   // crashed/exited → allow respawn on next browser task
+    trail('worker-spawn', { agent: 'browser-control' });
+    console.log('▶ [hub] auto-spawned browser-worker (computer-use)');
+  } catch (e) { browserWorkerProc = null; console.error('[hub] browser-worker spawn failed:', e.message); }
+}
 function create({ from, to, skill, input }) {
   if (!to || !skill) throw new Error('to + skill required');
   const a = agent(to);                       // only the recipient must exist; `from` is just a label
@@ -94,6 +111,7 @@ function create({ from, to, skill, input }) {
   state.handoffs.push(h);
   if (fw.removed.length) trail('redact', { handoff: h.id, from: from || '?', to, removed: fw.removed });   // record WHAT was stripped (never the values)
   save();
+  if (to === 'browser-control') ensureBrowserWorker();   // computer-use: bring up the worker on demand (no manual start)
   schedule(h);                              // local agent → hub runs it in-process; remote → waits in durable inbox
   return h;
 }

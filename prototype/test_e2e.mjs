@@ -38,7 +38,7 @@ const runWorker = async (hid, vendor = 'stub', maxStep = 90) => {   // spawn wor
 
 const saved = {}; for (const f of ISOLATE) { if (fs.existsSync(f)) saved[f] = fs.readFileSync(f); fs.rmSync(f, { force: true }); }   // isolate shared stores
 if (fs.existsSync(PERMFILE)) fs.rmSync(PERMFILE);
-const hub = spawn('node', ['prototype/hub/hub.mjs', '--port', String(PORT), '--vendor', 'stub'], { cwd: ROOT, stdio: 'ignore' });
+const hub = spawn('node', ['prototype/hub/hub.mjs', '--port', String(PORT), '--vendor', 'stub'], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, BUILDHUD_NO_AUTOSPAWN: '1' } });   // tests drive their own worker
 let madeSkillSlug = null;
 try {
   for (let i = 0; i < 40; i++) { try { await hubGet('/api/state'); break; } catch { await sleep(250); } }

@@ -15,6 +15,7 @@ import path from 'node:path';
 import url from 'node:url';
 import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { triggerMatches } from '../match.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
@@ -23,6 +24,21 @@ const TOKEN = process.env.A2A_SHARED_TOKEN || null;     // needed only for run_*
 const UNATTENDED = process.argv.includes('--unattended') || process.env.BUILDHUD_UNATTENDED === '1';
 const HUB = process.env.BUILDHUD_HUB || 'http://localhost:8795';     // durable handoff hub (prototype/hub)
 const log = (...a) => console.error('[buildhud-mcp]', ...a);
+
+// 登録だけで動く: MCP server 起動時に local hub が居なければ自動起動（detached＝MCP セッションを跨いで常駐・既に居れば再利用）。
+// remote な BUILDHUD_HUB は触らない。initialize/tools-list は hub 不要なので即応答し、最初の tool 呼び出しが hubReady を待つ。
+const HUB_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(HUB);
+async function ensureHub() {
+  if (!HUB_LOCAL) return;                                            // remote hub → not ours to manage
+  try { await fetch(`${HUB}/api/state`); return; } catch {}         // already up → reuse
+  const script = path.join(HERE, '..', 'hub', 'hub.mjs');
+  const port = (HUB.match(/:(\d+)/) || [])[1] || '8795';
+  try { const child = spawn(process.execPath, [script, '--port', port], { cwd: path.join(HERE, '..', '..'), stdio: 'ignore', detached: true }); child.unref(); log('auto-starting hub on', HUB); }
+  catch (e) { return void log('hub spawn failed:', e.message); }
+  for (let i = 0; i < 40; i++) { try { await fetch(`${HUB}/api/state`); return void log('hub up'); } catch { await new Promise((r) => setTimeout(r, 250)); } }
+  log('hub did not come up in 10s — tool calls may fail');
+}
+const hubReady = ensureHub();   // kick off now; do NOT block initialize/tools-list (they need no hub)
 
 // ---------- build the indexes (token-light: refs only; full loaded on demand) ----------
 function loadAgents() {
@@ -104,6 +120,7 @@ const planOf = (w) => w.steps.map((s, i) => `${i + 1}. ${AGENTS[s.agent]?.compan
 
 // ---------- durable inbox (hub proxy: prototype/hub) ----------
 async function hub(p, body) {
+  await hubReady;                                                    // ensure the (auto-started) hub is up before any call
   const r = await fetch(`${HUB}${p}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   if (!r.ok) throw new Error(`hub ${p} → ${r.status} (is the hub running? node prototype/hub/hub.mjs)`);
   return r.json();
