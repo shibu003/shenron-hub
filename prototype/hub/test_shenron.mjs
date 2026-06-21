@@ -351,4 +351,15 @@ assert.ok(rp.diagram_ascii.includes('↓') && rp.diagram_ascii.includes('🌐 ag
 assert.ok(/✅ mcp:gmail\.send/.test(rp.summary_text), 'renderPlan: summary marks resolved tool');
 assert.ok(/Missing/.test(rp.summary_text) && /scrape github stars/.test(rp.summary_text), 'renderPlan: summary surfaces the gap');
 
+// Wave G — consensus を planner から emit: high-stakes step → consensus node（gap でなく built-in）。
+const cir = buildPlanIR('decide go/no-go', { plain_summary: 'Decide', steps: [
+  { action: 'summarize the inputs', kind: 'prompt', tier: 'cheap' },
+  { action: 'final go/no-go decision', kind: 'consensus' },
+] });
+const cnode = cir.nodes.find((n) => n.kind === 'consensus');
+assert.ok(cnode && cnode.config.prompt === 'final go/no-go decision', 'consensus step → consensus node w/ prompt');
+assert.equal(cir.missing.length, 0, 'consensus is built-in, not a gap');
+assert.ok(cir.steps.find((s) => s.kind === 'consensus' && s.have), 'consensus step marked have');
+assert.ok(/🗳️ consensus/.test(renderPlan(cir).diagram_ascii), 'renderPlan labels the consensus node');
+
 console.log('test_shenron OK');

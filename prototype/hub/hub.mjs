@@ -378,8 +378,10 @@ function consensusOf(results) {
   let sum = 0, p = 0; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { sum += jaccard(results[i].text, results[j].text); p++; }
   return { text: results[bi].text, agreement: p ? Math.round(sum / p * 100) / 100 : 1, picked: results[bi].vendor };
 }
+// 既定 vendors は cost 連動（お財布適応）: free=本人サブスク+ローカル($0)・paid_ok=多様な frontier も。node が明示してたら尊重。
+const defaultConsensusVendors = () => (liveCfg().cost === 'paid_ok' ? 'claude,codex,gemini' : 'claude,codex,ollama');
 function fireConsensusNode(run, node, input, from) {
-  const vendors = String((node.config && node.config.vendors) || 'claude,codex,gemini').split(',').map((s) => s.trim()).filter(Boolean);
+  const vendors = String((node.config && node.config.vendors) || defaultConsensusVendors()).split(',').map((s) => s.trim()).filter(Boolean);
   const task = `${(node.config && node.config.prompt) || ''}\n${input || ''}`.trim();
   const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'consensus', skill: 'consensus', input: task,
     status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [], consensus: { vendors }, runId: run.id, node: node.id };

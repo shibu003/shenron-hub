@@ -41,9 +41,10 @@ DISCOVER FIRST (Wave: mandatory). Before planning, RESEARCH the goal (use web se
 If the goal is AMBIGUOUS (several services/platforms could satisfy it — e.g. "start a social media" → X vs Instagram vs Facebook), or multiple mechanisms are genuinely viable, or you found a blocker the user must weigh — DO NOT invent steps. Output ONLY:
 {"clarify":[{"question":"<ask the user>","options":["<opt>","<opt>"],"why":"<why it matters>"}],"blockers":["<blocker + the reason, e.g. ToS/license/no-API>"]}
 Only when it is unambiguous (or the answers above resolve it), output the plan ONLY:
-{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"steps":[{"action":"<short>","kind":"mcp|agent|prompt","tool":"<inventory id or null>","tier":"cheap|strong"}]}
+{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"steps":[{"action":"<short>","kind":"mcp|agent|prompt|consensus","tool":"<inventory id or null>","tier":"cheap|strong"}]}
 Per step: use the exact inventory id ONLY if it GENUINELY covers the need (a generic tool does NOT cover a specific need → null). Prefer an mcp tool/API; fall back to agent:browser-control only when UI-only (no API).
 Per step also set "tier" to route the model by content & cost: "cheap" for mechanical work (summarize, classify, extract, format, route, simple rewrite) and "strong" for hard judgment (reasoning, decisions, code generation, planning, anything error-sensitive). The runtime maps cheap→a small/cheap model and strong→a frontier model per the user's budget — so default to "cheap" unless the step genuinely needs frontier judgment (saves the user money).
+kind "consensus" = run the step on N different models in parallel and take the voted (medoid) answer. It costs ~N× a normal step, so use it RARELY — ONLY for a HIGH-STAKES judgment that is error-sensitive or hard to undo AND has no deterministic check to fall back on (e.g. a final go/no-go decision, a legal/medical/financial reading). For everything else a single "cheap" prompt is correct. Never use consensus for mechanical work.
 Output ONLY the JSON object.`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
@@ -51,7 +52,7 @@ Output ONLY the JSON object.`;
 // best-effort prompt 化（神龍に自己拡張＝道具生成させない）／ask(既定)=⚠️ gap を出し人が codegen 起動／auto=同上＋自動起動(caller 側)。
 export function buildPlanIR(goal, parsed, source = 'llm', gap = 'ask') {
   const steps = (parsed.steps || []).map((s, i) => ({ n: i + 1, action: s.action || '',
-    kind: ['mcp', 'agent', 'prompt'].includes(s.kind) ? s.kind : 'prompt', tool: s.tool || null, have: !!s.tool || s.kind === 'prompt',
+    kind: ['mcp', 'agent', 'prompt', 'consensus'].includes(s.kind) ? s.kind : 'prompt', tool: s.tool || null, have: !!s.tool || s.kind === 'prompt' || s.kind === 'consensus',   // Wave G: consensus も built-in（tool 不要・gap でない）
     tier: s.tier === 'strong' ? 'strong' : s.tier === 'cheap' ? 'cheap' : undefined }));   // Wave G: 内容ごとのモデル階層（cheap=要約/分類/整形, strong=判断/codegen）
   const needsTool = (s) => s.kind === 'mcp' || s.kind === 'agent';
   const missing = gap === 'off' ? [] : steps.filter((s) => needsTool(s) && !s.tool).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));
@@ -62,6 +63,7 @@ export function buildPlanIR(goal, parsed, source = 'llm', gap = 'ask') {
     const id = `s${s.n}`;
     if (s.kind === 'mcp' && s.tool) { const r = s.tool.replace(/^mcp:/, ''); const d = r.indexOf('.'); nodes.push({ id, kind: 'mcp', server: r.slice(0, d), tool: r.slice(d + 1) }); }
     else if (s.kind === 'agent' && s.tool) nodes.push({ id, kind: 'agent', agent: s.tool.replace(/^agent:/, '') });
+    else if (s.kind === 'consensus') nodes.push({ id, kind: 'consensus', config: { prompt: s.action } });   // Wave G: high-stakes step → N vendor 合議（vendors は実行時に cost 連動の既定・fireConsensusNode）
     else if (s.kind === 'prompt') nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}`, ...(s.tier ? { tier: s.tier } : {}) } });   // Wave G: tier を prompt ノードに載せる→実行時 tier→model
     else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}`, ...(s.tier ? { tier: s.tier } : {}) }, ...(gap === 'off' ? {} : { missing: true }) });   // mcp/agent w/o tool: ask/auto=⚠️ gap（生成→承認で実 mcp node）／off=ただの prompt（自己拡張しない）
   }
@@ -77,6 +79,7 @@ function nodeLabel(n, stepByN) {
   if (n.kind === 'output') return '📤 output';
   if (n.kind === 'mcp') return `🔧 mcp:${n.server}.${n.tool}`;
   if (n.kind === 'agent') return `${n.agent === 'browser-control' ? '🌐' : '🤖'} agent:${n.agent}`;
+  if (n.kind === 'consensus') return `🗳️ consensus: ${((n.config && n.config.prompt) || '').slice(0, 34)}`;   // N vendor 合議
   const act = ((stepByN[Number(String(n.id).replace(/^s/, ''))] || {}).action || '').slice(0, 40);
   return n.missing ? `⚠️ ${act || 'gap'} (needs a tool)` : `💬 ${act || 'prompt'}`;
 }
