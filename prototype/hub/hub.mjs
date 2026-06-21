@@ -650,7 +650,12 @@ const oauthClients = new Map();  // client_id → {name}
 const oauthCodes   = new Map();  // code → {client_id, code_challenge}
 const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on restart)
 const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
-const bearerOk = (req) => { if (!oauthTokens.size) return true; const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim(); return oauthTokens.has(t); };
+const SHARED_TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: internal credential — server.mjs / browser-worker / Artifact / CLI auth to act routes (same token as A2A reach). Set it (and/or use OAuth) to enforce; unset = local dev open.
+const bearerOk = (req) => {                                 // valid if OAuth bearer (claude.ai via /mcp) OR the shared token (internal callers via /api). Open only when NEITHER is configured.
+  if (!oauthTokens.size && !SHARED_TOKEN) return true;
+  const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim();
+  return (SHARED_TOKEN && t === SHARED_TOKEN) || oauthTokens.has(t);
+};
 
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
 const mcpSessions = new Map(); // sessionId → SSE res
@@ -836,6 +841,9 @@ const server = http.createServer((req, res) => {
         }
         return;
       }
+      // Wave C: act routes (mutating /api/* POST) require the same auth as /mcp/* — OAuth bearer or A2A_SHARED_TOKEN.
+      // bearerOk is open when neither is configured (local dev). Reads (GET) stay open. /oauth/* and /mcp* handled above.
+      if (p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized', hint: 'Authorization: Bearer <A2A_SHARED_TOKEN or OAuth access token>' });
       if (p === '/api/handoffs') return json(res, 200, ref(create(j)));
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)

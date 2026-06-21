@@ -46,8 +46,9 @@ const MAX_STEPS = Number(argOf('--max-steps')) || 12;     // bound the agentic l
 const AGENT = 'browser-control', SKILL = 'browser-control';
 let ticking = false;   // re-entrancy guard: a checkpoint pause makes a handoff long-lived → never run two ticks against the one shared browser
 
+const TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: inherited from the hub's env on spawn → auth act routes (no-op when hub is open)
 async function api(p, body) {
-  const r = await fetch(`${HUB}${p}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(`${HUB}${p}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
   if (!r.ok) throw new Error(`${p} → ${r.status}`);
   return r.json();
 }

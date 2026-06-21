@@ -121,7 +121,7 @@ const planOf = (w) => w.steps.map((s, i) => `${i + 1}. ${AGENTS[s.agent]?.compan
 // ---------- durable inbox (hub proxy: prototype/hub) ----------
 async function hub(p, body) {
   await hubReady;                                                    // ensure the (auto-started) hub is up before any call
-  const r = await fetch(`${HUB}${p}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(`${HUB}${p}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}) }, body: body ? JSON.stringify(body) : undefined });   // Wave C: auth act routes (no-op when hub is open)
   if (!r.ok) throw new Error(`hub ${p} → ${r.status} (is the hub running? node prototype/hub/hub.mjs)`);
   return r.json();
 }
