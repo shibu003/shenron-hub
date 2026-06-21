@@ -53,10 +53,30 @@ async function runOpenAiApi(prompt, stub = '', model) {
   } catch (e) { return `[openai failed → stub] ${e.message}\n` + stub; }
 }
 
+// Wave G: Gemini provider（generativeLanguage v1beta・BYO GEMINI_API_KEY）。consensus 既定 vendor の1つ＝これが無いと既定合議が stub 混入していた。
+// ponytail: key は x-goog-api-key ヘッダで（URL query に載せない＝ログ漏れ防止）。model は GEMINI_MODEL で上書き（不正なら API が 404/400 → stub に理由）。
+async function runGeminiApi(prompt, stub = '', model) {
+  model = model || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    if (!r.ok) { const e = await r.text().catch(() => ''); return `[gemini ${r.status} → stub] ${e.slice(0, 200)}\n` + stub; }
+    const j = await r.json();
+    const c = j.candidates && j.candidates[0];
+    if (!c) return `[gemini blocked → stub] ${(j.promptFeedback && j.promptFeedback.blockReason) || 'no candidates'}\n` + stub;   // safety block: empty candidates
+    const text = ((c.content && c.content.parts) || []).map((p) => p.text || '').join('').trim();
+    return text || `[gemini empty → stub]\n` + stub;
+  } catch (e) { return `[gemini failed → stub] ${e.message}\n` + stub; }
+}
+
 export function runVendorAsync(vendor, prompt, stub = '', { model } = {}) {   // Wave G: opts.model = この呼び出しだけ別モデル（flow の step ごと routing）
   const stubOut = stub || `[stub] (no vendor "${vendor}")`;
   if (vendor === 'ollama') return runOllama(prompt, stub, model);   // ローカル無料（cheap step 用）
   if (vendor === 'openai' || vendor === 'gpt') return process.env.OPENAI_API_KEY ? runOpenAiApi(prompt, stub, model) : Promise.resolve(`[openai → stub] OPENAI_API_KEY 未設定\n` + stub);   // clean GPT（BYO-key）
+  if (vendor === 'gemini' || vendor === 'google') return process.env.GEMINI_API_KEY ? runGeminiApi(prompt, stub, model) : Promise.resolve(`[gemini → stub] GEMINI_API_KEY 未設定\n` + stub);   // Gemini（BYO-key・consensus 既定の1つ）
   if (vendor === 'claude' && process.env.ANTHROPIC_API_KEY) return runAnthropicApi(prompt, stub, model);   // cloud: no CLI → direct API
   if (vendor !== 'codex' && vendor !== 'claude') return Promise.resolve(stubOut);
   const [cmd, args] = vendor === 'codex'

@@ -16,7 +16,8 @@
   "providers": {
     "anthropic": { "model": "claude-opus-4-8", "keyEnv": "ANTHROPIC_API_KEY" },
     "openai":    { "model": "gpt-4o-mini",     "keyEnv": "OPENAI_API_KEY" },
+    "gemini":    { "model": "gemini-2.0-flash", "keyEnv": "GEMINI_API_KEY" },
     "ollama":    { "host": "http://localhost:11434", "model": "llama3.2" }
   },
-  "_providers": "vendor の既定モデル/接続先。anthropic 空き(API key 未設定)なら claude -p(サブスク・従量0)。openai は BYO OPENAI_API_KEY。ollama はローカル無料。keyEnv は『どの env から鍵を読むか』の参照のみ（値は書かない）。"
+  "_providers": "vendor の既定モデル/接続先。anthropic 空き(API key 未設定)なら claude -p(サブスク・従量0)。openai/gemini は BYO key。ollama はローカル無料。keyEnv は『どの env から鍵を読むか』の参照のみ（値は書かない）。"
 }
