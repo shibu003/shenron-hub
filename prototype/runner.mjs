@@ -9,8 +9,8 @@ import { spawnSync, spawn } from 'node:child_process';
 // when ANTHROPIC_API_KEY is set (local dev keeps spawning `claude -p` = BYO subscription, 従量0).
 // Same contract as runVendorAsync: resolves to the model's text, or a `[... → stub]` fallback string on failure.
 // ponytail: raw fetch (Node ≥18 global), no SDK dep; no streaming — 16k max_tokens is well under the HTTP timeout.
-async function runAnthropicApi(prompt, stub = '') {
-  const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+async function runAnthropicApi(prompt, stub = '', model) {
+  model = model || process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';   // per-call model (Wave G: flow の step ごとに別モデル) > env > 既定
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -25,13 +25,13 @@ async function runAnthropicApi(prompt, stub = '') {
   } catch (e) { return `[anthropic failed → stub] ${e.message}\n` + stub; }
 }
 
-export function runVendorAsync(vendor, prompt, stub = '') {
+export function runVendorAsync(vendor, prompt, stub = '', { model } = {}) {   // Wave G: opts.model = この呼び出しだけ別モデル（flow の step ごと routing）
   const stubOut = stub || `[stub] (no vendor "${vendor}")`;
-  if (vendor === 'claude' && process.env.ANTHROPIC_API_KEY) return runAnthropicApi(prompt, stub);   // cloud: no CLI → direct API
+  if (vendor === 'claude' && process.env.ANTHROPIC_API_KEY) return runAnthropicApi(prompt, stub, model);   // cloud: no CLI → direct API
   if (vendor !== 'codex' && vendor !== 'claude') return Promise.resolve(stubOut);
   const [cmd, args] = vendor === 'codex'
     ? ['codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', prompt]]
-    : ['claude', ['-p', prompt]];
+    : ['claude', model ? ['-p', '--model', model, prompt] : ['-p', prompt]];
   return new Promise((resolve) => {
     let out = '', err = '', child;
     const fail = (why) => resolve(`[${vendor} failed → stub] ${why}\n` + stub);

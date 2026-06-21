@@ -162,6 +162,22 @@ assert.notEqual(planned.mode, 'clarify', 'with choices → proceeds to a plan');
 assert.ok(/どのSNS.*X/s.test(answeredPrompt), 'choices passed into the prompt');
 assert.ok((planned.blockers || []).some((b) => /API/.test(b)), 'plan carries blockers alongside steps');
 
+// Wave G — per-step model routing: planner の tier(cheap/strong) を step と prompt ノード config に持ち越す（実行時 tier→model）
+const tierIR = buildPlanIR('g', { plain_summary: 'x', steps: [
+  { action: 'summarize', kind: 'prompt', tool: null, tier: 'cheap' },
+  { action: 'decide', kind: 'prompt', tool: null, tier: 'strong' },
+  { action: 'plain', kind: 'prompt', tool: null },                 // tier 無し → undefined
+  { action: 'bad', kind: 'prompt', tool: null, tier: 'weird' },    // 不正 → undefined
+] });
+assert.equal(tierIR.steps[0].tier, 'cheap', 'tier: cheap carried to step');
+assert.equal(tierIR.steps[1].tier, 'strong', 'tier: strong carried to step');
+assert.equal(tierIR.steps[2].tier, undefined, 'tier: none → undefined');
+assert.equal(tierIR.steps[3].tier, undefined, 'tier: invalid → undefined (no garbage)');
+const pn = (n) => tierIR.nodes.find((x) => x.id === `s${n}`);
+assert.equal(pn(1).config.tier, 'cheap', 'tier: cheap on the prompt node config (→ runtime model)');
+assert.equal(pn(2).config.tier, 'strong', 'tier: strong on the prompt node config');
+assert.ok(!('tier' in pn(3).config), 'tier: untiered prompt node has no tier key');
+
 // Wave: cost mode — free(既定)=有料は opt-in 化 / paid_ok=有料可だがコスト開示。プロンプトに反映されるか。
 let costPrompt = '';
 const capRun = async (_v, p) => { costPrompt = p; return '{"plain_summary":"x","steps":[{"action":"a","kind":"prompt","tool":null}]}'; };
