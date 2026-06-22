@@ -51,7 +51,8 @@ export function register(email, password) {
 
 export function verifyEmail(token) {
   const users = readUsers();
-  const user = users.find((u) => u.verifyToken === token);
+  const tokenBuf = Buffer.from(token);
+  const user = users.find((u) => u.verifyToken && (() => { const b = Buffer.from(u.verifyToken); return b.length === tokenBuf.length && timingSafeEqual(b, tokenBuf); })());
   if (!user) throw new Error('invalid or expired verification token');
   user.verified = true;
   delete user.verifyToken;

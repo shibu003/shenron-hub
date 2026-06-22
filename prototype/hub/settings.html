@@ -1,0 +1,284 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>神龍 — 設定</title>
+<!-- 神龍の全設定を1ページで。GET/POST /api/config（cost・scheduler・routing・providers）+ /api/autorun + /api/integrations。
+     canvas (ui2) のトップバー ⚙ から開く。同テーマ・ビルド不要・vanilla。MCP の get_config/set_config と同じ設定面の薄い view。 -->
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#30363d; --txt:#e6edf3; --dim:#8b949e;
+          --green:#3fb950; --amber:#d29922; --blue:#58a6ff; --red:#f85149; --grey:#6e7681; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+  button, input, select { font:inherit; }
+  #topbar { display:flex; align-items:center; gap:14px; height:48px; padding:0 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  .brand { font-weight:700; font-size:15px; }
+  #conn { margin-left:auto; font-size:12px; color:var(--dim); }
+  main { max-width:760px; margin:0 auto; padding:22px 18px 80px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  .card .sub { color:var(--dim); font-size:12px; margin:0 0 14px; line-height:1.5; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .row:last-child { margin-bottom:0; }
+  label.field { display:block; font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; margin:8px 0 3px; }
+  input[type=text], select { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; }
+  input[type=text]:focus, select:focus { border-color:var(--blue); outline:none; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  /* segmented radio */
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { background:#0d1117; color:var(--dim); border:0; padding:8px 16px; cursor:pointer; border-right:1px solid var(--line); }
+  .seg button:last-child { border-right:0; }
+  .seg button.on { background:var(--panel2); color:var(--txt); box-shadow:inset 0 0 0 1px var(--blue); }
+  /* toggle */
+  .sw { position:relative; width:42px; height:24px; flex:none; cursor:pointer; }
+  .sw input { opacity:0; width:0; height:0; }
+  .sw .track { position:absolute; inset:0; background:#0d1117; border:1px solid var(--line); border-radius:999px; transition:.15s; }
+  .sw .knob { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:var(--grey); transition:.15s; }
+  .sw input:checked + .track { border-color:var(--green); background:rgba(63,185,80,.18); }
+  .sw input:checked + .track .knob { left:21px; background:var(--green); }
+  .swrow { display:flex; align-items:center; gap:12px; }
+  .swrow .lbl { flex:1; } .swrow .lbl b { font-size:13px; } .swrow .lbl div { color:var(--dim); font-size:12px; margin-top:2px; }
+  .btn { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:7px 14px; cursor:pointer; }
+  .btn:hover { border-color:var(--blue); } .btn.go { border-color:var(--green); color:var(--green); }
+  .badge { font-size:11px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+  .badge.ok { color:var(--green); border-color:rgba(63,185,80,.5); } .badge.no { color:var(--grey); }
+  .badge.warn { color:var(--amber); border-color:rgba(210,153,34,.5); }
+  .ig { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:7px; }
+  .ig .nm { flex:1; min-width:0; } .ig .nm b { display:block; } .ig .nm span { color:var(--dim); font-size:12px; }
+  .note { font-size:12px; color:var(--dim); line-height:1.5; background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:9px 11px; }
+  .note.warn { border-color:rgba(210,153,34,.45); color:#d4aa70; }
+  .needs li { font-size:12px; color:#d4aa70; margin:4px 0; line-height:1.5; }
+  details summary { cursor:pointer; color:var(--dim); font-size:12px; margin-bottom:8px; list-style:none; }
+  details summary::before { content:'▸ '; } details[open] summary::before { content:'▾ '; }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel2); border:1px solid var(--line); color:var(--txt); padding:9px 16px; border-radius:9px; font-size:12px; opacity:0; pointer-events:none; transition:.2s; box-shadow:0 10px 30px -10px #000; z-index:50; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+
+<header id="topbar">
+  <div class="brand">🐉 神龍 · 設定</div>
+  <a href="/ui2">← キャンバスに戻る</a>
+  <span id="conn"></span>
+</header>
+
+<main>
+  <!-- 実行コスト -->
+  <div class="card">
+    <h2>💰 実行コスト</h2>
+    <p class="sub">既定の財布。<b>free</b>＝従量0のツールのみ（本人サブスク・ローカル実行）。<b>paid_ok</b>＝有料の frontier モデル/ツールも許可（コストは都度開示）。プラン生成のモデル経路もこれに連動します。</p>
+    <div class="seg" id="cost">
+      <button data-cost="free">🆓 free</button>
+      <button data-cost="paid_ok">💳 paid_ok</button>
+    </div>
+  </div>
+
+  <!-- スケジューラ -->
+  <div class="card">
+    <h2>⏰ スケジューラ</h2>
+    <p class="sub">cron / build-state イベントで自動化を発火します。</p>
+    <div class="swrow">
+      <label class="sw"><input type="checkbox" id="sched"><span class="track"><span class="knob"></span></span></label>
+      <div class="lbl"><b>in-hub スケジューラ</b><div id="schedState"></div></div>
+    </div>
+    <div class="note warn" id="schedNote" style="margin-top:10px"></div>
+  </div>
+
+  <!-- ローカル実行 -->
+  <div class="card">
+    <h2>⚡ ローカル実行（autorun）</h2>
+    <p class="sub">hub がローカル agent を自プロセスで代理実行するか。OFF にすると専用 worker 起動時のみ実行（broker-only）。</p>
+    <div class="swrow">
+      <label class="sw"><input type="checkbox" id="autorun"><span class="track"><span class="knob"></span></span></label>
+      <div class="lbl"><b>グローバル autorun</b><div id="autorunState"></div></div>
+    </div>
+  </div>
+
+  <!-- モデル経路 -->
+  <div class="card">
+    <h2>🧭 モデル経路（routing）</h2>
+    <p class="sub">プランの各ステップの宛先。<b>cheap</b>＝軽い処理（無料サブスク/ローカル）、<b>strong</b>＝重要処理（本人 Claude 等）。空欄＝既定。</p>
+    <div class="two">
+      <div><label class="field">cheap · vendor</label><input type="text" id="r_cheap_v" placeholder="claude / ollama / codex …"></div>
+      <div><label class="field">cheap · model</label><input type="text" id="r_cheap_m" placeholder="（任意）"></div>
+      <div><label class="field">strong · vendor</label><input type="text" id="r_strong_v" placeholder="claude …"></div>
+      <div><label class="field">strong · model</label><input type="text" id="r_strong_m" placeholder="（任意）"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn go" id="saveRouting">経路を保存</button></div>
+  </div>
+
+  <!-- プロバイダ詳細 -->
+  <div class="card">
+    <details>
+      <summary>プロバイダ詳細（ollama / openai / anthropic）</summary>
+      <p class="sub">runner 側の既定 host/model（変更は hub 再起動で反映）。API キーはここでは設定できません（env / .dev.vars のみ）。</p>
+      <div class="two">
+        <div><label class="field">ollama · host</label><input type="text" id="p_ollama_host" placeholder="http://localhost:11434"></div>
+        <div><label class="field">ollama · model</label><input type="text" id="p_ollama_model" placeholder="llama3.2 …"></div>
+        <div><label class="field">openai · model</label><input type="text" id="p_openai_model" placeholder="（任意）"></div>
+        <div><label class="field">anthropic · model</label><input type="text" id="p_anthropic_model" placeholder="（任意）"></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn go" id="saveProviders">プロバイダを保存</button></div>
+    </details>
+  </div>
+
+  <!-- 連携 MCP サーバー -->
+  <div class="card">
+    <h2>🔌 連携（MCP サーバー）</h2>
+    <p class="sub">プランから使える外部ツール群。ON のサーバーのツールだけが解決対象になります。</p>
+    <div id="integrations"></div>
+    <div class="two" style="margin-top:10px">
+      <input type="text" id="ig_label" placeholder="ラベル（例: Slack）">
+      <input type="text" id="ig_conn" placeholder="command または https URL">
+    </div>
+    <input type="text" id="ig_tools" placeholder="tools（カンマ区切り・任意）" style="margin-top:8px">
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addIg">＋ サーバーを追加</button></div>
+  </div>
+
+  <!-- オートメーション -->
+  <div class="card">
+    <h2>⏱ オートメーション</h2>
+    <p class="sub">保存済みフローの自動実行（スケジュール / build-state）。OFF で発火を即停止（削除はしません）。</p>
+    <div id="automations"></div>
+  </div>
+
+  <!-- 環境 / キー -->
+  <div class="card">
+    <h2>🔑 環境・API キー</h2>
+    <p class="sub">キーの<b>在否</b>のみ表示（値は出ません）。LLM はローカル <code>claude -p</code>（従量0）でも動きます。</p>
+    <div class="row" id="keys"></div>
+    <div class="row" id="modeRow"></div>
+    <ul class="needs" id="needs" style="margin:8px 0 0; padding-left:18px"></ul>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'content-type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  return r.json();
+}
+function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2400); }
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let CFG = {};   // last configStatus()
+
+async function loadConfig(){
+  let s; try{ s=await api('/api/config'); $('#conn').textContent='● 接続'; $('#conn').style.color='var(--green)'; }
+  catch{ $('#conn').textContent='○ hub オフライン'; $('#conn').style.color='var(--red)'; return; }
+  CFG=s; const c=s.config||{};
+  // cost
+  const cost = c.cost==='paid_ok'?'paid_ok':'free';
+  document.querySelectorAll('#cost button').forEach(b=>b.classList.toggle('on', b.dataset.cost===cost));
+  // scheduler
+  $('#sched').checked = s.schedulerOn;
+  $('#schedState').textContent = s.schedulerOn ? 'ON — hub 起動中に発火' : 'OFF — 予定は発火しません';
+  $('#schedNote').textContent = s.schedulerOn
+    ? '⏰ 発火するのは「この hub プロセスが起きている間」だけ（あなたの Mac が ON、または 24/7 のクラウド常駐）。スマホのみで常駐 hub が無いと発火しません→外部スケジューラ（Apps Script 等）を併用。'
+    : '⚠️ in-hub スケジューラは OFF。予定された自動化は発火しません。ON にするか外部スケジューラを使ってください。';
+  // routing
+  const rt=c.routing||{};
+  $('#r_cheap_v').value = rt.cheap?.vendor||''; $('#r_cheap_m').value = rt.cheap?.model||'';
+  $('#r_strong_v').value = rt.strong?.vendor||''; $('#r_strong_m').value = rt.strong?.model||'';
+  // providers
+  const pv=c.providers||{};
+  $('#p_ollama_host').value = pv.ollama?.host||''; $('#p_ollama_model').value = pv.ollama?.model||'';
+  $('#p_openai_model').value = pv.openai?.model||''; $('#p_anthropic_model').value = pv.anthropic?.model||'';
+  // keys
+  const k=s.keysPresent||{};
+  $('#keys').innerHTML = [['ANTHROPIC_API_KEY',k.anthropic],['OPENAI_API_KEY',k.openai]]
+    .map(([n,on])=>`<span class="badge ${on?'ok':'no'}">${on?'✓':'—'} ${n}</span>`).join('');
+  // mode
+  $('#modeRow').innerHTML = s.managed
+    ? `<span class="badge warn">☁ managed hub</span><span class="sub" style="margin:0">ブラウザ操作（browser-control）は本人マシンの神龍が必要です。</span>`
+    : `<span class="badge ok">🖥 self-host</span><span class="sub" style="margin:0">ローカル常駐：全機能（ブラウザ操作含む）が使えます。</span>`;
+  // needs hints
+  $('#needs').innerHTML = (s.needs||[]).map(n=>`<li>${esc(n)}</li>`).join('');
+}
+
+async function loadIntegrations(){
+  let list=[]; try{ list=await api('/api/integrations'); }catch{}
+  $('#integrations').innerHTML = list.length ? list.map(it=>`
+    <div class="ig">
+      <div class="nm"><b>${esc(it.label||it.id)}</b><span>${esc(it.kind||'mcp')} · ${(it.tools&&it.tools.length)||it.tools||0} tools</span></div>
+      <label class="sw"><input type="checkbox" data-toggle="${esc(it.id)}" ${it.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
+    </div>`).join('') : `<div class="note">登録された MCP サーバーはありません。</div>`;
+  $('#integrations').querySelectorAll('[data-toggle]').forEach(el=>el.onchange=async()=>{
+    await api(`/api/integrations/${encodeURIComponent(el.dataset.toggle)}/toggle`,{on:el.checked});
+    toast(el.checked?'有効化しました':'無効化しました'); loadIntegrations();
+  });
+}
+
+// trigger オブジェクトを短い人間可読ラベルに。schedule は {type:"schedule",when:"0 2 * * *"} の 5フィールド cron、
+// build_state は {type:"build_state",match:{event:"review_completed",status:"green"}}。
+function triggerLabel(trigger){
+  if(!trigger || !trigger.type) return '—';
+  if(trigger.type==='build_state'){
+    const parts=Object.entries(trigger.match||{}).map(([k,v])=>`${k}=${v}`);
+    return parts.length ? `build: ${parts.join(' ')}` : 'build イベント';
+  }
+  if(trigger.type==='schedule'){
+    const f=String(trigger.when||'').trim().split(/\s+/);
+    if(f.length!==5) return trigger.when || 'スケジュール';
+    const [mi,h,dom,mon,dow]=f, nd=s=>/^\d+$/.test(s), DOW=['日','月','火','水','木','金','土'];
+    const t=`${h}:${mi.padStart(2,'0')}`;
+    let g;
+    if((g=mi.match(/^\*\/(\d+)$/)) && h==='*') return `${g[1]}分ごと`;
+    if(mi==='0' && (g=h.match(/^\*\/(\d+)$/))) return `${g[1]}時間ごと`;
+    if(h==='*' && nd(mi)) return `毎時 ${mi}分`;
+    if(nd(mi) && nd(h)){
+      if(dom==='*' && mon==='*' && dow==='*') return `毎日 ${t}`;
+      if(dom==='*' && mon==='*' && nd(dow)) return `毎週${DOW[(+dow)%7]} ${t}`;
+      if(nd(dom) && mon==='*' && dow==='*') return `毎月${dom}日 ${t}`;
+    }
+    return trigger.when;   // ponytail: 変則 cron は生のまま。完全パーサは入れない（YAGNI）
+  }
+  return trigger.type;
+}
+
+async function loadAutomations(){
+  let list=[]; try{ list=await api('/api/automations'); }catch{}
+  $('#automations').innerHTML = list.length ? list.map(a=>`
+    <div class="ig">
+      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(triggerLabel(a.trigger))}</span></div>
+      <label class="sw"><input type="checkbox" data-auto="${esc(a.id)}" ${a.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
+    </div>`).join('') : `<div class="note">保存されたオートメーションはありません。</div>`;
+  $('#automations').querySelectorAll('[data-auto]').forEach(el=>el.onchange=async()=>{
+    await api(`/api/automations/${encodeURIComponent(el.dataset.auto)}/toggle`,{on:el.checked});
+    toast(el.checked?'有効化しました':'無効化しました'); loadAutomations();
+  });
+}
+
+// --- interactions ---
+document.querySelectorAll('#cost button').forEach(b=>b.onclick=async()=>{
+  await api('/api/config',{cost:b.dataset.cost}); toast('コストを更新: '+b.dataset.cost); loadConfig();
+});
+$('#sched').onchange = async (e)=>{ await api('/api/config',{scheduler:e.target.checked}); toast('スケジューラ: '+(e.target.checked?'ON':'OFF')); loadConfig(); };
+$('#autorun').onchange = async (e)=>{ await api('/api/autorun',{on:e.target.checked}); toast('autorun: '+(e.target.checked?'ON':'OFF')); loadAutorun(); };
+$('#saveRouting').onclick = async ()=>{
+  const mk=(v,m)=>{ const o={}; if(v.trim())o.vendor=v.trim(); if(m.trim())o.model=m.trim(); return Object.keys(o).length?o:undefined; };
+  const routing={}; const cheap=mk($('#r_cheap_v').value,$('#r_cheap_m').value); const strong=mk($('#r_strong_v').value,$('#r_strong_m').value);
+  if(cheap)routing.cheap=cheap; if(strong)routing.strong=strong;
+  await api('/api/config',{routing}); toast('モデル経路を保存しました'); loadConfig();
+};
+$('#saveProviders').onclick = async ()=>{
+  const providers={};
+  const oh=$('#p_ollama_host').value.trim(), om=$('#p_ollama_model').value.trim();
+  if(oh||om){ providers.ollama={}; if(oh)providers.ollama.host=oh; if(om)providers.ollama.model=om; }
+  const oa=$('#p_openai_model').value.trim(); if(oa)providers.openai={model:oa};
+  const an=$('#p_anthropic_model').value.trim(); if(an)providers.anthropic={model:an};
+  await api('/api/config',{providers}); toast('プロバイダを保存しました（再起動で反映）'); loadConfig();
+};
+$('#addIg').onclick = async ()=>{
+  const label=$('#ig_label').value.trim(); if(!label) return toast('ラベルを入力してください');
+  const conn=$('#ig_conn').value.trim();
+  const tools=($('#ig_tools').value||'').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,accepts:['*'],emits:['*']}));
+  await api('/api/integrations',{ label, command:conn.startsWith('http')?'':conn, url:conn.startsWith('http')?conn:'', enabled:true, tools });
+  $('#ig_label').value=$('#ig_conn').value=$('#ig_tools').value=''; toast('サーバーを追加しました'); loadIntegrations();
+};
+
+async function loadAutorun(){ let s; try{ s=await api('/api/state'); }catch{ return; }
+  const on = s.autorun !== false; $('#autorun').checked = on;
+  $('#autorunState').textContent = on ? 'ON — hub が代理実行' : 'OFF — worker 待ち（broker-only）'; }
+
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun();
+</script>

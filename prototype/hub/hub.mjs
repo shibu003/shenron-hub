@@ -62,6 +62,7 @@ const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no loc
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
 const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
+const SETTINGS_FILE = path.join(HERE, 'settings.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
@@ -664,6 +665,8 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
   return trigger.type === 'schedule' ? { ...m, note: schedulerNote() } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
 }
+// pause/resume a saved automation without deleting it — scheduler & fireEvent both honor enabled (read fresh, no restart). Mirrors toggleIntegration.
+function toggleAutomation(id, on) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2)); return { id: it.id, name: it.name, enabled: it.enabled }; }
 const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
   const matched = matchingAutomations(event);
@@ -738,7 +741,7 @@ function validateFlow(nodes, edges) {
     if (!s || !t) { warnings.push(`dropped ${e.source}→${e.target} (missing node)`); continue; }
     const so = portsOf(s), to = portsOf(t);
     if (!so.emits.length || !to.accepts.length || !portIntersect(so.emits, to.accepts)) { warnings.push(`dropped ${e.source}→${e.target} (port mismatch)`); continue; }
-    kept.push({ id: e.id || 'e' + kept.length, source: e.source, target: e.target, ...(e.share ? { share: e.share } : {}) });
+    kept.push({ id: e.id || 'e' + kept.length, source: e.source, target: e.target, ...(e.share ? { share: e.share } : {}), ...(e.branch ? { branch: e.branch } : {}) });   // keep router then/else branch labels (else a router fires both branches)
   }
   return { edges: kept, warnings };
 }
@@ -758,12 +761,14 @@ const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on r
 const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
 const SHARED_TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: internal credential — server.mjs / browser-worker / Artifact / CLI auth to act routes (same token as A2A reach). Set it (and/or use OAuth) to enforce; unset = local dev open.
 const cookieSession = (req) => { const c = req.headers['cookie'] || ''; const m = c.match(/shenron_session=([^;]+)/); return m ? m[1] : null; };
-const bearerOk = (req) => {                                 // valid if OAuth bearer (claude.ai via /mcp) OR the shared token (internal callers) OR valid session cookie (web UI users).
+// open flag: true until A2A_SHARED_TOKEN is set OR OAuth token issued — user registration alone does NOT close it.
+// MCP stdio (server.mjs) and browser-worker use A2A_SHARED_TOKEN; cookie sessions are for Web UI only.
+const openDev = !SHARED_TOKEN; // ponytail: evaluated once at startup; set A2A_SHARED_TOKEN to enforce
+const bearerOk = (req) => {
   const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim();
   if ((SHARED_TOKEN && t === SHARED_TOKEN) || oauthTokens.has(t)) return true;
   if (checkSession(cookieSession(req))) return true;        // Web UI session cookie
-  if (!oauthTokens.size && !SHARED_TOKEN && userCount() === 0) return true;   // open only when no auth is configured AND no users exist yet
-  return false;
+  return openDev && !oauthTokens.size;                     // open only when no token-based auth is configured
 };
 
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
@@ -854,6 +859,10 @@ const server = http.createServer((req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }
     catch { return json(res, 404, { error: 'ui2.html not found' }); }
   }
+  if (req.method === 'GET' && p === '/settings') {
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SETTINGS_FILE)); }
+    catch { return json(res, 404, { error: 'settings.html not found' }); }
+  }
   if (req.method === 'GET' && p === '/shenron') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
@@ -871,6 +880,8 @@ const server = http.createServer((req, res) => {
     if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
     return json(res, 200, listUsers());
   }
+  // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
+  if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/workflows') {
@@ -1069,7 +1080,7 @@ const server = http.createServer((req, res) => {
       // Wave I: Credential vault
       if (p === '/api/credentials') {
         if (j.action === 'set') return json(res, 200, setCredential(j.id, j.value));
-        if (j.action === 'get') return json(res, 200, { id: j.id, value: getCredential(j.id) });
+        if (j.action === 'get') return json(res, 200, { id: j.id, present: getCredential(j.id) !== null }); // 値は返さない — AI context に Secret を流さない
         if (j.action === 'list') return json(res, 200, { ids: listCredentials() });
         if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
         return json(res, 400, { error: 'action required: set|get|list|delete' });
@@ -1089,6 +1100,7 @@ const server = http.createServer((req, res) => {
       let m;
       if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
+      if ((m = p.match(/^\/api\/automations\/([^/]+)\/toggle$/))) return json(res, 200, toggleAutomation(m[1], j.on));
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result|checkpoint)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : m[2] === 'checkpoint' ? ref(checkpoint(m[1], j)) : ref(postResult(m[1], j)));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
