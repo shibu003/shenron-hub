@@ -41,35 +41,70 @@ DISCOVER FIRST (Wave: mandatory). Before planning, RESEARCH the goal (use web se
 If the goal is AMBIGUOUS (several services/platforms could satisfy it — e.g. "start a social media" → X vs Instagram vs Facebook), or multiple mechanisms are genuinely viable, or you found a blocker the user must weigh — DO NOT invent steps. Output ONLY:
 {"clarify":[{"question":"<ask the user>","options":["<opt>","<opt>"],"why":"<why it matters>"}],"blockers":["<blocker + the reason, e.g. ToS/license/no-API>"]}
 Only when it is unambiguous (or the answers above resolve it), output the plan ONLY:
-{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"steps":[{"action":"<short>","kind":"mcp|agent|prompt|consensus","tool":"<inventory id or null>","tier":"cheap|strong"}]}
+{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"steps":[{"action":"<short>","kind":"mcp|agent|prompt|parser|structured|router|consensus","tool":"<inventory id or null>","tier":"cheap|strong","fields":"<structured only: comma-sep field names>","condition":"<router only: contains:<word> | clean | always>","branch":"<then|else — ONLY on a step that is a router branch>"}]}
 Per step: use the exact inventory id ONLY if it GENUINELY covers the need (a generic tool does NOT cover a specific need → null). Prefer an mcp tool/API; fall back to agent:browser-control only when UI-only (no API).
 Per step also set "tier" to route the model by content & cost: "cheap" for mechanical work (summarize, classify, extract, format, route, simple rewrite) and "strong" for hard judgment (reasoning, decisions, code generation, planning, anything error-sensitive). The runtime maps cheap→a small/cheap model and strong→a frontier model per the user's budget — so default to "cheap" unless the step genuinely needs frontier judgment (saves the user money).
+DESIGN THE WHOLE FLOW — pick the RIGHT node type per step (not just a prompt chain) and CONNECT them into the actual shape of the work:
+- "parser" = DETERMINISTIC text formatting with NO LLM ($0). Use it instead of a prompt whenever the transform is mechanical (fill a template, join/wrap text, fixed reformat). Put the template in "action" with {input} where the upstream value goes.
+- "structured" = the output must be JSON with specific fields — set "fields":"name,email,date". The runtime asks the model for that JSON.
+- "router" = a CONDITIONAL BRANCH that splits the flow. Set "condition" (e.g. "contains:error" / "clean" / "always"). Immediately follow the router with its branch steps, each tagged "branch":"then" or "branch":"else"; the next plain step after the branches is where they rejoin.
+  MANDATORY: if the goal contains ANY conditional ("if … otherwise / 緊急なら…そうでなければ / when X do A else B"), you MUST express it as a router + then/else branch steps — do NOT flatten the branch into a single prose prompt.
+- "prompt" = free-form LLM step (writing/judgment). "consensus" = N-model vote (see below).
+Prefer the cheapest correct type: parser (·$0) > one cheap prompt > structured/strong prompt > consensus.
+EXAMPLE — goal "summarize each email; if it's urgent notify Slack, otherwise log it" →
+"steps":[{"action":"fetch unread emails","kind":"mcp","tool":"mcp:gmail.search_threads"},
+{"action":"summarize and judge urgency (output URGENT or NORMAL)","kind":"prompt","tier":"cheap"},
+{"action":"urgent?","kind":"router","condition":"contains:URGENT"},
+{"action":"post a Slack alert","kind":"mcp","tool":"mcp:slack.send","branch":"then"},
+{"action":"append to the log","kind":"parser","branch":"else"}]
+(the if/else became a router with then/else branch steps that rejoin — do the same for any conditional goal.)
 kind "consensus" = run the step on N different models in parallel and take the voted (medoid) answer. It costs ~N× a normal step, so use it RARELY — ONLY for a HIGH-STAKES judgment that is error-sensitive or hard to undo AND has no deterministic check to fall back on (e.g. a final go/no-go decision, a legal/medical/financial reading). For everything else a single "cheap" prompt is correct. Never use consensus for mechanical work.
 Output ONLY the JSON object.`;
 
 // pure: parsed LLM output → plan IR（raw nodes/edges, port 検証は呼び出し側）。test 対象。
 // gap: 'off'|'ask'|'auto' — 解決不能 step（既存ツールで埋まらない mcp/agent）をどう扱うか。off=buildable gap を作らず
 // best-effort prompt 化（神龍に自己拡張＝道具生成させない）／ask(既定)=⚠️ gap を出し人が codegen 起動／auto=同上＋自動起動(caller 側)。
+const BUILTIN_KINDS = ['prompt', 'consensus', 'parser', 'structured', 'router', 'languagemodel'];   // node kinds the runtime runs WITHOUT an external tool (fireNode handles each)
+// router "condition" → node config { predicate, value } that fireRouterNode understands (predicate ∈ redacted|clean|contains|always).
+function routerCfg(condition) {
+  const c = String(condition || 'always').trim();
+  const m = c.match(/^contains\s*[:=]\s*(.+)$/i);
+  if (m) return { predicate: 'contains', value: m[1].trim() };
+  if (/^(redacted|clean|always)$/i.test(c)) return { predicate: c.toLowerCase() };
+  return c ? { predicate: 'contains', value: c } : { predicate: 'always' };   // bare word → contains:<word>
+}
 export function buildPlanIR(goal, parsed, source = 'llm', gap = 'ask') {
   const steps = (parsed.steps || []).map((s, i) => ({ n: i + 1, action: s.action || '',
-    kind: ['mcp', 'agent', 'prompt', 'consensus'].includes(s.kind) ? s.kind : 'prompt', tool: s.tool || null, have: !!s.tool || s.kind === 'prompt' || s.kind === 'consensus',   // Wave G: consensus も built-in（tool 不要・gap でない）
-    tier: s.tier === 'strong' ? 'strong' : s.tier === 'cheap' ? 'cheap' : undefined }));   // Wave G: 内容ごとのモデル階層（cheap=要約/分類/整形, strong=判断/codegen）
+    kind: ['mcp', 'agent', ...BUILTIN_KINDS].includes(s.kind) ? s.kind : 'prompt', tool: s.tool || null, have: !!s.tool || BUILTIN_KINDS.includes(s.kind),   // built-ins (prompt/parser/structured/router/…) need no tool → never a gap
+    tier: s.tier === 'strong' ? 'strong' : s.tier === 'cheap' ? 'cheap' : undefined,   // Wave G: 内容ごとのモデル階層（cheap=要約/分類/整形, strong=判断/codegen）
+    fields: s.fields || '', condition: s.condition || '', branch: (s.branch === 'then' || s.branch === 'else') ? s.branch : null }));
   const needsTool = (s) => s.kind === 'mcp' || s.kind === 'agent';
   const missing = gap === 'off' ? [] : steps.filter((s) => needsTool(s) && !s.tool).map((s) => ({ what: s.action, kind: s.kind, step: s.n }));
   const tools_needed = steps.filter(needsTool).map((s) => ({ name: s.tool || s.action, kind: s.kind, have: !!s.tool, source: s.tool ? 'inventory' : 'gap' }));
 
   const nodes = [{ id: 'input-1', kind: 'input' }];
   for (const s of steps) {
-    const id = `s${s.n}`;
+    const id = `s${s.n}`, tier = s.tier ? { tier: s.tier } : {};
     if (s.kind === 'mcp' && s.tool) { const r = s.tool.replace(/^mcp:/, ''); const d = r.indexOf('.'); nodes.push({ id, kind: 'mcp', server: r.slice(0, d), tool: r.slice(d + 1) }); }
     else if (s.kind === 'agent' && s.tool) nodes.push({ id, kind: 'agent', agent: s.tool.replace(/^agent:/, '') });
-    else if (s.kind === 'consensus') nodes.push({ id, kind: 'consensus', config: { prompt: s.action } });   // Wave G: high-stakes step → N vendor 合議（vendors は実行時に cost 連動の既定・fireConsensusNode）
-    else if (s.kind === 'prompt') nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}`, ...(s.tier ? { tier: s.tier } : {}) } });   // Wave G: tier を prompt ノードに載せる→実行時 tier→model
-    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}`, ...(s.tier ? { tier: s.tier } : {}) }, ...(gap === 'off' ? {} : { missing: true }) });   // mcp/agent w/o tool: ask/auto=⚠️ gap（生成→承認で実 mcp node）／off=ただの prompt（自己拡張しない）
+    else if (s.kind === 'consensus') nodes.push({ id, kind: 'consensus', config: { prompt: s.action } });   // Wave G: high-stakes step → N vendor 合議（fireConsensusNode）
+    else if (s.kind === 'parser') nodes.push({ id, kind: 'parser', config: { pattern: /\{input\}/.test(s.action) ? s.action : `${s.action}\n{input}` } });   // deterministic format, NO LLM ($0)
+    else if (s.kind === 'structured') nodes.push({ id, kind: 'structured', config: { schema: s.fields || '', instructions: s.action, ...tier } });   // JSON-with-fields (prompt asking for JSON)
+    else if (s.kind === 'router') nodes.push({ id, kind: 'router', config: routerCfg(s.condition) });   // conditional branch (then/else on its out-edges)
+    else if (s.kind === 'languagemodel') nodes.push({ id, kind: 'languagemodel', config: { system: s.action, ...tier } });   // LLM with a system preamble
+    else if (s.kind === 'prompt') nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}`, ...tier } });   // Wave G: tier→model at run time
+    else nodes.push({ id, kind: 'prompt', config: { template: `${s.action}\n\n{input}`, ...tier }, ...(gap === 'off' ? {} : { missing: true }) });   // mcp/agent w/o tool: ⚠️ gap（生成→承認で実 node）／off=ただの prompt
   }
   nodes.push({ id: 'output-1', kind: 'output' });
-  const edges = [];
-  for (let i = 0; i < nodes.length - 1; i++) edges.push({ id: `e${i}`, source: nodes[i].id, target: nodes[i + 1].id });   // linear chain
+
+  // edges: linear by default; a router fans to its branch-tagged successors, which rejoin at the next plain step
+  const edges = []; let eid = 0, prev = nodes[0].id, splitter = null, branchTails = [];
+  for (let i = 1; i < nodes.length; i++) {
+    const n = nodes[i], st = steps[i - 1], br = st && st.branch;
+    if (br && splitter) { edges.push({ id: `e${eid++}`, source: splitter, target: n.id, branch: br }); branchTails.push(n.id); }   // router → branch (labelled)
+    else { const srcs = branchTails.length ? branchTails : [prev]; for (const s of srcs) edges.push({ id: `e${eid++}`, source: s, target: n.id }); branchTails = []; prev = n.id; }   // plain step joins prior branches (or the previous node)
+    if (n.kind === 'router') splitter = n.id;   // the steps right after a router fan out from it
+  }
   return { goal, plain_summary: parsed.plain_summary || goal, steps, tools_needed, missing, nodes, edges, source };
 }
 
@@ -80,6 +115,10 @@ function nodeLabel(n, stepByN) {
   if (n.kind === 'mcp') return `🔧 mcp:${n.server}.${n.tool}`;
   if (n.kind === 'agent') return `${n.agent === 'browser-control' ? '🌐' : '🤖'} agent:${n.agent}`;
   if (n.kind === 'consensus') return `🗳️ consensus: ${((n.config && n.config.prompt) || '').slice(0, 34)}`;   // N vendor 合議
+  if (n.kind === 'router') { const c = n.config || {}; return `🔀 router: ${c.predicate || 'always'}${c.value ? ` "${c.value}"` : ''}`; }   // conditional branch
+  if (n.kind === 'parser') return `🔧 parser ($0 no LLM)`;                                   // deterministic format
+  if (n.kind === 'structured') return `🧷 structured${(n.config && n.config.schema) ? `: ${n.config.schema}` : ''}`;   // JSON-with-fields
+  if (n.kind === 'languagemodel') return `🧠 LLM`;                                            // model + system preamble
   const act = ((stepByN[Number(String(n.id).replace(/^s/, ''))] || {}).action || '').slice(0, 40);
   return n.missing ? `⚠️ ${act || 'gap'} (needs a tool)` : `💬 ${act || 'prompt'}`;
 }
@@ -93,12 +132,15 @@ export function routeFor(node, step, ctx) {
   if (!ctx || !node) return null;
   if (node.kind === 'mcp') return { kind: 'mcp', cost: '$0', label: 'tool call (no model · $0)' };
   if (node.kind === 'agent') return { kind: 'agent', cost: '$0', label: node.agent === 'browser-control' ? 'browser-control (your login · $0)' : `agent:${node.agent} (· $0)` };
+  if (node.kind === 'parser') return { kind: 'parser', cost: '$0', label: 'parser (deterministic · $0)' };   // pure string format → no model
+  if (node.kind === 'router') return { kind: 'router', cost: '$0', label: '🔀 router (branch · $0)' };        // routing decision → no model
   if (node.kind === 'consensus') { const vs = ctx.consensusVendors || ''; const n = vs.split(',').filter(Boolean).length || 1; return { kind: 'consensus', vendors: vs, cost: `${n}×`, label: `🗳️ consensus → ${vs || '—'} (${n}× cost)` }; }
-  const tier = (step && step.tier) || (node.config && node.config.tier) || 'cheap';   // prompt: tier→cheap/strong route（既定 cheap）
+  const tier = (step && step.tier) || (node.config && node.config.tier) || 'cheap';   // prompt/structured/languagemodel: tier→cheap/strong route（既定 cheap）
   const r = (tier === 'strong' ? ctx.strong : ctx.cheap) || {};
   const esc = tier === 'cheap' && !(node.config && node.config.vendor) && ctx.autoEscalate;   // cheap が落ちた時だけ strong に自動昇格
-  return { kind: 'prompt', tier, vendor: r.vendor, model: r.model, cost: vendorCost(r.vendor),
-    label: `${tier} → ${vendorName(r.vendor)}${r.model ? ` (${r.model})` : ''} · ${vendorCost(r.vendor)}${esc ? ' ↑strong on fail' : ''}` };
+  const klabel = node.kind === 'structured' ? 'structured ' : node.kind === 'languagemodel' ? 'LLM ' : '';
+  return { kind: node.kind === 'structured' || node.kind === 'languagemodel' ? node.kind : 'prompt', tier, vendor: r.vendor, model: r.model, cost: vendorCost(r.vendor),
+    label: `${klabel}${tier} → ${vendorName(r.vendor)}${r.model ? ` (${r.model})` : ''} · ${vendorCost(r.vendor)}${esc ? ' ↑strong on fail' : ''}` };
 }
 export function renderPlan(ir, ctx = null) {
   if (ir.mode === 'clarify' || (ir.clarify && ir.clarify.length)) {              // discover: plan の前に user に確認（図でなく質問を出す）

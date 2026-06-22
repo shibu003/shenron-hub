@@ -739,7 +739,7 @@ function validateFlow(nodes, edges) {
     if (!s || !t) { warnings.push(`dropped ${e.source}→${e.target} (missing node)`); continue; }
     const so = portsOf(s), to = portsOf(t);
     if (!so.emits.length || !to.accepts.length || !portIntersect(so.emits, to.accepts)) { warnings.push(`dropped ${e.source}→${e.target} (port mismatch)`); continue; }
-    kept.push({ id: e.id || 'e' + kept.length, source: e.source, target: e.target, ...(e.share ? { share: e.share } : {}) });
+    kept.push({ id: e.id || 'e' + kept.length, source: e.source, target: e.target, ...(e.share ? { share: e.share } : {}), ...(e.branch ? { branch: e.branch } : {}) });   // keep router then/else branch labels (else a router fires both branches)
   }
   return { edges: kept, warnings };
 }

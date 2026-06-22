@@ -41,6 +41,25 @@ const h = buildPlanIR('do a thing', { plain_summary: 'do a thing', steps: [{ act
 assert.equal(h.nodes.length, 3, 'heuristic: input+prompt+output');
 assert.equal(h.missing.length, 0, 'heuristic prompt is not a gap');
 
+// full node-type palette + router branching (planner designs kinds AND wires them)
+const br = buildPlanIR('if it has errors alert, else save', { plain_summary: 'p', steps: [
+  { action: 'reformat', kind: 'parser' },                                          // deterministic, no LLM
+  { action: 'has error?', kind: 'router', condition: 'contains:error' },           // conditional split
+  { action: 'alert', kind: 'mcp', tool: 'mcp:slack.send', branch: 'then' },        // then-branch
+  { action: 'save', kind: 'prompt', branch: 'else' },                              // else-branch
+  { action: 'receipt', kind: 'structured', fields: 'status,detail' },              // join (JSON)
+] }, 'llm', 'ask');
+const k = (id) => br.nodes.find((n) => n.id === id).kind;
+assert.deepEqual(br.nodes.map((n) => n.kind), ['input', 'parser', 'router', 'mcp', 'prompt', 'structured', 'output'], 'all picked kinds materialize (not collapsed to prompt)');
+assert.equal(br.missing.length, 0, 'parser/router/structured are built-in → never gaps');
+assert.deepEqual(br.nodes.find((n) => n.kind === 'router').config, { predicate: 'contains', value: 'error' }, 'router condition → predicate/value');
+assert.equal(br.nodes.find((n) => n.kind === 'structured').config.schema, 'status,detail', 'structured fields → schema');
+const has = (s, t, b) => br.edges.some((e) => e.source === s && e.target === t && (b === undefined || e.branch === b));
+assert.ok(has('s2', 's3', 'then') && has('s2', 's4', 'else'), 'router fans to then/else branches (labelled)');
+assert.ok(has('s3', 's5') && has('s4', 's5'), 'both branches rejoin at the next plain step');
+assert.ok(has('s5', 'output-1'), 'join → output');
+assert.ok(!br.edges.some((e) => e.source === 's2' && e.branch === undefined), 'router has no unlabelled out-edge (pure branch)');
+
 // Wave 2 — suggestionFromSearch: minimal shapes (envelope → array | {results})
 const env = (obj) => ({ content: [{ type: 'text', text: JSON.stringify(obj) }] });            // MCP tool-result envelope
 assert.deepEqual(suggestionFromSearch(env({ results: [{ title: 'GitHub MCP', url: 'https://x/gh' }] })), { title: 'GitHub MCP', url: 'https://x/gh' }, 'envelope→{results}');
