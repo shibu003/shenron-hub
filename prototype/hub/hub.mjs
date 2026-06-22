@@ -260,6 +260,10 @@ function toposort(nodes, edges) {                          // Kahn's; returns be
       if (d === 0) { const t = nodes.find((x) => x.id === e.target); if (t) q.push(t); } } }
   return order;
 }
+function touchWorkflowRun(flowId) {
+  const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === flowId);
+  if (i < 0) return; arr[i].lastRun = now(); fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+}
 function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'flow-' + randomUUID().slice(0, 4);
@@ -573,7 +577,7 @@ function advanceFrom(run, nodeId) {
     tryFire(run, e.target);
   }
   if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) {
-    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`);
+    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId);
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -804,7 +808,7 @@ async function mcpDispatch(name, args) {
   if (name === 'get_config')         return configStatus();
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
-  if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length }));
+  if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
   if (name === 'gen_component') {
     const cached = matchComponent(readComponents(), args.what);
@@ -832,7 +836,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
-    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length })));
+    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null })));
   }
   if (req.method === 'GET' && p === '/api/shenron/components') {                           // Wave 8: 生成部品の登録庫。?id= で full code、無しは token-light refs（pending は人ゲート待ち）
     const cid = u.searchParams.get('id');

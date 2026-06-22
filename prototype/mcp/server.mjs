@@ -79,7 +79,7 @@ const searchAgents = (q, limit) => searchIndex(Object.values(AGENTS),
   (a) => ({ id: a.id, name: a.name, company: a.company, skillId: a.skill.id, skill: a.skill.name, tags: a.skill.tags }), q, limit);
 const searchWorkflows = (q, limit) => searchIndex(WORKFLOWS,
   (w) => `${w.name} ${w.summary} ${(w.tags || []).join(' ')}`,
-  (w) => ({ id: w.id, name: w.name, summary: w.summary, steps: w.steps.length, tags: w.tags }), q, limit);
+  (w) => ({ id: w.id, name: w.name, summary: w.summary, steps: w.steps.length, tags: w.tags, lastRun: w.lastRun || null }), q, limit);
 const searchAutomations = (q, limit) => searchIndex(AUTOMATIONS,
   (m) => `${m.name} ${m.summary} ${(m.tags || []).join(' ')} ${m.trigger?.type || ''} ${m.workflow}`,
   (m) => ({ id: m.id, name: m.name, summary: m.summary, trigger: m.trigger?.type, workflow: m.workflow, enabled: m.enabled !== false, tags: m.tags }), q, limit);
