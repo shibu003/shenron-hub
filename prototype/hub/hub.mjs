@@ -24,6 +24,7 @@ import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
+import { register, verifyEmail, login, checkSession, logout, listUsers, userCount } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
@@ -756,10 +757,13 @@ const oauthCodes   = new Map();  // code → {client_id, code_challenge}
 const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on restart)
 const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
 const SHARED_TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: internal credential — server.mjs / browser-worker / Artifact / CLI auth to act routes (same token as A2A reach). Set it (and/or use OAuth) to enforce; unset = local dev open.
-const bearerOk = (req) => {                                 // valid if OAuth bearer (claude.ai via /mcp) OR the shared token (internal callers via /api). Open only when NEITHER is configured.
-  if (!oauthTokens.size && !SHARED_TOKEN) return true;
+const cookieSession = (req) => { const c = req.headers['cookie'] || ''; const m = c.match(/shenron_session=([^;]+)/); return m ? m[1] : null; };
+const bearerOk = (req) => {                                 // valid if OAuth bearer (claude.ai via /mcp) OR the shared token (internal callers) OR valid session cookie (web UI users).
   const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim();
-  return (SHARED_TOKEN && t === SHARED_TOKEN) || oauthTokens.has(t);
+  if ((SHARED_TOKEN && t === SHARED_TOKEN) || oauthTokens.has(t)) return true;
+  if (checkSession(cookieSession(req))) return true;        // Web UI session cookie
+  if (!oauthTokens.size && !SHARED_TOKEN && userCount() === 0) return true;   // open only when no auth is configured AND no users exist yet
+  return false;
 };
 
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
@@ -854,6 +858,19 @@ const server = http.createServer((req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
   }
+  // Wave L: Auth — public GET routes (no auth required)
+  if (req.method === 'GET' && p === '/api/auth/verify') {
+    const tok = u.searchParams.get('token'); if (!tok) return json(res, 400, { error: 'token required' });
+    try { return json(res, 200, verifyEmail(tok)); } catch (e) { return json(res, 400, { error: e.message }); }
+  }
+  if (req.method === 'GET' && p === '/api/auth/me') {
+    const s = checkSession(cookieSession(req)); if (!s) return json(res, 401, { error: 'not logged in' });
+    return json(res, 200, { userId: s.userId, email: s.email });
+  }
+  if (req.method === 'GET' && p === '/api/auth/users') {
+    if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
+    return json(res, 200, listUsers());
+  }
   if (req.method === 'GET' && p === '/api/state')
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/workflows') {
@@ -931,6 +948,32 @@ const server = http.createServer((req, res) => {
           return;
         }
         return json(res, 200, { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
+      }
+      // Wave L: Auth POST routes — public (no bearer required)
+      if (p === '/api/auth/register') {
+        try {
+          const { userId, email, verifyToken } = register(j.email, j.password);
+          const base = reqBase(req);
+          const link = `${base}/api/auth/verify?token=${verifyToken}`;
+          console.log(`\n🐉 [auth] メール認証リンク (${email}):\n  ${link}\n`);
+          trail('auth-register', { email });
+          return json(res, 201, { userId, email, note: 'verification link printed to hub terminal' });
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (p === '/api/auth/login') {
+        try {
+          const result = login(j.email, j.password);
+          const cookie = `shenron_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${30 * 24 * 3600}`;
+          res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': cookie, 'access-control-allow-origin': '*' });
+          res.end(JSON.stringify({ email: result.email, userId: result.userId, expiresAt: result.expiresAt }));
+          trail('auth-login', { email: j.email });
+          return;
+        } catch (e) { return json(res, 401, { error: e.message }); }
+      }
+      if (p === '/api/auth/logout') {
+        const tok = cookieSession(req); if (tok) logout(tok);
+        res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'shenron_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0', 'access-control-allow-origin': '*' });
+        return res.end(JSON.stringify({ ok: true }));
       }
       // OAuth POST endpoints
       if (p === '/oauth/register') { const client_id = randomUUID().replace(/-/g, ''); oauthClients.set(client_id, { name: j.client_name || 'client' }); return json(res, 201, { client_id, token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'] }); }

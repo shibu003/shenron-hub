@@ -210,6 +210,9 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Component id from list_components' } }, required: ['id'] } },
   { name: 'import_skill', description: 'Import a skill JSON blob (from export_skill or community). Saves as a pending component — approve with approve_component to activate. Provide code+what directly or a blob object.',
     inputSchema: { type: 'object', properties: { what: { type: 'string' }, code: { type: 'string' }, blob: { type: 'object', description: 'Pass the full export_skill blob here instead of what+code' } } } },
+  // Wave L: Auth management (admin view)
+  { name: 'list_users', description: '登録済みユーザー一覧（id/email/verified/createdAt）。パスワードは返らない。',
+    inputSchema: { type: 'object', properties: {} } },
 ];
 
 async function callTool(name, args = {}) {
@@ -305,6 +308,8 @@ async function callTool(name, args = {}) {
     // Wave J: Skill共有
     case 'export_skill': return await hub('/api/components/export', { id: args.id });
     case 'import_skill': { const b = args.blob || {}; return await hub('/api/components/import', { what: args.what || b.what, code: args.code || b.code, iters: b.iters }); }
+    // Wave L: Auth
+    case 'list_users': return await hub('/api/auth/users');
     default: throw new Error(`unknown tool: ${name}`);
   }
 }
