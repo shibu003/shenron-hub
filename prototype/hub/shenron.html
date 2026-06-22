@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🐉 神龍</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="神龍">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' fill='%230f172a'/%3E%3Ctext x='90' y='120' font-size='105' text-anchor='middle'%3E%F0%9F%90%89%3C/text%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
@@ -562,6 +569,7 @@
           try {
             const s = await this.api('GET', '/api/state');
             this.runs = (s.runs || []).slice().reverse();
+            this.liveSubscribe();   // O1: attach EventSource to running runs for instant node-level updates
             this.handoffs = s.handoffs || [];
           } catch { /* hub offline */ }
         },
@@ -650,6 +658,24 @@
             const r = await this.api('POST', '/api/shenron/skill', { id });
             this.showToast('📜 Skill 作成: ' + (r && r.path || ''));
           } catch (e) { this.showToast('Skill エラー: ' + e.message, false); }
+        },
+
+        // ── Runs (O1 live SSE) ───────────────────────
+        liveSubscribe() {
+          this._streams ||= {};
+          for (const run of this.runs) {
+            if (run.status === 'running' && !this._streams[run.id]) {
+              const es = new EventSource(`/api/runs/${run.id}/stream`);
+              this._streams[run.id] = es;
+              es.onmessage = (ev) => {
+                let e; try { e = JSON.parse(ev.data); } catch { return; }
+                const r = this.runs.find(x => x.id === run.id); if (!r) return;
+                if (e.type === 'node') { r.outputs = { ...(r.outputs || {}), [e.node]: e.output }; r.done = Object.keys(r.outputs).length; if (e.status) r.status = e.status; }
+                if (e.type === 'done') { r.status = e.status; es.close(); delete this._streams[run.id]; }
+              };
+              es.onerror = () => { es.close(); delete this._streams[run.id]; };   // poll() will re-subscribe if still running
+            }
+          }
         },
 
         // ── Runs ─────────────────────────────────────
@@ -791,6 +817,13 @@
           return Math.floor(d / 86400000) + '日前';
         },
       };
+    }
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch((e) => console.warn('SW register failed', e));
+      });
     }
   </script>
 </body>

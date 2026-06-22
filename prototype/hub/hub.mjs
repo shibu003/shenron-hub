@@ -24,6 +24,7 @@ import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
+import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
@@ -64,11 +65,36 @@ const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
 const SETTINGS_FILE = path.join(HERE, 'settings.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
+const MANIFEST_FILE = path.join(HERE, 'manifest.json');
+const SW_FILE = path.join(HERE, 'sw.js');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
+const runListeners = new Map();   // runId -> Set<res>  (SSE clients; memory only, lost on restart — run state itself is in inbox.json)
+function emitRunEvent(runId, event) {
+  const set = runListeners.get(runId); if (!set || !set.size) return;
+  const frame = `data: ${JSON.stringify(event)}\n\n`;
+  for (const res of [...set]) { try { res.write(frame); } catch { set.delete(res); } }   // closed/broken socket → drop silently
+}
+function closeRunListeners(runId) {   // terminal: flush 'done' already emitted by caller, then end every stream + free the set
+  const set = runListeners.get(runId); if (!set) return;
+  for (const res of [...set]) { try { res.end(); } catch {} }
+  runListeners.delete(runId);
+}
 const parseFmt = (p, inp) => String(p || '{input}').split('{input}').join(inp || '');   // Parser node: substitute {input} (pure string transform)
 const WF_FILE = sp('workflows.json', path.join(HERE, '..', 'mcp', 'workflows.json'));   // shared workflow store (nodes/edges canonical + steps[] shim)
+// Wave O2 — 同梱フローテンプレ（read-only）。templates/*.json を読み、ワンクリック install で saveWorkflow へ。
+const TEMPLATES_DIR = path.join(HERE, '..', 'templates');
+const readTemplates = () => { try { return fs.readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith('.json')).map((f) => { try { return JSON.parse(fs.readFileSync(path.join(TEMPLATES_DIR, f), 'utf8')); } catch { return null; } }).filter(Boolean); } catch { return []; } };
+// install 前の正直な gap 検査: requires 未設定 credential ＋ mcp ノードが参照する未登録/無効 integration を warning に集約（値は出さない・名前のみ）。
+function templateGaps(t) {
+  const warnings = [];
+  const haveCreds = new Set(listCredentials());
+  for (const id of (t.requires || [])) if (!haveCreds.has(id)) warnings.push(`未設定の credential "${id}" — ⚙ 設定で登録するまで run 時にこのテンプレが使う外部ツールは失敗します`);
+  const integs = readIntegrations();
+  for (const n of (t.nodes || [])) if (n.kind === 'mcp' && n.server) { const it = integs.find((x) => x.id === n.server); if (!it) warnings.push(`integration "${n.server}" が未登録 — install はできますが run 時に gap になります（⚙ 設定で接続）`); else if (it.enabled === false) warnings.push(`integration "${n.server}" が無効 — ⚙ 設定で有効化するまで run 時に gap になります`); }
+  return warnings;
+}
 let state = load();
 state.runs ||= {};                          // runId -> { nodes, edges, outputs, status } for in-flight DAG runs
 state.audit ||= [];                         // Wave H: hash-chained, tamper-evident trust trail
@@ -452,6 +478,13 @@ function fireMcpNode(run, node, input, from) {
   touch(h, auto ? 'approved' : 'awaiting_approval', auto ? 'auto' : 'policy'); save();
   if (auto) runMcp(h);
 }
+// Wave N1: 宣言済み credential 名のうち vault に在るものだけ {NAME: value} を返す（null は skip）。
+// 注入は allowlist 名のみ・値は絶対に log/audit/AI context に出さない（trail は名前のみ・hub.mjs send 行参照）。
+function credentialEnv(names) {
+  const env = {};
+  for (const n of names || []) { const v = getCredential(n); if (v != null) env[n] = v; }
+  return env;
+}
 async function runMcp(h) {
   if (running.has(h.id)) return; running.add(h.id);
   const { server, tool, config } = h.mcp;
@@ -468,7 +501,8 @@ async function runMcp(h) {
     const pass = upstream?.passport?.share?.pass || [];            // capability passport: structured-args allowlist (default-deny when set)
     const pf = applyPass(config || {}, pass);                      // gate the CONFIG fields only; the scrubbed `input` payload always flows
     if (pf.dropped.length) trail('pass-drop', { handoff: h.id, to: `${server}.${tool}`, allowlist: pass, dropped: pf.dropped });
-    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv(integ.credentials || []) } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ ride through（信頼済 server は env 継承のまま）
+    const creds = integ.credentials || [];
+    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: { ...safeEnv(creds), ...credentialEnv(creds) } } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ ride through。Wave N1: vault 値を宣言名に注入（process.env を上書き）＝vault に入れた credential が初めて実行時に効く
     trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length, ...(integ.generated && (integ.credentials || []).length ? { creds: integ.credentials } : {}) });   // creds=注入した名前のみ・値は絶対に出さない
     postResult(h.id, { result: out }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
@@ -530,6 +564,7 @@ function stopRun(id) {
   const run = state.runs[id]; if (!run) throw new Error(`no run "${id}"`);
   if (run.status !== 'running') return { id, status: run.status, stopped: 0 };          // already terminal — nothing to stop
   run.status = 'cancelled'; run.stoppedAt = now();
+  emitRunEvent(id, { type: 'done', status: 'cancelled' }); closeRunListeners(id);   // O1: tell live streams the run was stopped, then end them
   for (const child of Object.values(state.runs)) if (child.parent && child.parent.runId === id && child.status === 'running') stopRun(child.id);   // 📦 stop nested sub-flows too
   let stopped = 0;
   for (const h of state.handoffs) {
@@ -574,6 +609,7 @@ function tryFire(run, targetId) {
   fireNode(run, tgt, liveIn.map((x) => fenceEdge(run, x, run.outputs[x.source])).filter(Boolean).join('\n\n'));
 }
 function advanceFrom(run, nodeId) {
+  emitRunEvent(run.id, { type: 'node', node: nodeId, output: run.outputs[nodeId], status: run.status });   // O1: live push — outputs[nodeId] is always set before advanceFrom is called
   if (run.status === 'cancelled') { save(); return; }                                   // ⏹ stopped run: record the result but fire nothing downstream (never completes)
   run.dead ||= []; run.skipped ||= []; run.routerPick ||= {};                           // tolerate runs created before Wave E2
   const pick = run.routerPick[nodeId];                                                  // 'then'|'else' if nodeId is a router that decided
@@ -582,7 +618,7 @@ function advanceFrom(run, nodeId) {
     tryFire(run, e.target);
   }
   if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) {
-    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed');
+    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed'); emitRunEvent(run.id, { type: 'done', status: 'completed' }); closeRunListeners(run.id);
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -720,12 +756,84 @@ function tickScheduler() {
 // reviews on the canvas and Run keeps the approval fence. Uses the agent index + connected MCP tools + the
 // component kinds. A real vendor (claude/codex) generates the flow JSON; otherwise a deterministic heuristic
 // builds one from the index so it works offline/stub. Every edge is typed-port validated (bad ones dropped). ----------
-function createAgent({ name, skill, systemPrompt, accepts, emits, stub, vendor, company }) {
+function createAgent({ name, skill, systemPrompt, accepts, emits, stub, vendor, model, company }) {
   if (!name) throw new Error('name required');
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error('name must be lowercase [a-z0-9-] (used as the MCP tool id agent_<name>)');   // P-2: name は agent_<name> tool id になる → 安全な文字に限定
   const a = agent(name); a.skill = skill || a.skill || 'task'; a.company = company || a.company || null;
   a.accepts = Array.isArray(accepts) ? accepts : (a.accepts || ['*']); a.emits = Array.isArray(emits) ? emits : (a.emits || ['*']);
-  a.local = { skillId: a.skill, vendor: vendor || 'stub', systemPrompt: systemPrompt || '', stub: stub || '' };   // runnable in-process
+  a.local = { skillId: a.skill, vendor: vendor || 'stub', systemPrompt: systemPrompt || '', stub: stub || '', ...(model ? { model } : {}) };   // runnable in-process
   a.autorun = true; save(); return publicAgents().find((x) => x.id === name);
+}
+// P-1: エージェント定義を削除（state から消して save）。進行中の run/handoff は触らない＝新規受付を止めるだけの非破壊削除。
+function removeAgent(name) {
+  if (!state.agents[name]) throw new Error(`no agent "${name}"`);
+  if (!state.agents[name].local) throw new Error(`agent "${name}" is not a local agent (cannot delete remote/preseeded)`);
+  delete state.agents[name]; save(); trail('agent-delete', { name });
+  return { name, deleted: true };
+}
+// P-2: 作ったエージェントを「すぐ使える MCP tool」に — local agent を同期実行して結果を返す純経路。
+async function runAgentSync(name, input) {
+  const a = state.agents[name];
+  if (!a || !a.local) throw new Error(`no local agent "${name}"`);
+  const lc = a.local; const vendor = EXEC_VENDOR || lc.vendor || 'stub';
+  const mem = relevantMemories(input || '', 3);   // Wave S: セッション横断メモリをグローバル注入（該当無しなら空配列＝プロンプト不変）
+  const memBlock = mem.length ? `関連する記憶:\n${mem.map((r) => `- ${r.text}`).join('\n')}\n\n` : '';
+  const prompt = `${memBlock}${lc.systemPrompt}\n\n--- INPUT ---\n${input || ''}\n--- END INPUT ---`;   // Wave S: memBlock を systemPrompt の前に前置
+  const result = await runVendorAsync(vendor, prompt, lc.stub, { model: lc.model });
+  trail('agent-run', { agent: name, vendor, bytes: (result || '').length });
+  return { agent: name, vendor, result };
+}
+// P-2: 各 local agent を agent_<name> という MCP tool として動的に露出（create_agent 直後に client の tools/list に出る）。
+const agentTools = () => Object.values(state.agents).filter((a) => a.local).map((a) => ({
+  name: `agent_${a.id}`,
+  description: `エージェント「${a.id}」を実行${a.skill && a.skill !== 'task' ? `（skill: ${a.skill}）` : ''}。create_agent で作成された local agent。input にタスク内容を渡す。`,
+  inputSchema: { type: 'object', properties: { input: { type: 'string', description: 'エージェントへの入力（タスク内容）' } }, required: ['input'] },
+}));
+// P-3: local agent を hub 非依存の standalone stdio MCP server（Python・stdlib のみ）として書出 →
+// ユーザーが任意の MCP client（claude.ai / Claude Code）に登録できるポータブル成果物。systemPrompt を埋め込み、
+// run(input) tool 1本を出す。実行は `claude -p`（既定）にプロンプトを渡す = ユーザー自身のサブスクで動く（従量0 維持）。
+function exportAgentMcp(name) {
+  const a = state.agents[name];
+  if (!a || !a.local) throw new Error(`no local agent "${name}"`);
+  const GEN_DIR = path.join(HERE, '..', 'mcp', 'generated');
+  fs.mkdirSync(GEN_DIR, { recursive: true });
+  const file = path.join(GEN_DIR, `${name}-agent.py`);
+  const sp = JSON.stringify(a.local.systemPrompt || '');   // Python str literal として安全に埋込（JSON は Python literal の部分集合）
+  const code = `#!/usr/bin/env python3
+# Standalone MCP server for agent "${name}" — exported by 神龍 (shenron). Depends on NOTHING but stdlib + the
+# \`claude\` CLI on PATH (your own subscription → $0 marginal). Register this file as a stdio MCP server.
+import sys, json, subprocess
+SYSTEM_PROMPT = ${sp}
+TOOLS = [{"name": "run", "description": "Run the ${name} agent on an input.",
+          "inputSchema": {"type": "object", "properties": {"input": {"type": "string"}}, "required": ["input"]}}]
+def run_agent(text):
+    prompt = SYSTEM_PROMPT + "\\n\\n--- INPUT ---\\n" + (text or "") + "\\n--- END INPUT ---"
+    try:
+        out = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True, timeout=180)
+        return out.stdout.strip() or out.stderr.strip()
+    except FileNotFoundError:
+        return "error: 'claude' CLI not found on PATH"
+    except subprocess.TimeoutExpired:
+        return "error: agent timed out"
+def send(o): sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    m = json.loads(line); mid, method, params = m.get("id"), m.get("method"), m.get("params") or {}
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "${name}-agent", "version": "1.0"}}})
+    elif method == "notifications/initialized": pass
+    elif method == "tools/list": send({"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}})
+    elif method == "tools/call":
+        res = run_agent((params.get("arguments") or {}).get("input", ""))
+        send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": res}]}})
+    else:
+        send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found: " + str(method)}})
+`;
+  fs.writeFileSync(file, code, { mode: 0o755 });
+  trail('agent-export-mcp', { name, path: path.relative(REPO_ROOT, file) });
+  return { name, path: path.relative(REPO_ROOT, file),
+    registerHint: `任意の MCP client に stdio server として登録: command="python3", args=["${path.relative(REPO_ROOT, file)}"]。'claude' CLI が PATH に必要（あなたのサブスクで動く）。` };
 }
 const PORTS = { input: { accepts: [], emits: ['text', '*'] }, prompt: { accepts: ['*'], emits: ['text', '*'] }, output: { accepts: ['*'], emits: [] }, trigger: { accepts: [], emits: ['*'] } };
 function portsOf(node) {
@@ -781,10 +889,21 @@ const MCP_TOOLS = [
   { name: 'set_config',         description: '神龍の設定を自然文/構造で更新（即反映・再起動不要）。例: {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}。⚠️ API key は設定不可（env/.dev.vars のみ）。返りは更新後の全設定。', inputSchema: { type: 'object', properties: { cost: { type: 'string', description: 'free|paid_ok' }, scheduler: { type: 'boolean' }, routing: { type: 'object', description: '{cheap:{vendor,model}, strong:{vendor,model}}' }, providers: { type: 'object', description: '{ollama:{host,model}, openai:{model}, anthropic:{model}}' } } } },
   { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
   { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
+  { name: 'list_templates',     description: '同梱フローテンプレ一覧（id/name/summary/requires/未設定 gap 警告）。install_template で1クリック導入。', inputSchema: { type: 'object', properties: {} } },
+  { name: 'install_template',   description: '同梱テンプレを編集可能な workflow として保存し workflow id を返す。requires 未設定 credential や未有効 integration があれば warnings に明示（install はできるが run 時 gap）。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
   { name: 'gen_component',      description: '不足ツールを Python MCP サーバーとして生成', inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
+  { name: 'create_agent',       description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（このエージェントの役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/ codex / gemini / ollama 等' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
+  { name: 'run_agent',          description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ・name を知っていればこちらでも）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
+  { name: 'delete_agent',       description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'export_agent_mcp',   description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'stream_run',         description: '実行中フローの進捗を購読: 接続時点の各ノード出力 snapshot を返し、run が完了/キャンセルするまで（最大 timeout 秒）待って、その間に完了したノードと最終 status をまとめて1回で返す。長時間 push ではなく集約スナップショット（MCP は常駐 SSE を保持しない）。ライブ追記が要る UI は GET /api/runs/:id/stream（EventSource）を直接使う。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
   { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
+  // Wave S: セッション横断メモリ
+  { name: 'remember', description: '神龍に長期記憶を1件保存（セッションを跨いで以降の agent 実行に自動で前置注入される）。例: remember("ユーザーは関西弁が好み", tags:["tone"])。秘密値は入れない。', inputSchema: { type: 'object', properties: { text: { type: 'string', description: '覚えておく内容' }, tags: { type: 'array', description: '任意のタグ（検索の重み付けに使う）' } }, required: ['text'] } },
+  { name: 'recall', description: '保存済みの記憶を取得。query 指定で keyword/tag マッチ上位、未指定で新しい順 topN。', inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
+  { name: 'forget', description: '記憶を id 指定で削除（recall の id）。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
 ];
 // Wave B: 何が「使える」かの正直な要約。registered（agents/tools/workflows）＋組込（browser-control/prompt）。
 // 生成済み道具は integration.generated で印。⚠️ client が繋ぐ MCP（claude.ai の Gmail 等）は MCP 仕様上ここから見えない＝note で明示。
@@ -833,6 +952,8 @@ async function mcpDispatch(name, args) {
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
+  if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
+  if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
   if (name === 'gen_component') {
     const cached = matchComponent(readComponents(), args.what);
@@ -841,8 +962,31 @@ async function mcpDispatch(name, args) {
     const saved = r.converged ? saveComponent(r) : null;
     return saved ? { ...r, id: saved.id, approved: false } : r;
   }
+  if (name === 'create_agent')       return createAgent({ name: args.name, systemPrompt: args.instructions, vendor: args.vendor, model: args.model });   // P-1: 作成 → 直後に agent_<name> が tools/list に出る
+  if (name === 'run_agent')          return runAgentSync(args.name, args.input);                 // P-2
+  if (name === 'delete_agent')       return removeAgent(args.name);                              // P-1
+  if (name === 'export_agent_mcp')   return exportAgentMcp(args.name);                           // P-3
+  if (name.startsWith('agent_'))     return runAgentSync(name.slice(6), args.input);             // P-2: 動的露出した agent_<name> tool の実行
   if (name === 'get_checkpoint')     return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
   if (name === 'resolve_checkpoint') return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : ref(args.allow ? approve(args.id) : decline(args.id));
+  if (name === 'stream_run') {
+    const run = state.runs[args.id]; if (!run) throw new Error(`no run "${args.id}"`);
+    const snapshot = Object.entries(run.outputs).map(([node, output]) => ({ node, output }));
+    if (run.status !== 'running') return { id: run.id, status: run.status, done: true, nodes: snapshot };
+    const secs = Math.min(Math.max(Number(args.timeout) || 30, 1), 120);
+    const seen = new Set(Object.keys(run.outputs));
+    return await new Promise((resolve) => {
+      const events = [];
+      const sink = { write(frame) { try { const e = JSON.parse(frame.slice(6)); if (e.type === 'node' && !seen.has(e.node)) { seen.add(e.node); events.push({ node: e.node, output: e.output }); } if (e.type === 'done') finish(e.status); } catch {} }, end() {} };   // frame = 'data: {json}\n\n' → slice(6)
+      let done = false;
+      const finish = (status) => { if (done) return; done = true; clearTimeout(t); const s = runListeners.get(run.id); if (s) s.delete(sink); resolve({ id: run.id, status: status || state.runs[run.id]?.status || run.status, done: status != null, nodes: [...snapshot, ...events] }); };
+      const t = setTimeout(() => finish(null), secs * 1000);
+      let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(sink);
+    });
+  }
+  if (name === 'remember')           return addMemory(args.text, args.tags || []);   // Wave S
+  if (name === 'recall')             return { memories: relevantMemories(args.query || '', args.topN || (args.query ? 3 : 5)) };   // Wave S: HTTP route と shape 統一（{ memories:[...] }）
+  if (name === 'forget')             return deleteMemory(args.id);
   throw new Error(`unknown tool "${name}"`);
 }
 
@@ -867,6 +1011,15 @@ const server = http.createServer((req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
   }
+  if (req.method === 'GET' && p === '/manifest.json') {
+    try { res.writeHead(200, { 'content-type': 'application/manifest+json', 'access-control-allow-origin': '*' }); return res.end(fs.readFileSync(MANIFEST_FILE)); }
+    catch { return json(res, 404, { error: 'manifest.json not found' }); }
+  }
+  if (req.method === 'GET' && p === '/sw.js') {
+    // SW は root から配信 → scope='/' で /shenron も /api/* も網羅（Service-Worker-Allowed 不要）。
+    try { res.writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-cache' }); return res.end(fs.readFileSync(SW_FILE)); }
+    catch { return json(res, 404, { error: 'sw.js not found' }); }
+  }
   // Wave L: Auth — public GET routes (no auth required)
   if (req.method === 'GET' && p === '/api/auth/verify') {
     const tok = u.searchParams.get('token'); if (!tok) return json(res, 400, { error: 'token required' });
@@ -886,8 +1039,22 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
     return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
+  if (req.method === 'GET') { const sm = p.match(/^\/api\/runs\/([^/]+)\/stream$/);   // O1: SSE live run stream (inherits the bearerOk gate above)
+    if (sm) {
+      const run = state.runs[sm[1]];
+      if (!run) return json(res, 404, { error: `no run "${sm[1]}"` });
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive', 'access-control-allow-origin': '*' });
+      for (const [node, output] of Object.entries(run.outputs)) res.write(`data: ${JSON.stringify({ type: 'node', node, output, status: run.status })}\n\n`);   // snapshot of progress so far
+      if (run.status !== 'running') { res.write(`data: ${JSON.stringify({ type: 'done', status: run.status })}\n\n`); return res.end(); }   // already terminal → no live tail needed
+      let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(res);
+      req.on('close', () => { const s = runListeners.get(run.id); if (s) { s.delete(res); if (!s.size) runListeners.delete(run.id); } });
+      return;
+    }
+  }
   if (req.method === 'GET') { const rm = p.match(/^\/api\/runs\/([^/]+)$/);   // M-2: full run by id
     if (rm) { const r = state.runs[rm[1]]; return r ? json(res, 200, r) : json(res, 404, { error: `no run "${rm[1]}"` }); } }
+  if (req.method === 'GET' && p === '/api/templates')   // Wave O2: 同梱テンプレ refs（id/name/summary/requires/nodeCount）＋未設定 gap 警告
+    return json(res, 200, readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) })));
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
@@ -955,7 +1122,7 @@ const server = http.createServer((req, res) => {
         if (method === 'initialize' || method === 'notifications/initialized') {
           return json(res, 200, method === 'initialize' ? { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } } : {});
         }
-        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: [...MCP_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
         if (method === 'tools/call') {
           mcpDispatch((params || {}).name, (params || {}).arguments || {})
             .then((r) => json(res, 200, { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
@@ -1025,7 +1192,7 @@ const server = http.createServer((req, res) => {
         if (method === 'initialize' || method === 'notifications/initialized') {
           if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } });
         } else if (method === 'tools/list') {
-          send({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+          send({ jsonrpc: '2.0', id, result: { tools: [...MCP_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
         } else if (method === 'tools/call') {
           mcpDispatch((params || {}).name, (params || {}).arguments || {})
             .then((r) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
@@ -1043,6 +1210,14 @@ const server = http.createServer((req, res) => {
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
       if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
+      { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
+        if (tm) {
+          const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
+          const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges });
+          const warnings = templateGaps(t);
+          trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length });   // 値は出さない・件数のみ
+          return json(res, 200, { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings });
+        } }
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
       if (p === '/api/langflow/run') { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // 🔗 delegate an exotic Langflow flow to /api/v1/run, fenced (audit appended → persist)
       if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
@@ -1115,6 +1290,15 @@ const server = http.createServer((req, res) => {
         if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
         return json(res, 400, { error: 'action required: set|get|list|delete' });
       }
+      // Wave S: セッション横断メモリ
+      if (p === '/api/memory') {
+        if (j.action === 'add') return json(res, 200, addMemory(j.text, j.tags || []));
+        if (j.action === 'list') return json(res, 200, { memories: listMemories() });
+        if (j.action === 'recall') return json(res, 200, { memories: relevantMemories(j.query || '', j.topN || (j.query ? 3 : 5)) });
+        if (j.action === 'delete') return json(res, 200, deleteMemory(j.id));
+        return json(res, 400, { error: 'action required: add|list|recall|delete' });
+      }
+      // 注: この block は p.startsWith('/api/') の bearerOk gate の後にあるため認証済み。memory は secret でないが credentials と同じ保護面に置く。
       // Wave J: Skill共有
       if (p === '/api/components/export') {
         const c = readComponents().find((x) => x.id === j.id); if (!c) return json(res, 404, { error: `no component "${j.id}"` });
@@ -1136,6 +1320,11 @@ const server = http.createServer((req, res) => {
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/autorun$/))) return json(res, 200, setAutorun(m[1], j.on)); // per-agent autorun on/off
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/passport$/))) return json(res, 200, setPassport(m[1], j));  // Wave H: edit capability passport
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/run$/))) {   // P-2: run a local agent synchronously, return its output
+        runAgentSync(m[1], j.input).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return;
+      }
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/delete$/))) return json(res, 200, removeAgent(m[1]));   // P-1
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/export-mcp$/))) return json(res, 200, exportAgentMcp(m[1]));   // P-3: standalone MCP server を書出
       return json(res, 404, { error: `unknown route ${p}` });
     } catch (e) { return json(res, 400, { error: e.message }); }
   });

@@ -1,0 +1,17 @@
+{
+  "id": "github-pr-notify",
+  "name": "GitHub PR 通知",
+  "summary": "GitHub の PR イベント(JSON/テキスト)を渡すと、人が読める1行ダイジェストに整形し Slack に投稿する。整形は組込LLMで動くが、投稿には Slack integration の有効化と Webhook URL の設定が必要（未設定なら install 後 run 時に gap）。",
+  "requires": ["slack-webhook-url"],
+  "nodes": [
+    { "id": "in", "kind": "input", "config": { "text": "" } },
+    { "id": "digest", "kind": "prompt", "config": { "tier": "cheap", "template": "次の GitHub PR イベントから、リポジトリ名・PR番号・タイトル・作成者・状態(open/merged/closed)を読み取り、Slack 用の1行ダイジェストにしてください（絵文字1つ＋簡潔に）。読み取れない項目は省略。\n\n--- PRイベント ---\n{input}" } },
+    { "id": "post", "kind": "mcp", "server": "slack", "tool": "post_message" },
+    { "id": "out", "kind": "output" }
+  ],
+  "edges": [
+    { "id": "e0", "source": "in", "target": "digest" },
+    { "id": "e1", "source": "digest", "target": "post" },
+    { "id": "e2", "source": "post", "target": "out" }
+  ]
+}

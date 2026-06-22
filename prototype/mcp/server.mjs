@@ -175,6 +175,10 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { toAgentId: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['toAgentId', 'skill', 'input'] } },
   { name: 'run_workflow', description: 'ACT: run a workflow end-to-end (chained A2A handoffs). confirm:true to execute; otherwise returns a dry-run plan (attended).',
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id', 'input'] } },
+  { name: 'list_templates', description: 'List bundled flow templates (one-click installable starter flows). Small refs: id/name/summary/requires + any unmet gap warnings. Use install_template to save one as an editable workflow.',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'install_template', description: 'Install a bundled template by id → saves it as an editable workflow and returns its workflowId. Any missing required credential or not-yet-enabled integration is surfaced in `warnings` (install succeeds but the flow will gap at run time until resolved).',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'run_automation', description: 'ACT: fire one automation now (runs its bound workflow with its default input). confirm:true to execute; otherwise dry-run. --unattended mode fires enabled automations without confirm.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id'] } },
   { name: 'fire_event', description: 'ACT: feed a build-state event (e.g. {event:"review_completed",status:"green"}); returns the enabled automations whose build_state trigger matches, and fires them when confirm:true / --unattended. The build-state-triggered run.',
@@ -223,9 +227,27 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} } },
   { name: 'get_run', description: 'runId でフロー実行の全フィールドを取得（outputs/skipped/routerPick を含む）。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'stream_run', description: '実行中フローの進捗を購読: 接続時の各ノード出力 snapshot ＋ run 完了/キャンセルまで（最大 timeout 秒）待って完了ノードと最終 status を集約で返す。長時間 push ではなくスナップショット。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
   // Wave M-3: 通知テスト
   { name: 'test_notify', description: '有効な通知 integration (kind:notify) 全てにテスト payload を送信し、各 URL の成否を返す。',
     inputSchema: { type: 'object', properties: {} } },
+  // Wave P: Agent Factory
+  { name: 'create_agent', description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/codex/gemini/ollama' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
+  { name: 'run_agent', description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ）。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
+  { name: 'delete_agent', description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'export_agent_mcp', description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  // Wave S: セッション横断メモリ
+  { name: 'remember', description: '神龍に長期記憶を1件保存（セッションを跨いで以降の agent 実行に自動で前置注入される）。秘密値は入れない。',
+    inputSchema: { type: 'object', properties: { text: { type: 'string' }, tags: { type: 'array' } }, required: ['text'] } },
+  { name: 'recall', description: '保存済みの記憶を取得。query で keyword/tag マッチ、未指定で新しい順 topN。',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
+  { name: 'forget', description: '記憶を id 指定で削除（recall の id）。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
 ];
 
 async function callTool(name, args = {}) {
@@ -262,6 +284,8 @@ async function callTool(name, args = {}) {
       assertToken();
       return { result: await a2aSend(a.url, args.skill, args.input) };
     }
+    case 'list_templates': return await hub('/api/templates');
+    case 'install_template': return await hub(`/api/templates/${encodeURIComponent(args.id)}/install`, {});
     case 'run_workflow': {
       WORKFLOWS = loadJson('workflows.json', []);             // refresh: pick up flows saved from the cockpit
       const w = WORKFLOWS.find((x) => x.id === args.id); if (!w) throw new Error(`no workflow "${args.id}"`);
@@ -335,9 +359,29 @@ async function callTool(name, args = {}) {
     // Wave M-2: run 履歴
     case 'list_runs': return await hub('/api/runs');
     case 'get_run': return await hub(`/api/runs/${encodeURIComponent(args.id)}`);
+    case 'stream_run': {
+      // hub の remote-MCP (POST /mcp) tools/call を直叩き — mcpDispatch の stream_run（待機集約）を再利用
+      await hubReady;
+      const r = await fetch(`${HUB}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'stream_run', arguments: { id: args.id, timeout: args.timeout } } }) });
+      if (!r.ok) throw new Error(`hub /mcp → ${r.status}`);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      return JSON.parse(j.result.content[0].text);
+    }
     // Wave M-3: 通知テスト
     case 'test_notify': return await hub('/api/notify/test', {});
-    default: throw new Error(`unknown tool: ${name}`);
+    // Wave P: Agent Factory
+    case 'create_agent': return await hub('/api/agents', { name: args.name, systemPrompt: args.instructions, vendor: args.vendor, model: args.model });
+    case 'run_agent': return await hub(`/api/agents/${encodeURIComponent(args.name)}/run`, { input: args.input });
+    case 'delete_agent': return await hub(`/api/agents/${encodeURIComponent(args.name)}/delete`, {});
+    case 'export_agent_mcp': return await hub(`/api/agents/${encodeURIComponent(args.name)}/export-mcp`, {});
+    // Wave S: セッション横断メモリ（hub proxy 経由＝relevantMemories は hub 単一実装を共有）
+    case 'remember': return await hub('/api/memory', { action: 'add', text: args.text, tags: args.tags || [] });
+    case 'recall': return await hub('/api/memory', { action: 'recall', query: args.query || '', topN: args.topN });   // topN 未指定は hub 側 default に委譲（重複なし）
+    case 'forget': return await hub('/api/memory', { action: 'delete', id: args.id });
+    default:
+      if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
+      throw new Error(`unknown tool: ${name}`);
   }
 }
 
@@ -354,6 +398,17 @@ const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n');
 const ok = (id, result) => send({ jsonrpc: '2.0', id, result });
 const err = (id, code, message) => send({ jsonrpc: '2.0', id, error: { code, message } });
 const asText = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
+// P-2: hub の live state から local agent を引き、agent_<name> tool 定義に変換（create_agent 直後に tools/list へ反映）。
+async function agentTools() {
+  try {
+    const { agents } = await hub('/api/state');
+    return (agents || []).filter((a) => a.local).map((a) => ({
+      name: `agent_${a.id}`,
+      description: `エージェント「${a.id}」を実行${a.skill && a.skill !== 'task' ? `（skill: ${a.skill}）` : ''}。create_agent で作成された local agent。`,
+      inputSchema: { type: 'object', properties: { input: { type: 'string', description: 'エージェントへの入力（タスク内容）' } }, required: ['input'] },
+    }));
+  } catch { return []; }   // hub 未起動でも tools/list は静的分だけ返す
+}
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', async (line) => {
@@ -367,7 +422,7 @@ rl.on('line', async (line) => {
           capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'buildhud-mcp', version: '0.1.0' } });
       case 'notifications/initialized': return;            // notification, no reply
       case 'ping': return ok(id, {});
-      case 'tools/list': return ok(id, { tools: TOOLS });
+      case 'tools/list': return ok(id, { tools: [...TOOLS, ...await agentTools()] });   // P-2: hub の live local agents を agent_<name> tool として append
       case 'tools/call': {
         try { return ok(id, asText(await callTool(params?.name, params?.arguments))); }
         catch (e) { return ok(id, { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true }); }
