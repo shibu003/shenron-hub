@@ -62,6 +62,7 @@ const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no loc
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
 const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
+const SETTINGS_FILE = path.join(HERE, 'settings.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
@@ -853,6 +854,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/ui2') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }
     catch { return json(res, 404, { error: 'ui2.html not found' }); }
+  }
+  if (req.method === 'GET' && p === '/settings') {
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SETTINGS_FILE)); }
+    catch { return json(res, 404, { error: 'settings.html not found' }); }
   }
   if (req.method === 'GET' && p === '/shenron') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
