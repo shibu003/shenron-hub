@@ -308,11 +308,18 @@
   ::backdrop { background:rgba(0,0,0,.55); }
   #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel2); border:1px solid var(--line); color:var(--txt); padding:9px 16px; border-radius:9px; font-size:12px; opacity:0; pointer-events:none; transition:.2s; box-shadow:0 10px 30px -10px #000; z-index:50; }
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .search-hl { box-shadow:0 0 0 2px var(--amber),0 8px 22px -10px rgba(210,153,34,.4) !important; }
+  #ctxMenu { position:fixed; z-index:40; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:150px; box-shadow:0 12px 34px -12px #000; display:none; }
+  #ctxMenu button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--txt); padding:8px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+  #ctxMenu button:hover { background:#0d1117; } #ctxMenu .ctx-del { color:var(--red); }
+  #nodeSearch { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:30; background:var(--panel); border:1px solid var(--blue); border-radius:9px; padding:6px 10px; display:none; gap:6px; align-items:center; box-shadow:0 8px 24px -10px #000; }
+  #nodeSearch input { background:none; border:none; color:var(--txt); outline:none; font:inherit; width:160px; }
 </style>
 
 <header id="topbar">
   <div class="brand">BuildHUD <span>· cockpit</span></div>
   <input id="flowName">
+  <span id="savedTs" style="font-size:11px;color:var(--dim)"></span>
   <button class="tb" id="btnFlows" onclick="showFlows()" title="open saved flow">🗂</button>
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"></button>
@@ -328,6 +335,8 @@
         <button id="miFire" onclick="fireEvent()"></button>
         <div class="mh" id="mhShare"></div>
         <button id="miExport" onclick="exportFlow()"></button>
+        <button id="miImport" onclick="document.getElementById('importFile').click();closeMenu()">📂 Import JSON</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
       </div>
     </div>
     <div class="menu">
@@ -373,11 +382,13 @@
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
     <div id="hint"></div><div id="wireTip"></div><aside id="trustpanel" style="display:none"></aside>
+    <div id="nodeSearch"><input id="nodeSearchInput" placeholder="ノード検索…" oninput="nodeSearch(this.value)" onkeydown="if(event.key==='Escape')closeNodeSearch()"><span style="color:var(--dim);cursor:pointer;padding-left:4px" onclick="closeNodeSearch()">✕</span></div>
     <div id="zoomctl">
       <button onclick="zoomStep(-1)" title="zoom out">−</button>
       <button id="zoomPct" onclick="resetView()" title="reset to 100%">100%</button>
       <button onclick="zoomStep(1)" title="zoom in">＋</button>
       <button onclick="fitView()" title="fit to flow">⤢</button>
+      <button onclick="autoLayout()" title="auto-layout nodes">⊞</button>
     </div>
   </main>
   <aside id="sidebar-ins" hidden></aside>
@@ -389,6 +400,11 @@
 
 <dialog id="modal"></dialog>
 <div id="toast"></div>
+<div id="ctxMenu">
+  <button id="ctxDuplicate">⧉ 複製</button>
+  <button id="ctxInspect">🔍 Inspect</button>
+  <button id="ctxDelete" class="ctx-del">✕ 削除</button>
+</div>
 
 <script>
 /* ---------- i18n (JA/EN toggle, persisted) ---------- */
@@ -706,6 +722,13 @@ const COMP = {                                       // minimal component librar
   workflow: { label:'Sub-flow', icon:'📦', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
   langflow: { label:'Langflow', icon:'🔗', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
 };
+const UNDO_STACK = [], REDO_STACK = [];
+let lastSaved = 0, CTX_TARGET = null, SEARCH_Q = '';
+function canvasSnap(){ return JSON.stringify({TRIGGERS:TRIGGERS.map(t=>({...t,match:{...t.match}})),MCP_NODES:MCP_NODES.map(m=>({...m,config:{...m.config}})),COMPONENTS:COMPONENTS.map(c=>({...c,config:{...c.config}})),NOTES:NOTES.map(n=>({...n})),EDGES:EDGES.map(e=>({...e})),HIDDEN:[...HIDDEN],POS:Object.fromEntries(Object.entries(POS).map(([k,v])=>[k,{...v}]))}); }
+function undoSnap(){ UNDO_STACK.push(canvasSnap()); if(UNDO_STACK.length>50) UNDO_STACK.shift(); REDO_STACK.length=0; }
+function undoApply(s){ const d=JSON.parse(s); TRIGGERS=d.TRIGGERS; MCP_NODES=d.MCP_NODES; COMPONENTS=d.COMPONENTS; NOTES=d.NOTES; EDGES=d.EDGES; HIDDEN.clear(); d.HIDDEN.forEach(h=>HIDDEN.add(h)); const keys=new Set(Object.keys(d.POS)); Object.keys(POS).forEach(k=>{if(!keys.has(k))delete POS[k];}); Object.assign(POS,d.POS); deselect(); render(); }
+function undo(){ if(!UNDO_STACK.length) return toast(LANG==='ja'?'戻せません':'nothing to undo'); const cur=canvasSnap(); REDO_STACK.push(cur); undoApply(UNDO_STACK.pop()); }
+function redo(){ if(!REDO_STACK.length) return toast(LANG==='ja'?'やり直せません':'nothing to redo'); const cur=canvasSnap(); UNDO_STACK.push(cur); undoApply(REDO_STACK.pop()); }
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
 const selSet = new Set();   // ③b-2: shift-click multi-selection (for collapse-into-sub-flow)
 const cssid = (s) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -734,6 +757,7 @@ async function refresh() {
   catch { $('#conn').textContent=t('conn_off'); $('#conn').style.color='var(--red)'; }
 }
 function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); renderPalette(); renderInspector(); renderCoach();
+  const st=$('#savedTs'); if(st&&lastSaved){ const s=Math.max(0,Math.round((Date.now()-lastSaved)/1000)); st.textContent=s<10?'saved just now':s<60?`saved ${s}s ago`:s<3600?`saved ${Math.round(s/60)}m ago`:`saved ${Math.round(s/3600)}h ago`; }
   const sb=$('#btnStop'); if(sb) sb.style.display=(state.runs||[]).some(r=>r.status==='running')?'inline-flex':'none';   // ⏹ visible only while a run is active
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('multi', selSet.has(n.dataset.id)));        // ③b-2 multi-select highlight
   const mc=$('#miCollapse'); if(mc){ mc.disabled=selSet.size<2; mc.textContent=t('collapse').replace('{n}',selSet.size); }
@@ -842,7 +866,7 @@ async function placeSafeHandoff(){
   else { nodes.push({id:'out1',kind:'output',x:690,y:90}); edges.push({id:'fe_'+(++eidc),source:b.id,target:'out1'}); }
   loadFlow({nodes,edges}); toast(t('safe_placed'));
 }
-function addComp(kind){ const c=COMP[kind]; const id=(c?kind:'node')+'-'+(++cidc); const y=40+COMPONENTS.length*26;
+function addComp(kind){ undoSnap(); const c=COMP[kind]; const id=(c?kind:'node')+'-'+(++cidc); const y=40+COMPONENTS.length*26;
   if(c){ const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
     COMPONENTS.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y }); }
   else { COMPONENTS.push({ id, kind:'unset', accepts:['*'], emits:['*'], config:{}, x:200, y }); }   // blank node: choose the kind in the inspector
@@ -858,8 +882,8 @@ function setCompKind(cn, kind){ const m=COMP[kind];
   cn.config={}; (m.fields||[]).forEach(f=>{ if(f.value!=null) cn.config[f.key]=f.value; });
   if(keepName) cn.config.name=keepName; if(keepDesc) cn.config.desc=keepDesc;
   revalidateEdges(cn.id); selectNode(cn.id); }
-function removeComp(id){ COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
-function addMcpNode(tl){ const id='mcp-'+(++mnidc); const {x,y}=canvasCenter(MCP_NODES.length*24, MCP_NODES.length*16);
+function removeComp(id){ undoSnap(); COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
+function addMcpNode(tl){ undoSnap(); const id='mcp-'+(++mnidc); const {x,y}=canvasCenter(MCP_NODES.length*24, MCP_NODES.length*16);
   MCP_NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x, y }
                    :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x, y });   // blank: choose the tool in the inspector
   COLLAPSED.add(id); selectNode(id); render(); }
@@ -891,12 +915,12 @@ function mcpCascade(mn, cls){
   const wrap=(inner)=>cls==='nf'?`<div class="nfrow">${inner}</div>`:`<div class="field">${inner}</div>`;
   return wrap(lbl('mcp_server_sel')+srvSel)+(mn.server?wrap(lbl('mcp_tool_sel')+toolSel):'');
 }
-function removeMcpNode(id){ MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
+function removeMcpNode(id){ undoSnap(); MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 async function addAgent(){ const n=$('#addName').value.trim(); if(!n)return; await api(`/api/agents/${encodeURIComponent(n)}/policy`,{policy:'approval'}); $('#addName').value=''; HIDDEN.delete(n); refresh(); }
 function canvasCenter(dx=0,dy=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+dx), y:Math.round((r.height/2-PANY)/ZOOM+dy) }; }
-function addTrigger(){ const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24, TRIGGERS.length*16) }); COLLAPSED.add(id); selectNode(id); render(); }
-function addNote(){ const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24, NOTES.length*16) }); selectNode(id); render(); }   // (b) annotation card
-function removeNote(id){ NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
+function addTrigger(){ undoSnap(); const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24, TRIGGERS.length*16) }); COLLAPSED.add(id); selectNode(id); render(); }
+function addNote(){ undoSnap(); const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24, NOTES.length*16) }); selectNode(id); render(); }   // (b) annotation card
+function removeNote(id){ undoSnap(); NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
 
 /* ---------- canvas nodes ---------- */
 function placeNodes(){
@@ -1038,8 +1062,9 @@ function attachNode(n, id){
     if(!wiring && nearRim && !noteOf(id)) return startWire(e, id);
     if(wiring) return;
     e.preventDefault(); const p=canvasPt(e); const o=POS[id]||{x:n.offsetLeft,y:n.offsetTop};
-    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey };
+    nodeDrag={ id, node:n, offX:p.x-o.x, offY:p.y-o.y, moved:false, shift:e.shiftKey, preSnap:canvasSnap() };
   });
+  n.addEventListener('contextmenu', e=>showCtxMenu(e, id));
 }
 function showSideIns(){ $('#sidebar-ins').hidden=false; $('#app').classList.add('ins-open'); }
 function showSidePal(){ $('#app').classList.remove('ins-open'); $('#sidebar-ins').hidden=true; }
@@ -1098,7 +1123,7 @@ function showWireTip(e){
   const r=$('#canvas').getBoundingClientRect(); tip.style.left=(e.clientX-r.left+16)+'px'; tip.style.top=(e.clientY-r.top+16)+'px'; tip.style.display='block';
 }
 function tryConnect(src,tgt){ if(!canConnect(src,tgt))return false; if(EDGES.some(x=>x.source===src&&x.target===tgt))return false;
-  EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
+  undoSnap(); EDGES.push({ id:'fe_'+(++eidc), source:src, target:tgt, type:matchType(src,tgt) }); drawLinks(); return true; }
 function startWire(e, src){ e.preventDefault(); e.stopPropagation(); wiring={ src, pt:canvasPt(e), over:null }; document.body.classList.add('wiring'); updateTemp(); showWireTip(e); }
 function clearWTarget(){ document.querySelectorAll('.node.wtarget,.node.wbad').forEach(p=>p.classList.remove('wtarget','wbad')); }
 function endWire(){ if(!wiring)return; if(wiring.over) tryConnect(wiring.src, wiring.over);
@@ -1115,7 +1140,7 @@ document.addEventListener('pointermove', e=>{
   if(panning){ const dx=e.clientX-panning.x, dy=e.clientY-panning.y; if(Math.abs(dx)+Math.abs(dy)>3) panning.moved=true;
     PANX=panning.px+dx; PANY=panning.py+dy; applyView(); drawLinks(); }
 });
-document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } }
+document.addEventListener('pointerup', ()=>{ if(wiring) endWire(); if(nodeDrag){ const nd=nodeDrag; nodeDrag=null; if(!nd.moved){ nd.shift?toggleMulti(nd.id):selectNode(nd.id); } else { UNDO_STACK.push(nd.preSnap); REDO_STACK.length=0; } }
   if(panning){ const p=panning; panning=null; $('#canvas').classList.remove('panning'); if(!p.moved) deselect(); saveView(); } });
 
 /* ---------- edges ---------- */
@@ -1473,7 +1498,7 @@ async function collapseSelection(){
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
-    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; conn('saved '+wf.id); api('/api/trust/preview',{ nodes:f.nodes, edges:f.edges, input:'' }).then(p=>{ TRUST_BASELINE=p; TRUST_DIFF=null; }).catch(()=>{}); fetchWorkflows(); refresh(); } }); }   // Wave ④: saved flow = new trust baseline
+    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; lastSaved=Date.now(); conn('saved '+wf.id); api('/api/trust/preview',{ nodes:f.nodes, edges:f.edges, input:'' }).then(p=>{ TRUST_BASELINE=p; TRUST_DIFF=null; }).catch(()=>{}); fetchWorkflows(); refresh(); } }); }   // Wave ④: saved flow = new trust baseline
 const lfHost=()=>localStorage.getItem('lf_host')||'http://localhost:7860';   // 🔗 run/import target; editable in ⚙ Settings
 const lfKey=()=>localStorage.getItem('lf_key')||'';                          // optional x-api-key (secured Langflow only)
 let LF_SOURCE=null;                                                          // raw last-imported Langflow JSON, kept for verbatim re-upload
@@ -1659,6 +1684,36 @@ async function fireEvent(){ closeMenu();
   $('#fireSubmit').onclick=async()=>{ let ev; try{ ev=JSON.parse($('#fireJson').value); }catch{ return toast(t('t_badjson')); }
     dlg.close(); const r=await api('/api/fire',{ event:ev }); conn('fired '+(r.fired?.length||0)); refresh(); };
 }
+function importJSON(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const obj=JSON.parse(ev.target.result); if(obj.data?.nodes) importLangflowFlow(obj); else if(obj.nodes) loadFlow(obj); else return toast('JSON: nodes が見つかりません'); toast('Imported: '+(obj.name||f.name)); }catch{ toast('Invalid JSON'); } e.target.value=''; }; r.readAsText(f); }
+function nodeSearch(q){ SEARCH_Q=(q||'').toLowerCase(); document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('search-hl', !!(SEARCH_Q&&n.dataset.id&&n.dataset.id.toLowerCase().includes(SEARCH_Q)))); }
+function closeNodeSearch(){ const ns=$('#nodeSearch'); if(ns) ns.style.display='none'; const ni=$('#nodeSearchInput'); if(ni){ni.value='';} nodeSearch(''); }
+function showNodeSearch(){ const ns=$('#nodeSearch'); if(ns){ns.style.display='flex'; const ni=$('#nodeSearchInput'); if(ni){ni.focus();}} }
+function showCtxMenu(e,id){ e.preventDefault(); CTX_TARGET=id; const m=$('#ctxMenu'); m.style.left=e.clientX+'px'; m.style.top=e.clientY+'px'; m.style.display='block'; }
+function closeCtxMenu(){ const m=$('#ctxMenu'); if(m) m.style.display='none'; CTX_TARGET=null; }
+function duplicateNode(id){ undoSnap(); const pos=POS[id]||{x:100,y:100}; const dx=30,dy=30;
+  const tr=trig(id); if(tr){ const nid='trigger-'+(++tidc); TRIGGERS.push({...tr,match:{...tr.match},id:nid}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
+  const mn=mcpn(id); if(mn){ const nid='mcp-'+(++mnidc); MCP_NODES.push({...mn,id:nid,config:{...mn.config}}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
+  const cn=comp(id); if(cn){ const nid=cn.kind+'-'+(++cidc); COMPONENTS.push({...cn,id:nid,config:{...cn.config}}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
+  const nt=noteOf(id); if(nt){ const nid='note-'+(++noidc); NOTES.push({...nt,id:nid}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; selectNode(nid); render(); return; }
+  toast(LANG==='ja'?'Agent は複製不可（パレットから追加）':'Agent nodes: add from palette'); }
+function autoLayout(){
+  const allIds=[...TRIGGERS.map(t=>t.id),...state.agents.filter(a=>!HIDDEN.has(a.id)).map(a=>a.id),...MCP_NODES.map(m=>m.id),...COMPONENTS.map(c=>c.id)];
+  if(!allIds.length) return toast(LANG==='ja'?'ノードがありません':'no nodes');
+  undoSnap();
+  const inDeg=Object.fromEntries(allIds.map(id=>[id,0]));
+  const out=Object.fromEntries(allIds.map(id=>[id,[]]));
+  for(const e of EDGES){ if(inDeg[e.target]!==undefined) inDeg[e.target]++; if(out[e.source]) out[e.source].push(e.target); }
+  const layer=Object.fromEntries(allIds.map(id=>[id,-1]));
+  const layers=[]; let queue=allIds.filter(id=>inDeg[id]===0);
+  for(let li=0; queue.length; li++){
+    layers.push([...queue]); queue.forEach(id=>layer[id]=li);
+    const next=[]; for(const id of queue) for(const tid of (out[id]||[])) if(layer[tid]===-1){ inDeg[tid]--; if(inDeg[tid]<=0) next.push(tid); }
+    queue=next;
+  }
+  allIds.filter(id=>layer[id]===-1).forEach(id=>layers.push([id]));
+  const COL_W=260,ROW_H=130,PAD_X=60,PAD_Y=60;
+  layers.forEach((col,ci)=>col.forEach((id,ri)=>POS[id]={x:PAD_X+ci*COL_W,y:PAD_Y+ri*ROW_H}));
+  render(); toast(LANG==='ja'?'自動レイアウト完了':'Auto-layout done'); }
 async function exportFlow(){ closeMenu(); const f=buildFlow(); if(!f) return toast(t('t_wire2'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   const wf=await api('/api/workflows',{ name:flowName(), nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; fetchWorkflows();
@@ -1732,7 +1787,7 @@ async function shenronGaps(){                                               // W
       }) : (()=>copyText(body,t('t_snip_copied'))) });
 }
 function loadFlow(flow){                         // materialize a generated/saved flow onto the canvas (fresh draft)
-  TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft
+  undoSnap(); TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();   // stale dry-run no longer matches the new draft
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // hide all, then reveal the flow's agents
   for(const n of flow.nodes){
     POS[n.id]={ x:n.x||40, y:n.y||40 };
@@ -1889,13 +1944,21 @@ async function saveAgentPassport(id){
 document.addEventListener('keydown', e=>{
   const tag=(e.target.tagName||'').toLowerCase(), typing=tag==='input'||tag==='textarea'||e.target.isContentEditable;
   if(e.key==='/' && !typing){ e.preventDefault(); $('#palSearch').focus(); return; }
-  if(e.key==='Escape'){ if(wiring){ wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d'); } else if(selected) deselect(); return; }
-  if((e.key==='Delete'||e.key==='Backspace') && !typing && selected){ e.preventDefault(); deleteSelected(); }
+  if(e.key==='Escape'){ if(wiring){ wiring=null; document.body.classList.remove('wiring'); $('#tempwire').removeAttribute('d'); } else if(selected) deselect(); closeNodeSearch(); closeCtxMenu(); return; }
+  if((e.metaKey||e.ctrlKey) && e.key==='z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
+  if((e.metaKey||e.ctrlKey) && (e.key==='Z'||(e.key==='z'&&e.shiftKey))){ e.preventDefault(); redo(); return; }
+  if((e.metaKey||e.ctrlKey) && e.key==='f'){ e.preventDefault(); showNodeSearch(); return; }
+  if((e.key==='Delete'||e.key==='Backspace') && !typing && (selected||selEdge)){ e.preventDefault();
+    if(selEdge){ undoSnap(); EDGES=EDGES.filter(e2=>e2.id!==selEdge); selEdge=null; render(); } else deleteSelected(); }
 });
-function deleteSelected(){ const id=selected; if(!id)return;
+function deleteSelected(){ const id=selected; if(!id)return; undoSnap();
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id); else if(noteOf(id)) removeNote(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
 applyChrome(); restorePanels(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/mcp').then(m=>MCP=m).catch(()=>{}); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{}); api('/api/capvocab').then(v=>CAPVOCAB=v).catch(()=>{}); updateCostBtn();
+document.getElementById('ctxDuplicate').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) duplicateNode(id); };
+document.getElementById('ctxInspect').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) selectNode(id); };
+document.getElementById('ctxDelete').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id){ selected=id; deleteSelected(); } };
+document.addEventListener('click', e=>{ if(!e.target.closest('#ctxMenu')) closeCtxMenu(); });
 // collapse all visible nodes on first session load (fresh default)
 if(!sessionStorage.getItem('bh_init')){ sessionStorage.setItem('bh_init','1'); setTimeout(()=>{ state.agents.forEach(a=>{ if(!HIDDEN.has(a.id)) COLLAPSED.add(a.id); }); localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED])); render(); }, 600); }
 setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
