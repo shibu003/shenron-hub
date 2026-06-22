@@ -241,6 +241,13 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'export_agent_mcp', description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。',
     inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  // Wave S: セッション横断メモリ
+  { name: 'remember', description: '神龍に長期記憶を1件保存（セッションを跨いで以降の agent 実行に自動で前置注入される）。秘密値は入れない。',
+    inputSchema: { type: 'object', properties: { text: { type: 'string' }, tags: { type: 'array' } }, required: ['text'] } },
+  { name: 'recall', description: '保存済みの記憶を取得。query で keyword/tag マッチ、未指定で新しい順 topN。',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
+  { name: 'forget', description: '記憶を id 指定で削除（recall の id）。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
 ];
 
 async function callTool(name, args = {}) {
@@ -368,6 +375,10 @@ async function callTool(name, args = {}) {
     case 'run_agent': return await hub(`/api/agents/${encodeURIComponent(args.name)}/run`, { input: args.input });
     case 'delete_agent': return await hub(`/api/agents/${encodeURIComponent(args.name)}/delete`, {});
     case 'export_agent_mcp': return await hub(`/api/agents/${encodeURIComponent(args.name)}/export-mcp`, {});
+    // Wave S: セッション横断メモリ（hub proxy 経由＝relevantMemories は hub 単一実装を共有）
+    case 'remember': return await hub('/api/memory', { action: 'add', text: args.text, tags: args.tags || [] });
+    case 'recall': return await hub('/api/memory', { action: 'recall', query: args.query || '', topN: args.topN });   // topN 未指定は hub 側 default に委譲（重複なし）
+    case 'forget': return await hub('/api/memory', { action: 'delete', id: args.id });
     default:
       if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
       throw new Error(`unknown tool: ${name}`);

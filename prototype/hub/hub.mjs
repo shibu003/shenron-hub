@@ -24,6 +24,7 @@ import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
+import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
@@ -773,7 +774,9 @@ async function runAgentSync(name, input) {
   const a = state.agents[name];
   if (!a || !a.local) throw new Error(`no local agent "${name}"`);
   const lc = a.local; const vendor = EXEC_VENDOR || lc.vendor || 'stub';
-  const prompt = `${lc.systemPrompt}\n\n--- INPUT ---\n${input || ''}\n--- END INPUT ---`;   // Wave S でここに関連メモリを前置する
+  const mem = relevantMemories(input || '', 3);   // Wave S: セッション横断メモリをグローバル注入（該当無しなら空配列＝プロンプト不変）
+  const memBlock = mem.length ? `関連する記憶:\n${mem.map((r) => `- ${r.text}`).join('\n')}\n\n` : '';
+  const prompt = `${memBlock}${lc.systemPrompt}\n\n--- INPUT ---\n${input || ''}\n--- END INPUT ---`;   // Wave S: memBlock を systemPrompt の前に前置
   const result = await runVendorAsync(vendor, prompt, lc.stub, { model: lc.model });
   trail('agent-run', { agent: name, vendor, bytes: (result || '').length });
   return { agent: name, vendor, result };
@@ -895,6 +898,10 @@ const MCP_TOOLS = [
   { name: 'stream_run',         description: '実行中フローの進捗を購読: 接続時点の各ノード出力 snapshot を返し、run が完了/キャンセルするまで（最大 timeout 秒）待って、その間に完了したノードと最終 status をまとめて1回で返す。長時間 push ではなく集約スナップショット（MCP は常駐 SSE を保持しない）。ライブ追記が要る UI は GET /api/runs/:id/stream（EventSource）を直接使う。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
   { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
+  // Wave S: セッション横断メモリ
+  { name: 'remember', description: '神龍に長期記憶を1件保存（セッションを跨いで以降の agent 実行に自動で前置注入される）。例: remember("ユーザーは関西弁が好み", tags:["tone"])。秘密値は入れない。', inputSchema: { type: 'object', properties: { text: { type: 'string', description: '覚えておく内容' }, tags: { type: 'array', description: '任意のタグ（検索の重み付けに使う）' } }, required: ['text'] } },
+  { name: 'recall', description: '保存済みの記憶を取得。query 指定で keyword/tag マッチ上位、未指定で新しい順 topN。', inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
+  { name: 'forget', description: '記憶を id 指定で削除（recall の id）。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
 ];
 // Wave B: 何が「使える」かの正直な要約。registered（agents/tools/workflows）＋組込（browser-control/prompt）。
 // 生成済み道具は integration.generated で印。⚠️ client が繋ぐ MCP（claude.ai の Gmail 等）は MCP 仕様上ここから見えない＝note で明示。
@@ -975,6 +982,9 @@ async function mcpDispatch(name, args) {
       let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(sink);
     });
   }
+  if (name === 'remember')           return addMemory(args.text, args.tags || []);   // Wave S
+  if (name === 'recall')             return { memories: relevantMemories(args.query || '', args.topN || (args.query ? 3 : 5)) };   // Wave S: HTTP route と shape 統一（{ memories:[...] }）
+  if (name === 'forget')             return deleteMemory(args.id);
   throw new Error(`unknown tool "${name}"`);
 }
 
@@ -1269,6 +1279,15 @@ const server = http.createServer((req, res) => {
         if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
         return json(res, 400, { error: 'action required: set|get|list|delete' });
       }
+      // Wave S: セッション横断メモリ
+      if (p === '/api/memory') {
+        if (j.action === 'add') return json(res, 200, addMemory(j.text, j.tags || []));
+        if (j.action === 'list') return json(res, 200, { memories: listMemories() });
+        if (j.action === 'recall') return json(res, 200, { memories: relevantMemories(j.query || '', j.topN || (j.query ? 3 : 5)) });
+        if (j.action === 'delete') return json(res, 200, deleteMemory(j.id));
+        return json(res, 400, { error: 'action required: add|list|recall|delete' });
+      }
+      // 注: この block は p.startsWith('/api/') の bearerOk gate の後にあるため認証済み。memory は secret でないが credentials と同じ保護面に置く。
       // Wave J: Skill共有
       if (p === '/api/components/export') {
         const c = readComponents().find((x) => x.id === j.id); if (!c) return json(res, 404, { error: `no component "${j.id}"` });
