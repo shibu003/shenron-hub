@@ -199,7 +199,7 @@ const TOOLS = [
   // Wave I: Credential vault
   { name: 'set_credential', description: 'Store a named credential securely (macOS Keychain on Mac, file-based elsewhere). Stored values are never returned by get_credential or list_credentials — only presence is confirmed. Use to pre-store API keys / passwords that flows reference by name.',
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Credential name (e.g. "rakuten-password", "twitter-api-key")' }, value: { type: 'string', description: 'The secret value' } }, required: ['id', 'value'] } },
-  { name: 'get_credential', description: 'Retrieve a stored credential value by id. Returns null if not found.',
+  { name: 'get_credential', description: 'Check whether a credential exists by id. Returns { id, present: true/false } — the value is NEVER returned (stays in the vault, never enters AI context).',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'list_credentials', description: 'List stored credential ids (names only — values are never returned).',
     inputSchema: { type: 'object', properties: {} } },

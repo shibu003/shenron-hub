@@ -759,12 +759,14 @@ const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on r
 const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
 const SHARED_TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: internal credential — server.mjs / browser-worker / Artifact / CLI auth to act routes (same token as A2A reach). Set it (and/or use OAuth) to enforce; unset = local dev open.
 const cookieSession = (req) => { const c = req.headers['cookie'] || ''; const m = c.match(/shenron_session=([^;]+)/); return m ? m[1] : null; };
-const bearerOk = (req) => {                                 // valid if OAuth bearer (claude.ai via /mcp) OR the shared token (internal callers) OR valid session cookie (web UI users).
+// open flag: true until A2A_SHARED_TOKEN is set OR OAuth token issued — user registration alone does NOT close it.
+// MCP stdio (server.mjs) and browser-worker use A2A_SHARED_TOKEN; cookie sessions are for Web UI only.
+const openDev = !SHARED_TOKEN; // ponytail: evaluated once at startup; set A2A_SHARED_TOKEN to enforce
+const bearerOk = (req) => {
   const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim();
   if ((SHARED_TOKEN && t === SHARED_TOKEN) || oauthTokens.has(t)) return true;
   if (checkSession(cookieSession(req))) return true;        // Web UI session cookie
-  if (!oauthTokens.size && !SHARED_TOKEN && userCount() === 0) return true;   // open only when no auth is configured AND no users exist yet
-  return false;
+  return openDev && !oauthTokens.size;                     // open only when no token-based auth is configured
 };
 
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
@@ -876,6 +878,8 @@ const server = http.createServer((req, res) => {
     if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
     return json(res, 200, listUsers());
   }
+  // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
+  if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/workflows') {
@@ -1074,7 +1078,7 @@ const server = http.createServer((req, res) => {
       // Wave I: Credential vault
       if (p === '/api/credentials') {
         if (j.action === 'set') return json(res, 200, setCredential(j.id, j.value));
-        if (j.action === 'get') return json(res, 200, { id: j.id, value: getCredential(j.id) });
+        if (j.action === 'get') return json(res, 200, { id: j.id, present: getCredential(j.id) !== null }); // 値は返さない — AI context に Secret を流さない
         if (j.action === 'list') return json(res, 200, { ids: listCredentials() });
         if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
         return json(res, 400, { error: 'action required: set|get|list|delete' });
