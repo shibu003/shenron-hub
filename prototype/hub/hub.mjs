@@ -65,6 +65,8 @@ const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
 const SETTINGS_FILE = path.join(HERE, 'settings.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
+const MANIFEST_FILE = path.join(HERE, 'manifest.json');
+const SW_FILE = path.join(HERE, 'sw.js');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
@@ -1008,6 +1010,15 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/shenron') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
+  }
+  if (req.method === 'GET' && p === '/manifest.json') {
+    try { res.writeHead(200, { 'content-type': 'application/manifest+json', 'access-control-allow-origin': '*' }); return res.end(fs.readFileSync(MANIFEST_FILE)); }
+    catch { return json(res, 404, { error: 'manifest.json not found' }); }
+  }
+  if (req.method === 'GET' && p === '/sw.js') {
+    // SW は root から配信 → scope='/' で /shenron も /api/* も網羅（Service-Worker-Allowed 不要）。
+    try { res.writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-cache' }); return res.end(fs.readFileSync(SW_FILE)); }
+    catch { return json(res, 404, { error: 'sw.js not found' }); }
   }
   // Wave L: Auth — public GET routes (no auth required)
   if (req.method === 'GET' && p === '/api/auth/verify') {
