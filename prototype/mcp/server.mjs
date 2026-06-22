@@ -193,6 +193,23 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'set_policy', description: 'Set an agent\'s inbox policy: "approval" (human gate) or "auto" (run on poll, automation-like).',
     inputSchema: { type: 'object', properties: { agent: { type: 'string' }, policy: { type: 'string' } }, required: ['agent', 'policy'] } },
+  // Wave H: Push通知
+  { name: 'set_notify', description: 'Register a webhook endpoint to receive push notifications when a flow run completes or is cancelled. format:"slack" wraps the payload as a Slack Incoming Webhook message. Optionally pass a Bearer token. Set enabled:false to pause.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, url: { type: 'string', description: 'Webhook URL (Slack/Discord/LINE/generic)' }, format: { type: 'string', enum: ['slack', 'json'], description: 'slack=Slack Incoming Webhook payload, json=raw status JSON' }, token: { type: 'string', description: 'Optional Bearer token for Authorization header' }, enabled: { type: 'boolean' } }, required: ['url'] } },
+  // Wave I: Credential vault
+  { name: 'set_credential', description: 'Store a named credential securely (macOS Keychain on Mac, file-based elsewhere). Stored values are never returned by get_credential or list_credentials — only presence is confirmed. Use to pre-store API keys / passwords that flows reference by name.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Credential name (e.g. "rakuten-password", "twitter-api-key")' }, value: { type: 'string', description: 'The secret value' } }, required: ['id', 'value'] } },
+  { name: 'get_credential', description: 'Retrieve a stored credential value by id. Returns null if not found.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'list_credentials', description: 'List stored credential ids (names only — values are never returned).',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'delete_credential', description: 'Delete a stored credential by id.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  // Wave J: Skill共有
+  { name: 'export_skill', description: 'Export a generated component (skill) as a portable JSON blob. Strip internal IDs/credentials — safe to share. Returns { what, code, iters, shenron:"1" }.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Component id from list_components' } }, required: ['id'] } },
+  { name: 'import_skill', description: 'Import a skill JSON blob (from export_skill or community). Saves as a pending component — approve with approve_component to activate. Provide code+what directly or a blob object.',
+    inputSchema: { type: 'object', properties: { what: { type: 'string' }, code: { type: 'string' }, blob: { type: 'object', description: 'Pass the full export_skill blob here instead of what+code' } } } },
 ];
 
 async function callTool(name, args = {}) {
@@ -278,6 +295,16 @@ async function callTool(name, args = {}) {
     case 'get_permissions': return await hub('/api/permissions');
     case 'set_permission': return await hub('/api/permissions', { tool: args.tool, domain: args.domain });
     case 'make_skill': return await hub('/api/shenron/skill', { id: args.id });
+    // Wave H: Push通知
+    case 'set_notify': return await hub('/api/integrations', { id: args.id || (args.format === 'slack' ? 'slack-notify' : 'webhook-notify'), label: args.label || 'Webhook通知', kind: 'notify', url: args.url, format: args.format || 'json', token: args.token || '', enabled: args.enabled !== false, tools: [] });
+    // Wave I: Credential vault
+    case 'set_credential': return await hub('/api/credentials', { action: 'set', id: args.id, value: args.value });
+    case 'get_credential': return await hub('/api/credentials', { action: 'get', id: args.id });
+    case 'list_credentials': return await hub('/api/credentials', { action: 'list' });
+    case 'delete_credential': return await hub('/api/credentials', { action: 'delete', id: args.id });
+    // Wave J: Skill共有
+    case 'export_skill': return await hub('/api/components/export', { id: args.id });
+    case 'import_skill': { const b = args.blob || {}; return await hub('/api/components/import', { what: args.what || b.what, code: args.code || b.code, iters: b.iters }); }
     default: throw new Error(`unknown tool: ${name}`);
   }
 }

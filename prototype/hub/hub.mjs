@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process';
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
+import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
@@ -59,6 +60,7 @@ const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (
 const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no local browser worker, no login credentials
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
 const UI_FILE = path.join(HERE, 'ui.html');
+const UI2_FILE = path.join(HERE, 'ui2.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
@@ -578,7 +580,7 @@ function advanceFrom(run, nodeId) {
     tryFire(run, e.target);
   }
   if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) {
-    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId);
+    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed');
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -618,6 +620,18 @@ function saveIntegration({ id, label, kind, command, url, enabled, tools, genera
   writeIntegrations(arr); return it;
 }
 function toggleIntegration(id, on) { const arr = readIntegrations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no integration "${id}"`); it.enabled = on !== false; writeIntegrations(arr); return it; }
+// Wave H: Push通知 — fire enabled kind:'notify' integrations when a flow run completes or is cancelled
+function emitRunNotify(run, status) {
+  const notifiers = readIntegrations().filter((i) => i.enabled !== false && i.kind === 'notify' && i.url);
+  if (!notifiers.length) return;
+  const label = run.flowId || run.id;
+  const body = { status, runId: run.id, flowId: run.flowId || null, label, at: new Date().toISOString() };
+  for (const n of notifiers) {
+    const payload = n.format === 'slack' ? { text: `神龍 ${status === 'completed' ? '✅' : '⚠️'} *${label}* (${status})` } : body;
+    fetch(n.url, { method: 'POST', headers: { 'content-type': 'application/json', ...(n.token ? { authorization: `Bearer ${n.token}` } : {}) }, body: JSON.stringify(payload) })
+      .catch((e) => console.error('[notify]', n.id, e.message));
+  }
+}
 // Wave J — build-state IR: a first-class, named event vocabulary (vs n8n's generic webhook) + a small,
 // no-eval match DSL. The deeper this IR, the harder it is for a generic iPaaS to copy ("IR depth = moat").
 const BUILD_EVENTS = [
@@ -832,6 +846,10 @@ const server = http.createServer((req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI_FILE)); }
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
+  if (req.method === 'GET' && p === '/ui2') {
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }
+    catch { return json(res, 404, { error: 'ui2.html not found' }); }
+  }
   if (req.method === 'GET' && p === '/shenron') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
@@ -1005,6 +1023,26 @@ const server = http.createServer((req, res) => {
         return json(res, 200, { slug, path: path.relative(process.cwd(), file), content });
       }
       if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
+      // Wave I: Credential vault
+      if (p === '/api/credentials') {
+        if (j.action === 'set') return json(res, 200, setCredential(j.id, j.value));
+        if (j.action === 'get') return json(res, 200, { id: j.id, value: getCredential(j.id) });
+        if (j.action === 'list') return json(res, 200, { ids: listCredentials() });
+        if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
+        return json(res, 400, { error: 'action required: set|get|list|delete' });
+      }
+      // Wave J: Skill共有
+      if (p === '/api/components/export') {
+        const c = readComponents().find((x) => x.id === j.id); if (!c) return json(res, 404, { error: `no component "${j.id}"` });
+        const { what, code, iters, output } = c;
+        return json(res, 200, { what, code, iters: iters || 0, output: output || '', shenron: '1', exportedAt: new Date().toISOString() });
+      }
+      if (p === '/api/components/import') {
+        if (!j.code || !j.what) return json(res, 400, { error: 'need code + what' });
+        const saved = saveComponent({ what: j.what, code: j.code, output: j.output || '', iters: j.iters || 0 });
+        trail('component-import', { id: saved.id, what: saved.what });
+        return json(res, 200, { ...saved, approved: false, note: 'imported — approve with approve_component to activate' });
+      }
       let m;
       if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));

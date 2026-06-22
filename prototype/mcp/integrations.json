@@ -45,5 +45,22 @@
     "tools": [
       { "name": "search", "accepts": ["*"], "emits": ["results"] }
     ]
+  },
+  {
+    "id": "slack-notify",
+    "label": "Slack Webhook 通知 (完了/失敗時)",
+    "kind": "notify",
+    "url": "",
+    "format": "slack",
+    "enabled": false,
+    "tools": []
+  },
+  {
+    "id": "webhook-notify",
+    "label": "Generic Webhook 通知 (完了/失敗時)",
+    "kind": "notify",
+    "url": "",
+    "enabled": false,
+    "tools": []
   }
 ]
