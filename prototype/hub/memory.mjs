@@ -25,17 +25,37 @@ export function deleteMemory(id) {
   return { id, deleted: rows.length !== next.length, count: next.length };
 }
 
-// server.mjs ~66-76 の score/searchIndex と同じ keyword スコアラ（tag は重み2）。query 未指定なら新しい順に topN。
+// keyword スコアラ（tag は重み2）。query 未指定なら新しい順に topN。
+// 日本語など空白なし言語: query をスペース分割すると全体が1トークンになり完全一致以外ヒットしない →
+// CJK bigram(2文字)の重なりも加点する（embedding 無し・決定論・新依存なし＝ponytail）。英語/タグは語マッチ維持。
+const isCJK = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s);   // ひらがな/カタカナ/漢字/半角カナ
+const bigrams = (s) => { const out = []; for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2)); return out; };
 export function relevantMemories(query = '', topN = 3) {
   const rows = read(); if (!rows.length) return [];
   const q = String(query || '').toLowerCase();
   const terms = q.split(/\s+/).filter(Boolean);
   if (!terms.length) return rows.slice(-topN).reverse();
+  const qBigrams = bigrams(q.replace(/\s+/g, '')).filter(isCJK);   // CJK を含む bigram のみ → 英語クエリには偽陽性を出さない
   const scored = rows.map((r) => {
     const hay = r.text.toLowerCase();
     const tagHay = (r.tags || []).join(' ').toLowerCase();
-    const s = terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0) + (tagHay.includes(t) ? 2 : 0), 0);
+    let s = terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0) + (tagHay.includes(t) ? 2 : 0), 0);   // 語/タグ一致（英語・タグ向け）
+    s += qBigrams.reduce((n, b) => n + (hay.includes(b) ? 1 : 0), 0);   // bigram 重なり（日本語など空白なし言語向け）
     return { r, s };
   });
   return scored.filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, topN).map((x) => x.r);
+}
+
+// ponytail: 関連度の最小自己チェック（CJK bigram が日本語 recall を救うこと＋英語偽陽性ゼロ）。
+// 実行: node prototype/hub/memory.mjs --selftest （~/.giogio は触らず純関数のみ検証）
+if (process.argv[1] && process.argv[1].endsWith('memory.mjs') && process.argv.includes('--selftest')) {
+  const score = (q, text, tags = []) => { const hay = text.toLowerCase(); const tagHay = tags.join(' ').toLowerCase();
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    let s = terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0) + (tagHay.includes(t) ? 2 : 0), 0);
+    s += bigrams(q.toLowerCase().replace(/\s+/g, '')).filter(isCJK).reduce((n, b) => n + (hay.includes(b) ? 1 : 0), 0); return s; };
+  const T = 'ユーザーは関西在住・関西弁が好み';
+  console.assert(score('関西弁の口調で話して', T) > 0, 'JP recall must hit via bigram');
+  console.assert(score('weather', T) === 0, 'EN query must NOT false-positive on JP memory');
+  console.assert(score('tone', T, ['tone']) >= 2, 'tag match weight');
+  console.log('memory.mjs selftest OK');
 }
