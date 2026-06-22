@@ -49,7 +49,12 @@
   svg .flow { stroke-dasharray:7 6; animation:dash .7s linear infinite; } @keyframes dash { to { stroke-dashoffset:-13; } }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
-  #hint { position:absolute; top:16px; left:18px; color:var(--dim); font-size:12px; max-width:340px; }
+  /* empty-canvas onboarding card (centered; shown only when no nodes are placed) */
+  #hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:none; flex-direction:column; gap:12px; align-items:center; text-align:center;
+          background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px 30px; max-width:430px; box-shadow:0 20px 60px -20px #000; z-index:6; }
+  #hint .ec-h { font-size:18px; font-weight:700; }
+  #hint .ec-b { color:var(--dim); font-size:13px; line-height:1.6; }
+  #hint .ec-act { display:flex; gap:10px; margin-top:4px; }
   #wireTip { position:absolute; z-index:20; display:none; max-width:320px; pointer-events:none; background:#0d1117; border:1px solid var(--blue); border-radius:9px; color:var(--txt); padding:8px 10px; font-size:12px; box-shadow:0 12px 28px -18px #000; }
   #wireTip.ok { border-color:var(--green); color:#bdf6c9; }
   #wireTip.bad { border-color:var(--red); color:#ffc2be; }
@@ -70,6 +75,11 @@
   .dot.on { background:var(--green); animation:pulse 1.8s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{ box-shadow:0 0 0 0 rgba(63,185,80,.6);} 50%{ box-shadow:0 0 0 5px rgba(63,185,80,0);} }
   .node .co { color:var(--dim); font-size:11px; margin:0; padding:6px 12px 0; }
+  /* kind chip — names the node category at a glance (色は枠と連動) */
+  .kindchip { display:inline-block; font-size:9px; line-height:1.5; letter-spacing:.03em; border:1px solid var(--line); border-radius:4px; padding:0 5px; margin-right:6px; color:var(--dim); vertical-align:middle; }
+  .kindchip.ag { border-color:#3a4250; color:#aab8c6; }
+  .kindchip.mcp { border-color:#2ea043; color:#3fb950; }
+  .kindchip.comp { border-color:#6f42c1; color:#a371f7; }
   .node .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; padding:0 12px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { min-width:204px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
@@ -113,7 +123,7 @@
   .tier-badge.cheap { background:rgba(63,185,80,.15); color:var(--green); border:1px solid #2ea043; }
   .tier-badge.strong { background:rgba(88,166,255,.15); color:var(--blue); border:1px solid #2a5a9e; }
 
-  .ins-h { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:2px 2px 10px; display:flex; align-items:center; }
+  .ins-h { font-size:14px; font-weight:700; color:var(--txt); margin:0 0 14px; padding-bottom:10px; border-bottom:1px solid var(--line); display:flex; align-items:center; }
   .ins-h .back { margin-left:auto; cursor:pointer; color:var(--blue); text-transform:none; letter-spacing:0; }
   .field { margin-bottom:11px; } .field label { display:block; font-size:11px; color:var(--dim); margin-bottom:3px; }
   .field .v { font-size:13px; } .chips { display:flex; flex-wrap:wrap; gap:5px; }
@@ -174,6 +184,7 @@
       <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ 追加</button>
       <div class="menu-pop" id="addMenu">
         <div class="mh">ノードを追加</div>
+        <button onclick="openAgentPicker();closeMenu()">👤 エージェント… — 一覧から配置</button>
         <button onclick="addTrigger();closeMenu()">⚡ トリガー — 自動実行の起点</button>
         <button onclick="addMcpNode();closeMenu()">🔌 MCP ツール — 外部アクション</button>
         <button onclick="addComp('');closeMenu()">📦 コンポーネント — 処理ブロック</button>
@@ -191,7 +202,14 @@
 <div id="main-wrap">
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
-    <div id="hint"></div><div id="wireTip"></div>
+    <div id="hint">
+      <div class="ec-h">🐉 フローを作る</div>
+      <div class="ec-b">右上の <b>＋ 追加</b> でノードを置き、ノードの縁から次のノードへドラッグして配線します。</div>
+      <div class="ec-act">
+        <button class="tb primary" onclick="openAddMenu()">＋ ノードを追加</button>
+        <button class="tb" onclick="showFlows()">🗂 保存済みを開く</button>
+      </div>
+    </div><div id="wireTip"></div>
     <div id="nodeSearch"><input id="nodeSearchInput" placeholder="ノード検索…" oninput="nodeSearch(this.value)" onkeydown="if(event.key==='Escape')closeNodeSearch()"><span style="color:var(--dim);cursor:pointer;padding-left:4px" onclick="closeNodeSearch()">✕</span></div>
     <div id="zoomctl">
       <button onclick="zoomStep(-1)" title="縮小">−</button>
@@ -424,10 +442,8 @@ function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.
   const r=$('#canvas').getBoundingClientRect(), pad=60, z=clampZoom(Math.min((r.width-pad*2)/(x1-x0||1),(r.height-pad*2)/(y1-y0||1),1.4));
   setView(z, pad-x0*z, pad-y0*z); }
 function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
-function applyChrome(){   // ui2: toolbar labels are hardcoded JA in the HTML; only the canvas hint is dynamic
-  document.documentElement.lang = LANG;
-  $('#hint').innerHTML='右上の <b>＋ 追加</b> でノードを置く → ノードの縁から次のノードへドラッグで配線 → <b>▶ 実行</b>。';
-}
+function applyChrome(){ document.documentElement.lang = LANG; }   // ui2: toolbar labels + empty-card are static JA in the HTML
+function openAddMenu(){ document.querySelectorAll('.menu-pop.open').forEach(m=>m.classList.remove('open')); const m=$('#addMenu'); if(m) m.classList.add('open'); }
 
 /* ---------- state + helpers ---------- */
 const $ = (s, r=document) => r.querySelector(s);
@@ -453,21 +469,21 @@ let WORKFLOWS = [];                                  // saved workflows (for the
 let NOTES = [], noidc = 0;                           // (b) Langflow-style annotation cards (markdown + color, not executable)
 const NOTE_COLORS = { amber:{bg:'#241b07',border:'#5c4a16'}, blue:{bg:'#10233a',border:'#274b73'}, green:{bg:'#0c1f12',border:'#1f5130'}, grey:{bg:'#161b22',border:'#30363d'} };
 const mdLite = (s) => esc(s).replace(/^### (.*)$/gm,'<b style="font-size:13px">$1</b>').replace(/^## (.*)$/gm,'<b style="font-size:14px">$1</b>').replace(/^# (.*)$/gm,'<b style="font-size:15px">$1</b>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^[-*] (.*)$/gm,'• $1').replace(/\n/g,'<br>');   // tiny safe markdown (escape first)
-const COMP = {                                       // minimal component library (per-field typed template). Agent stays our LLM unit.
-  input:  { label:'Chat Input',  icon:'💬', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(empty → use the Run input)' }] },
-  prompt: { label:'Prompt',      icon:'📝', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
-  consensus: { label:'Consensus', icon:'⚖️', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
-  output: { label:'Chat Output', icon:'📤', accepts:['*'], emits:[],           fields:[] },
-  languagemodel: { label:'Language Model', icon:'🧠', accepts:['*'], emits:['text','*'], fields:[   // Langflow LM: system + input → vendor (in-process)
+const COMP = {                                       // minimal component library (per-field typed template). `desc` = JP one-liner shown on the card + in the kind picker.
+  input:  { label:'Chat Input',  icon:'💬', desc:'フローの入力テキスト', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(空 → Run の入力を使う)' }] },
+  prompt: { label:'Prompt',      icon:'📝', desc:'テンプレートで文面を組む（{input}=前段の出力）', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
+  consensus: { label:'Consensus', icon:'⚖️', desc:'複数 vendor の合意を取る', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
+  output: { label:'Chat Output', icon:'📤', desc:'最終結果を表示', accepts:['*'], emits:[],           fields:[] },
+  languagemodel: { label:'Language Model', icon:'🧠', desc:'LLM 呼び出し（system + 入力）', accepts:['*'], emits:['text','*'], fields:[   // Langflow LM: system + input → vendor (in-process)
     { key:'model', label:'model', type:'select', options:['claude','codex','gemini','stub'], value:'claude' }, { key:'system', label:'system message', type:'textarea' } ] },
-  structured: { label:'Structured Output', icon:'🧷', accepts:['*'], emits:['json','*'], fields:[   // Langflow structured-output: ask the LLM for JSON
+  structured: { label:'Structured Output', icon:'🧷', desc:'LLM に JSON 構造で出させる', accepts:['*'], emits:['json','*'], fields:[   // Langflow structured-output: ask the LLM for JSON
     { key:'schema', label:'fields (comma-sep)', value:'' }, { key:'instructions', label:'instructions', type:'textarea' } ] },
-  parser: { label:'Parser', icon:'🔧', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM)
-  router: { label:'Trust Router', icon:'🔀', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
+  parser: { label:'Parser', icon:'🔧', desc:'文字列整形（LLM 不使用）', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM)
+  router: { label:'Router', icon:'🔀', desc:'条件で then/else に分岐', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
-  workflow: { label:'Sub-flow', icon:'📦', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
-  langflow: { label:'Langflow', icon:'🔗', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
+  workflow: { label:'Sub-flow', icon:'📦', desc:'保存済みフローを1ノードとして実行', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
+  langflow: { label:'Langflow', icon:'🔗', desc:'Langflow 由来コンポーネント', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
 };
 const UNDO_STACK = [], REDO_STACK = [];
 let lastSaved = 0, CTX_TARGET = null, SEARCH_Q = '';
@@ -609,7 +625,7 @@ let COLLAPSED = new Set(JSON.parse(localStorage.getItem('bh_collapsed')||'[]'));
 let noteEdit = null;   // id of the note in inline-edit mode (double-click to enter)
 function renderNodes(){
   const canvas=$('#world');
-  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'block';
+  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'flex';
   const seen=new Set();
   for(const a of state.agents){
     if(HIDDEN.has(a.id)) continue;
@@ -624,8 +640,8 @@ function renderNodes(){
     n.classList.toggle('collapsed',COLLAPSED.has(a.id));
     if(n.contains(document.activeElement)) continue;   // don't rebuild the card while a field inside it is focused
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
-    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co">${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`;
+    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>👤 ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+      +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`;
   }
   for(const tr of TRIGGERS){   // ui2: card = title + summary only; the event/status editor lives in the right panel
     const nid='n_'+cssid(tr.id); seen.add(nid);
@@ -647,7 +663,7 @@ function renderNodes(){
     n.classList.toggle('busy',busy);
     const mset=!!(mn.server&&mn.tool);
     n.innerHTML=`<div class="name">🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co">${esc(mn.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`;
+      +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(mn.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`;
   }
   for(const c of COMPONENTS){
     const nid='n_'+cssid(c.id); seen.add(nid);
@@ -659,7 +675,7 @@ function renderNodes(){
     const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));
     const tierBadge=c.tier?`<span class="tier-badge ${c.tier}">${c.tier}</span>`:'';
     n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(cname)}${tierBadge}</div>`
-      +`<div class="co">${esc(isSet?(meta.label||c.kind):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`;
+      +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||c.kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`;
   }
   for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
     const nid='n_'+cssid(nt.id); seen.add(nid);
@@ -828,11 +844,11 @@ function inspNode(id){
   const c=comp(id);
   if(c){
     const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
-    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.icon+' '+m.label)}</option>`).join('')}</select>`;
+    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.icon+' '+m.label+(m.desc?' — '+m.desc:''))}</option>`).join('')}</select>`;
     const nameDesc=inlineField(c,{key:'name',label:t('comp_name'),ph:t('comp_name_ph')})+inlineField(c,{key:'desc',label:t('comp_desc'),type:'textarea',ph:t('comp_desc_ph')});
     const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
     return inspHead((meta.icon||'▦')+' '+(meta.label||c.kind))
-      +`<div class="nfrow"><label class="nflabel">${t('comp_kind')}</label>${kindSel}</div>`+nameDesc+fieldsHtml
+      +`<div class="nfrow"><label class="nflabel">${t('comp_kind')}</label>${kindSel}${isSet&&meta.desc?`<div class="mini">${esc(meta.desc)}</div>`:''}</div>`+nameDesc+fieldsHtml
       +(res!=null?`<div class="nfres">${esc(String(res)).slice(0,400)}</div>`:'')
       +`<button class="ibtn danger" onclick="deleteSelected()">${t('btn_del_node')}</button>`;
   }
@@ -900,6 +916,20 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
   $('#flowsClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
   dlg.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });   // Wave 10: flow → Claude Code SKILL.md（Wave 7 endpoint）
+}
+// ui2: agent picker — the palette is gone, so this is how you (re)place an agent on the canvas. Hidden agents
+// (hidden after loadFlow) become reachable again; clicking reveals + centers, or just focuses one already placed.
+function openAgentPicker(){
+  const dlg=$('#modal'); const ags=state.agents||[];
+  const rows = ags.length ? ags.map(a=>{ const on=!HIDDEN.has(a.id);
+    return `<button class="flowcard act" data-aid="${esc(a.id)}"><div class="fc-name">👤 ${esc(a.id)}${on?' <span class="kindchip ag">配置済み</span>':''}</div><div class="mini">${esc(a.company||'—')}${a.skill?' · '+esc(a.skill):''}${a.online?'':' · オフライン'}</div></button>`;
+  }).join('') : `<div class="minfo">エージェントがありません（hub を agents/*.json 付きで起動してください）。</div>`;
+  dlg.innerHTML=`<div class="dh">👤 エージェントを配置（${ags.length}）</div><div class="db flowgrid">${rows}</div><div class="df"><button class="act" id="agpClose">${t('cancel')}</button></div>`;
+  if(!dlg.open) dlg.showModal();
+  $('#agpClose').onclick=()=>dlg.close();
+  dlg.querySelectorAll('[data-aid]').forEach(b=>b.onclick=()=>{ const id=b.dataset.aid;
+    if(HIDDEN.has(id)){ undoSnap(); HIDDEN.delete(id); const c=canvasCenter(); POS[id]={x:c.x,y:c.y}; }   // newly revealed → drop at viewport center
+    dlg.close(); selectNode(id); focusNode(id); });
 }
 async function act(id,what){ await api(`/api/handoffs/${id}/${what}`,{}); refresh(); }
 function flowName(){ const v=$('#flowName').value.trim(); if(v) return v; const f=buildFlow(); return f? f.nodes.filter(n=>n.kind==='agent').map(n=>n.id.split('-')[0]).join('→') : 'flow'; }
@@ -972,7 +1002,13 @@ async function stopRun(){
 // ui2: trust preview/panel removed. clearTrust stays as a no-op so loadFlow/edge edits keep their call site.
 function clearTrust(){ TRUSTPREVIEW=null; drawLinks(); }
 function importJSON(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const obj=JSON.parse(ev.target.result); if(obj.data?.nodes) importLangflowFlow(obj); else if(obj.nodes) loadFlow(obj); else return toast('JSON: nodes が見つかりません'); toast('Imported: '+(obj.name||f.name)); }catch{ toast('Invalid JSON'); } e.target.value=''; }; r.readAsText(f); }
-function nodeSearch(q){ SEARCH_Q=(q||'').toLowerCase(); document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('search-hl', !!(SEARCH_Q&&n.dataset.id&&n.dataset.id.toLowerCase().includes(SEARCH_Q)))); }
+function nodeSearch(q){ SEARCH_Q=(q||'').toLowerCase(); let first=null;
+  document.querySelectorAll('#canvas .node').forEach(n=>{ const hit=!!(SEARCH_Q&&n.dataset.id&&n.dataset.id.toLowerCase().includes(SEARCH_Q)); n.classList.toggle('search-hl', hit); if(hit&&!first) first=n.dataset.id; });
+  if(first) focusNode(first);   // pan the canvas to the first match
+}
+// center the canvas viewport on a node (keeps current zoom). Used by search + agent picker.
+function focusNode(id){ const r=nodeRect(id); if(!r) return; const rect=$('#canvas').getBoundingClientRect();
+  PANX = rect.width/2 - r.cx*ZOOM; PANY = rect.height/2 - r.cy*ZOOM; applyView(); drawLinks(); saveView(); }
 function closeNodeSearch(){ const ns=$('#nodeSearch'); if(ns) ns.style.display='none'; const ni=$('#nodeSearchInput'); if(ni){ni.value='';} nodeSearch(''); }
 function showNodeSearch(){ const ns=$('#nodeSearch'); if(ns){ns.style.display='flex'; const ni=$('#nodeSearchInput'); if(ni){ni.focus();}} }
 function showCtxMenu(e,id){ e.preventDefault(); CTX_TARGET=id; const m=$('#ctxMenu'); m.style.left=e.clientX+'px'; m.style.top=e.clientY+'px'; m.style.display='block'; }
