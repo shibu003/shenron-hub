@@ -562,6 +562,7 @@
           try {
             const s = await this.api('GET', '/api/state');
             this.runs = (s.runs || []).slice().reverse();
+            this.liveSubscribe();   // O1: attach EventSource to running runs for instant node-level updates
             this.handoffs = s.handoffs || [];
           } catch { /* hub offline */ }
         },
@@ -650,6 +651,24 @@
             const r = await this.api('POST', '/api/shenron/skill', { id });
             this.showToast('📜 Skill 作成: ' + (r && r.path || ''));
           } catch (e) { this.showToast('Skill エラー: ' + e.message, false); }
+        },
+
+        // ── Runs (O1 live SSE) ───────────────────────
+        liveSubscribe() {
+          this._streams ||= {};
+          for (const run of this.runs) {
+            if (run.status === 'running' && !this._streams[run.id]) {
+              const es = new EventSource(`/api/runs/${run.id}/stream`);
+              this._streams[run.id] = es;
+              es.onmessage = (ev) => {
+                let e; try { e = JSON.parse(ev.data); } catch { return; }
+                const r = this.runs.find(x => x.id === run.id); if (!r) return;
+                if (e.type === 'node') { r.outputs = { ...(r.outputs || {}), [e.node]: e.output }; r.done = Object.keys(r.outputs).length; if (e.status) r.status = e.status; }
+                if (e.type === 'done') { r.status = e.status; es.close(); delete this._streams[run.id]; }
+              };
+              es.onerror = () => { es.close(); delete this._streams[run.id]; };   // poll() will re-subscribe if still running
+            }
+          }
         },
 
         // ── Runs ─────────────────────────────────────

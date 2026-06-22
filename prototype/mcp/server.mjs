@@ -223,6 +223,8 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} } },
   { name: 'get_run', description: 'runId でフロー実行の全フィールドを取得（outputs/skipped/routerPick を含む）。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'stream_run', description: '実行中フローの進捗を購読: 接続時の各ノード出力 snapshot ＋ run 完了/キャンセルまで（最大 timeout 秒）待って完了ノードと最終 status を集約で返す。長時間 push ではなくスナップショット。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
   // Wave M-3: 通知テスト
   { name: 'test_notify', description: '有効な通知 integration (kind:notify) 全てにテスト payload を送信し、各 URL の成否を返す。',
     inputSchema: { type: 'object', properties: {} } },
@@ -344,6 +346,15 @@ async function callTool(name, args = {}) {
     // Wave M-2: run 履歴
     case 'list_runs': return await hub('/api/runs');
     case 'get_run': return await hub(`/api/runs/${encodeURIComponent(args.id)}`);
+    case 'stream_run': {
+      // hub の remote-MCP (POST /mcp) tools/call を直叩き — mcpDispatch の stream_run（待機集約）を再利用
+      await hubReady;
+      const r = await fetch(`${HUB}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'stream_run', arguments: { id: args.id, timeout: args.timeout } } }) });
+      if (!r.ok) throw new Error(`hub /mcp → ${r.status}`);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      return JSON.parse(j.result.content[0].text);
+    }
     // Wave M-3: 通知テスト
     case 'test_notify': return await hub('/api/notify/test', {});
     // Wave P: Agent Factory

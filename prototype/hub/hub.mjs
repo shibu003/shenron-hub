@@ -67,6 +67,17 @@ const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
+const runListeners = new Map();   // runId -> Set<res>  (SSE clients; memory only, lost on restart — run state itself is in inbox.json)
+function emitRunEvent(runId, event) {
+  const set = runListeners.get(runId); if (!set || !set.size) return;
+  const frame = `data: ${JSON.stringify(event)}\n\n`;
+  for (const res of [...set]) { try { res.write(frame); } catch { set.delete(res); } }   // closed/broken socket → drop silently
+}
+function closeRunListeners(runId) {   // terminal: flush 'done' already emitted by caller, then end every stream + free the set
+  const set = runListeners.get(runId); if (!set) return;
+  for (const res of [...set]) { try { res.end(); } catch {} }
+  runListeners.delete(runId);
+}
 const parseFmt = (p, inp) => String(p || '{input}').split('{input}').join(inp || '');   // Parser node: substitute {input} (pure string transform)
 const WF_FILE = sp('workflows.json', path.join(HERE, '..', 'mcp', 'workflows.json'));   // shared workflow store (nodes/edges canonical + steps[] shim)
 let state = load();
@@ -538,6 +549,7 @@ function stopRun(id) {
   const run = state.runs[id]; if (!run) throw new Error(`no run "${id}"`);
   if (run.status !== 'running') return { id, status: run.status, stopped: 0 };          // already terminal — nothing to stop
   run.status = 'cancelled'; run.stoppedAt = now();
+  emitRunEvent(id, { type: 'done', status: 'cancelled' }); closeRunListeners(id);   // O1: tell live streams the run was stopped, then end them
   for (const child of Object.values(state.runs)) if (child.parent && child.parent.runId === id && child.status === 'running') stopRun(child.id);   // 📦 stop nested sub-flows too
   let stopped = 0;
   for (const h of state.handoffs) {
@@ -582,6 +594,7 @@ function tryFire(run, targetId) {
   fireNode(run, tgt, liveIn.map((x) => fenceEdge(run, x, run.outputs[x.source])).filter(Boolean).join('\n\n'));
 }
 function advanceFrom(run, nodeId) {
+  emitRunEvent(run.id, { type: 'node', node: nodeId, output: run.outputs[nodeId], status: run.status });   // O1: live push — outputs[nodeId] is always set before advanceFrom is called
   if (run.status === 'cancelled') { save(); return; }                                   // ⏹ stopped run: record the result but fire nothing downstream (never completes)
   run.dead ||= []; run.skipped ||= []; run.routerPick ||= {};                           // tolerate runs created before Wave E2
   const pick = run.routerPick[nodeId];                                                  // 'then'|'else' if nodeId is a router that decided
@@ -590,7 +603,7 @@ function advanceFrom(run, nodeId) {
     tryFire(run, e.target);
   }
   if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) {
-    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed');
+    run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed'); emitRunEvent(run.id, { type: 'done', status: 'completed' }); closeRunListeners(run.id);
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -865,6 +878,7 @@ const MCP_TOOLS = [
   { name: 'run_agent',          description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ・name を知っていればこちらでも）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
   { name: 'delete_agent',       description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'export_agent_mcp',   description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'stream_run',         description: '実行中フローの進捗を購読: 接続時点の各ノード出力 snapshot を返し、run が完了/キャンセルするまで（最大 timeout 秒）待って、その間に完了したノードと最終 status をまとめて1回で返す。長時間 push ではなく集約スナップショット（MCP は常駐 SSE を保持しない）。ライブ追記が要る UI は GET /api/runs/:id/stream（EventSource）を直接使う。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
   { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
 ];
@@ -930,6 +944,21 @@ async function mcpDispatch(name, args) {
   if (name.startsWith('agent_'))     return runAgentSync(name.slice(6), args.input);             // P-2: 動的露出した agent_<name> tool の実行
   if (name === 'get_checkpoint')     return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
   if (name === 'resolve_checkpoint') return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : ref(args.allow ? approve(args.id) : decline(args.id));
+  if (name === 'stream_run') {
+    const run = state.runs[args.id]; if (!run) throw new Error(`no run "${args.id}"`);
+    const snapshot = Object.entries(run.outputs).map(([node, output]) => ({ node, output }));
+    if (run.status !== 'running') return { id: run.id, status: run.status, done: true, nodes: snapshot };
+    const secs = Math.min(Math.max(Number(args.timeout) || 30, 1), 120);
+    const seen = new Set(Object.keys(run.outputs));
+    return await new Promise((resolve) => {
+      const events = [];
+      const sink = { write(frame) { try { const e = JSON.parse(frame.slice(6)); if (e.type === 'node' && !seen.has(e.node)) { seen.add(e.node); events.push({ node: e.node, output: e.output }); } if (e.type === 'done') finish(e.status); } catch {} }, end() {} };   // frame = 'data: {json}\n\n' → slice(6)
+      let done = false;
+      const finish = (status) => { if (done) return; done = true; clearTimeout(t); const s = runListeners.get(run.id); if (s) s.delete(sink); resolve({ id: run.id, status: status || state.runs[run.id]?.status || run.status, done: status != null, nodes: [...snapshot, ...events] }); };
+      const t = setTimeout(() => finish(null), secs * 1000);
+      let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(sink);
+    });
+  }
   throw new Error(`unknown tool "${name}"`);
 }
 
@@ -973,6 +1002,18 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
     return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
+  if (req.method === 'GET') { const sm = p.match(/^\/api\/runs\/([^/]+)\/stream$/);   // O1: SSE live run stream (inherits the bearerOk gate above)
+    if (sm) {
+      const run = state.runs[sm[1]];
+      if (!run) return json(res, 404, { error: `no run "${sm[1]}"` });
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive', 'access-control-allow-origin': '*' });
+      for (const [node, output] of Object.entries(run.outputs)) res.write(`data: ${JSON.stringify({ type: 'node', node, output, status: run.status })}\n\n`);   // snapshot of progress so far
+      if (run.status !== 'running') { res.write(`data: ${JSON.stringify({ type: 'done', status: run.status })}\n\n`); return res.end(); }   // already terminal → no live tail needed
+      let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(res);
+      req.on('close', () => { const s = runListeners.get(run.id); if (s) { s.delete(res); if (!s.size) runListeners.delete(run.id); } });
+      return;
+    }
+  }
   if (req.method === 'GET') { const rm = p.match(/^\/api\/runs\/([^/]+)$/);   // M-2: full run by id
     if (rm) { const r = state.runs[rm[1]]; return r ? json(res, 200, r) : json(res, 404, { error: `no run "${rm[1]}"` }); } }
   if (req.method === 'GET' && p === '/api/workflows') {
