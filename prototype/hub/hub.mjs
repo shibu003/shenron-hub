@@ -24,7 +24,7 @@ import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
-import { register, verifyEmail, login, checkSession, logout, listUsers, userCount } from './auth.mjs';
+import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
@@ -884,6 +884,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
+  if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
+    return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
+  if (req.method === 'GET') { const rm = p.match(/^\/api\/runs\/([^/]+)$/);   // M-2: full run by id
+    if (rm) { const r = state.runs[rm[1]]; return r ? json(res, 200, r) : json(res, 404, { error: `no run "${rm[1]}"` }); } }
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
@@ -986,6 +990,19 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'shenron_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0', 'access-control-allow-origin': '*' });
         return res.end(JSON.stringify({ ok: true }));
       }
+      // Wave M-1: password reset — public (no bearer required, same as register/login)
+      if (p === '/api/auth/reset-request') {
+        try {
+          const r = resetRequest(j.email);
+          if (r.resetToken) { const base = reqBase(req); console.log(`\n🔑 [auth] パスワードリセットリンク (${r.email}):\n  ${base}/api/auth/reset?token=${r.resetToken}\n`); }
+          trail('auth-reset-request', { email: j.email || '?' });
+          return json(res, 200, { note: 'if registered, reset link printed to hub terminal' });
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (p === '/api/auth/reset') {
+        try { return json(res, 200, resetPassword(j.token, j.password)); }
+        catch (e) { return json(res, 400, { error: e.message }); }
+      }
       // OAuth POST endpoints
       if (p === '/oauth/register') { const client_id = randomUUID().replace(/-/g, ''); oauthClients.set(client_id, { name: j.client_name || 'client' }); return json(res, 201, { client_id, token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'] }); }
       if (p === '/oauth/token') {
@@ -1031,7 +1048,20 @@ const server = http.createServer((req, res) => {
       if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
-      if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: schedulerOn() }); }   // Wave: 無料外部 cron(Cloudflare/cron-job.org 等)が叩く seam＝now due な schedule automation を発火（hub が起きてる時のみ届く）
+      if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: schedulerOn() }); }
+      if (p === '/api/notify/test') {   // M-3: ping all enabled notify integrations with a test payload
+        const notifiers = readIntegrations().filter((i) => i.enabled !== false && i.kind === 'notify');
+        const payload = JSON.stringify({ type: 'test', at: new Date().toISOString(), message: 'Shenron test notification' });
+        Promise.all(notifiers.map((n) => {
+          const headers = { 'content-type': 'application/json' };
+          if (n.token) headers['authorization'] = `Bearer ${n.token}`;
+          const body = n.format === 'slack' ? JSON.stringify({ text: '🧪 Shenron test notification' }) : payload;
+          return fetch(n.url, { method: 'POST', headers, body })
+            .then((r) => ({ id: n.id, url: n.url, ok: r.ok, status: r.status }))
+            .catch((e) => ({ id: n.id, url: n.url, ok: false, error: e.message }));
+        })).then((results) => json(res, 200, { sent: results.length, results }));
+        return;
+      }   // Wave: 無料外部 cron(Cloudflare/cron-job.org 等)が叩く seam＝now due な schedule automation を発火（hub が起きてる時のみ届く）
       if (p === '/api/config') { writeCfg(mergeCfg(j)); trail('config-set', { keys: Object.keys(j) }); return json(res, 200, configStatus()); }   // Wave: 設定を1か所で更新（MCP/NL set_config も here）。secret は受けない（keyEnv は剥がす）
       if (p === '/api/fire/preview') return json(res, 200, firePreview(j.event || {})); // Wave 2: dry-run — what this event would fire (no run)
       if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off

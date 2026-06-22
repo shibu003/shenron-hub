@@ -215,6 +215,17 @@ const TOOLS = [
   // Wave L: Auth management (admin view)
   { name: 'list_users', description: '登録済みユーザー一覧（id/email/verified/createdAt）。パスワードは返らない。',
     inputSchema: { type: 'object', properties: {} } },
+  // Wave M-1: パスワードリセット
+  { name: 'reset_password', description: 'パスワードリセット。email だけ渡すと hub ターミナルにリセットリンクを出力（reset-request）。token + password を渡すとリセット実行（reset）。両方公開エンドポイント（認証不要）。',
+    inputSchema: { type: 'object', properties: { email: { type: 'string', description: 'reset-request: メールアドレス' }, token: { type: 'string', description: 'reset: リセットリンクのトークン' }, password: { type: 'string', description: 'reset: 新しいパスワード' } } } },
+  // Wave M-2: run 履歴
+  { name: 'list_runs', description: '直近 20 件のフロー実行履歴（id/flowId/status/done/total/outputs）。',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'get_run', description: 'runId でフロー実行の全フィールドを取得（outputs/skipped/routerPick を含む）。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  // Wave M-3: 通知テスト
+  { name: 'test_notify', description: '有効な通知 integration (kind:notify) 全てにテスト payload を送信し、各 URL の成否を返す。',
+    inputSchema: { type: 'object', properties: {} } },
 ];
 
 async function callTool(name, args = {}) {
@@ -317,6 +328,15 @@ async function callTool(name, args = {}) {
     case 'import_skill': { const b = args.blob || {}; return await hub('/api/components/import', { what: args.what || b.what, code: args.code || b.code, iters: b.iters }); }
     // Wave L: Auth
     case 'list_users': return await hub('/api/auth/users');
+    // Wave M-1: reset
+    case 'reset_password':
+      if (args.token) return await hub('/api/auth/reset', { token: args.token, password: args.password });
+      return await hub('/api/auth/reset-request', { email: args.email });
+    // Wave M-2: run 履歴
+    case 'list_runs': return await hub('/api/runs');
+    case 'get_run': return await hub(`/api/runs/${encodeURIComponent(args.id)}`);
+    // Wave M-3: 通知テスト
+    case 'test_notify': return await hub('/api/notify/test', {});
     default: throw new Error(`unknown tool: ${name}`);
   }
 }

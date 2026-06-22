@@ -90,3 +90,29 @@ export function listUsers() {
 }
 
 export function userCount() { return readUsers().length; }
+
+export function resetRequest(email) {
+  const users = readUsers();
+  const user = users.find((u) => u.email === email);
+  if (!user) return { note: 'if registered, link printed to terminal' }; // ponytail: don't leak email existence
+  const token = randomBytes(24).toString('hex');
+  user.resetToken = token;
+  user.resetExpires = Date.now() + 60 * 60 * 1000; // 1h
+  saveUsers(users);
+  return { resetToken: token, email };
+}
+
+export function resetPassword(token, newPassword) {
+  if (!token || !newPassword) throw new Error('token and newPassword required');
+  const users = readUsers();
+  const tokenBuf = Buffer.from(token);
+  const user = users.find((u) => u.resetToken && (() => { const b = Buffer.from(u.resetToken); return b.length === tokenBuf.length && timingSafeEqual(b, tokenBuf); })());
+  if (!user) throw new Error('invalid or expired reset token');
+  if (Date.now() > (user.resetExpires || 0)) throw new Error('reset token expired');
+  const salt = randomBytes(16).toString('hex');
+  user.passwordHash = hashPw(newPassword, salt);
+  user.salt = salt;
+  delete user.resetToken; delete user.resetExpires;
+  saveUsers(users);
+  return { ok: true, email: user.email };
+}
