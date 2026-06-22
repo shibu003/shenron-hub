@@ -720,12 +720,82 @@ function tickScheduler() {
 // reviews on the canvas and Run keeps the approval fence. Uses the agent index + connected MCP tools + the
 // component kinds. A real vendor (claude/codex) generates the flow JSON; otherwise a deterministic heuristic
 // builds one from the index so it works offline/stub. Every edge is typed-port validated (bad ones dropped). ----------
-function createAgent({ name, skill, systemPrompt, accepts, emits, stub, vendor, company }) {
+function createAgent({ name, skill, systemPrompt, accepts, emits, stub, vendor, model, company }) {
   if (!name) throw new Error('name required');
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error('name must be lowercase [a-z0-9-] (used as the MCP tool id agent_<name>)');   // P-2: name は agent_<name> tool id になる → 安全な文字に限定
   const a = agent(name); a.skill = skill || a.skill || 'task'; a.company = company || a.company || null;
   a.accepts = Array.isArray(accepts) ? accepts : (a.accepts || ['*']); a.emits = Array.isArray(emits) ? emits : (a.emits || ['*']);
-  a.local = { skillId: a.skill, vendor: vendor || 'stub', systemPrompt: systemPrompt || '', stub: stub || '' };   // runnable in-process
+  a.local = { skillId: a.skill, vendor: vendor || 'stub', systemPrompt: systemPrompt || '', stub: stub || '', ...(model ? { model } : {}) };   // runnable in-process
   a.autorun = true; save(); return publicAgents().find((x) => x.id === name);
+}
+// P-1: エージェント定義を削除（state から消して save）。進行中の run/handoff は触らない＝新規受付を止めるだけの非破壊削除。
+function removeAgent(name) {
+  if (!state.agents[name]) throw new Error(`no agent "${name}"`);
+  if (!state.agents[name].local) throw new Error(`agent "${name}" is not a local agent (cannot delete remote/preseeded)`);
+  delete state.agents[name]; save(); trail('agent-delete', { name });
+  return { name, deleted: true };
+}
+// P-2: 作ったエージェントを「すぐ使える MCP tool」に — local agent を同期実行して結果を返す純経路。
+async function runAgentSync(name, input) {
+  const a = state.agents[name];
+  if (!a || !a.local) throw new Error(`no local agent "${name}"`);
+  const lc = a.local; const vendor = EXEC_VENDOR || lc.vendor || 'stub';
+  const prompt = `${lc.systemPrompt}\n\n--- INPUT ---\n${input || ''}\n--- END INPUT ---`;   // Wave S でここに関連メモリを前置する
+  const result = await runVendorAsync(vendor, prompt, lc.stub, { model: lc.model });
+  trail('agent-run', { agent: name, vendor, bytes: (result || '').length });
+  return { agent: name, vendor, result };
+}
+// P-2: 各 local agent を agent_<name> という MCP tool として動的に露出（create_agent 直後に client の tools/list に出る）。
+const agentTools = () => Object.values(state.agents).filter((a) => a.local).map((a) => ({
+  name: `agent_${a.id}`,
+  description: `エージェント「${a.id}」を実行${a.skill && a.skill !== 'task' ? `（skill: ${a.skill}）` : ''}。create_agent で作成された local agent。input にタスク内容を渡す。`,
+  inputSchema: { type: 'object', properties: { input: { type: 'string', description: 'エージェントへの入力（タスク内容）' } }, required: ['input'] },
+}));
+// P-3: local agent を hub 非依存の standalone stdio MCP server（Python・stdlib のみ）として書出 →
+// ユーザーが任意の MCP client（claude.ai / Claude Code）に登録できるポータブル成果物。systemPrompt を埋め込み、
+// run(input) tool 1本を出す。実行は `claude -p`（既定）にプロンプトを渡す = ユーザー自身のサブスクで動く（従量0 維持）。
+function exportAgentMcp(name) {
+  const a = state.agents[name];
+  if (!a || !a.local) throw new Error(`no local agent "${name}"`);
+  const GEN_DIR = path.join(HERE, '..', 'mcp', 'generated');
+  fs.mkdirSync(GEN_DIR, { recursive: true });
+  const file = path.join(GEN_DIR, `${name}-agent.py`);
+  const sp = JSON.stringify(a.local.systemPrompt || '');   // Python str literal として安全に埋込（JSON は Python literal の部分集合）
+  const code = `#!/usr/bin/env python3
+# Standalone MCP server for agent "${name}" — exported by 神龍 (shenron). Depends on NOTHING but stdlib + the
+# \`claude\` CLI on PATH (your own subscription → $0 marginal). Register this file as a stdio MCP server.
+import sys, json, subprocess
+SYSTEM_PROMPT = ${sp}
+TOOLS = [{"name": "run", "description": "Run the ${name} agent on an input.",
+          "inputSchema": {"type": "object", "properties": {"input": {"type": "string"}}, "required": ["input"]}}]
+def run_agent(text):
+    prompt = SYSTEM_PROMPT + "\\n\\n--- INPUT ---\\n" + (text or "") + "\\n--- END INPUT ---"
+    try:
+        out = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True, timeout=180)
+        return out.stdout.strip() or out.stderr.strip()
+    except FileNotFoundError:
+        return "error: 'claude' CLI not found on PATH"
+    except subprocess.TimeoutExpired:
+        return "error: agent timed out"
+def send(o): sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    m = json.loads(line); mid, method, params = m.get("id"), m.get("method"), m.get("params") or {}
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "${name}-agent", "version": "1.0"}}})
+    elif method == "notifications/initialized": pass
+    elif method == "tools/list": send({"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}})
+    elif method == "tools/call":
+        res = run_agent((params.get("arguments") or {}).get("input", ""))
+        send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": res}]}})
+    else:
+        send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found: " + str(method)}})
+`;
+  fs.writeFileSync(file, code, { mode: 0o755 });
+  trail('agent-export-mcp', { name, path: path.relative(REPO_ROOT, file) });
+  return { name, path: path.relative(REPO_ROOT, file),
+    registerHint: `任意の MCP client に stdio server として登録: command="python3", args=["${path.relative(REPO_ROOT, file)}"]。'claude' CLI が PATH に必要（あなたのサブスクで動く）。` };
 }
 const PORTS = { input: { accepts: [], emits: ['text', '*'] }, prompt: { accepts: ['*'], emits: ['text', '*'] }, output: { accepts: ['*'], emits: [] }, trigger: { accepts: [], emits: ['*'] } };
 function portsOf(node) {
@@ -783,6 +853,10 @@ const MCP_TOOLS = [
   { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
   { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
   { name: 'gen_component',      description: '不足ツールを Python MCP サーバーとして生成', inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
+  { name: 'create_agent',       description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（このエージェントの役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/ codex / gemini / ollama 等' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
+  { name: 'run_agent',          description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ・name を知っていればこちらでも）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
+  { name: 'delete_agent',       description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'export_agent_mcp',   description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
 ];
@@ -841,6 +915,11 @@ async function mcpDispatch(name, args) {
     const saved = r.converged ? saveComponent(r) : null;
     return saved ? { ...r, id: saved.id, approved: false } : r;
   }
+  if (name === 'create_agent')       return createAgent({ name: args.name, systemPrompt: args.instructions, vendor: args.vendor, model: args.model });   // P-1: 作成 → 直後に agent_<name> が tools/list に出る
+  if (name === 'run_agent')          return runAgentSync(args.name, args.input);                 // P-2
+  if (name === 'delete_agent')       return removeAgent(args.name);                              // P-1
+  if (name === 'export_agent_mcp')   return exportAgentMcp(args.name);                           // P-3
+  if (name.startsWith('agent_'))     return runAgentSync(name.slice(6), args.input);             // P-2: 動的露出した agent_<name> tool の実行
   if (name === 'get_checkpoint')     return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
   if (name === 'resolve_checkpoint') return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : ref(args.allow ? approve(args.id) : decline(args.id));
   throw new Error(`unknown tool "${name}"`);
@@ -955,7 +1034,7 @@ const server = http.createServer((req, res) => {
         if (method === 'initialize' || method === 'notifications/initialized') {
           return json(res, 200, method === 'initialize' ? { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } } : {});
         }
-        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: [...MCP_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
         if (method === 'tools/call') {
           mcpDispatch((params || {}).name, (params || {}).arguments || {})
             .then((r) => json(res, 200, { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
@@ -1025,7 +1104,7 @@ const server = http.createServer((req, res) => {
         if (method === 'initialize' || method === 'notifications/initialized') {
           if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } });
         } else if (method === 'tools/list') {
-          send({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+          send({ jsonrpc: '2.0', id, result: { tools: [...MCP_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
         } else if (method === 'tools/call') {
           mcpDispatch((params || {}).name, (params || {}).arguments || {})
             .then((r) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
@@ -1136,6 +1215,11 @@ const server = http.createServer((req, res) => {
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/autorun$/))) return json(res, 200, setAutorun(m[1], j.on)); // per-agent autorun on/off
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/passport$/))) return json(res, 200, setPassport(m[1], j));  // Wave H: edit capability passport
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/run$/))) {   // P-2: run a local agent synchronously, return its output
+        runAgentSync(m[1], j.input).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return;
+      }
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/delete$/))) return json(res, 200, removeAgent(m[1]));   // P-1
+      if ((m = p.match(/^\/api\/agents\/([^/]+)\/export-mcp$/))) return json(res, 200, exportAgentMcp(m[1]));   // P-3: standalone MCP server を書出
       return json(res, 404, { error: `unknown route ${p}` });
     } catch (e) { return json(res, 400, { error: e.message }); }
   });

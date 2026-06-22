@@ -226,6 +226,15 @@ const TOOLS = [
   // Wave M-3: 通知テスト
   { name: 'test_notify', description: '有効な通知 integration (kind:notify) 全てにテスト payload を送信し、各 URL の成否を返す。',
     inputSchema: { type: 'object', properties: {} } },
+  // Wave P: Agent Factory
+  { name: 'create_agent', description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/codex/gemini/ollama' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
+  { name: 'run_agent', description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ）。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
+  { name: 'delete_agent', description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'export_agent_mcp', description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
 ];
 
 async function callTool(name, args = {}) {
@@ -337,7 +346,14 @@ async function callTool(name, args = {}) {
     case 'get_run': return await hub(`/api/runs/${encodeURIComponent(args.id)}`);
     // Wave M-3: 通知テスト
     case 'test_notify': return await hub('/api/notify/test', {});
-    default: throw new Error(`unknown tool: ${name}`);
+    // Wave P: Agent Factory
+    case 'create_agent': return await hub('/api/agents', { name: args.name, systemPrompt: args.instructions, vendor: args.vendor, model: args.model });
+    case 'run_agent': return await hub(`/api/agents/${encodeURIComponent(args.name)}/run`, { input: args.input });
+    case 'delete_agent': return await hub(`/api/agents/${encodeURIComponent(args.name)}/delete`, {});
+    case 'export_agent_mcp': return await hub(`/api/agents/${encodeURIComponent(args.name)}/export-mcp`, {});
+    default:
+      if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
+      throw new Error(`unknown tool: ${name}`);
   }
 }
 
@@ -354,6 +370,17 @@ const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n');
 const ok = (id, result) => send({ jsonrpc: '2.0', id, result });
 const err = (id, code, message) => send({ jsonrpc: '2.0', id, error: { code, message } });
 const asText = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
+// P-2: hub の live state から local agent を引き、agent_<name> tool 定義に変換（create_agent 直後に tools/list へ反映）。
+async function agentTools() {
+  try {
+    const { agents } = await hub('/api/state');
+    return (agents || []).filter((a) => a.local).map((a) => ({
+      name: `agent_${a.id}`,
+      description: `エージェント「${a.id}」を実行${a.skill && a.skill !== 'task' ? `（skill: ${a.skill}）` : ''}。create_agent で作成された local agent。`,
+      inputSchema: { type: 'object', properties: { input: { type: 'string', description: 'エージェントへの入力（タスク内容）' } }, required: ['input'] },
+    }));
+  } catch { return []; }   // hub 未起動でも tools/list は静的分だけ返す
+}
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', async (line) => {
@@ -367,7 +394,7 @@ rl.on('line', async (line) => {
           capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'buildhud-mcp', version: '0.1.0' } });
       case 'notifications/initialized': return;            // notification, no reply
       case 'ping': return ok(id, {});
-      case 'tools/list': return ok(id, { tools: TOOLS });
+      case 'tools/list': return ok(id, { tools: [...TOOLS, ...await agentTools()] });   // P-2: hub の live local agents を agent_<name> tool として append
       case 'tools/call': {
         try { return ok(id, asText(await callTool(params?.name, params?.arguments))); }
         catch (e) { return ok(id, { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true }); }
