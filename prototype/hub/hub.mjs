@@ -452,6 +452,13 @@ function fireMcpNode(run, node, input, from) {
   touch(h, auto ? 'approved' : 'awaiting_approval', auto ? 'auto' : 'policy'); save();
   if (auto) runMcp(h);
 }
+// Wave N1: 宣言済み credential 名のうち vault に在るものだけ {NAME: value} を返す（null は skip）。
+// 注入は allowlist 名のみ・値は絶対に log/audit/AI context に出さない（trail は名前のみ・hub.mjs send 行参照）。
+function credentialEnv(names) {
+  const env = {};
+  for (const n of names || []) { const v = getCredential(n); if (v != null) env[n] = v; }
+  return env;
+}
 async function runMcp(h) {
   if (running.has(h.id)) return; running.add(h.id);
   const { server, tool, config } = h.mcp;
@@ -468,7 +475,8 @@ async function runMcp(h) {
     const pass = upstream?.passport?.share?.pass || [];            // capability passport: structured-args allowlist (default-deny when set)
     const pf = applyPass(config || {}, pass);                      // gate the CONFIG fields only; the scrubbed `input` payload always flows
     if (pf.dropped.length) trail('pass-drop', { handoff: h.id, to: `${server}.${tool}`, allowlist: pass, dropped: pf.dropped });
-    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: safeEnv(integ.credentials || []) } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ ride through（信頼済 server は env 継承のまま）
+    const creds = integ.credentials || [];
+    const out = await callMcpTool(integ, tool, { ...pf.args, input: fw.text }, { cwd: REPO_ROOT, ...(integ.generated ? { env: { ...safeEnv(creds), ...credentialEnv(creds) } } : {}) });   // Wave 9: 生成 server は untrusted → default-deny の env で spawn。BYO-credential は宣言名だけ ride through。Wave N1: vault 値を宣言名に注入（process.env を上書き）＝vault に入れた credential が初めて実行時に効く
     trail('send', { handoff: h.id, server, tool, redacted: fw.removed.length, ...(integ.generated && (integ.credentials || []).length ? { creds: integ.credentials } : {}) });   // creds=注入した名前のみ・値は絶対に出さない
     postResult(h.id, { result: out }, 'hub');
   } catch (e) { postResult(h.id, { error: e.message }, 'hub'); }
