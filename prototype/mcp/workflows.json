@@ -44,7 +44,8 @@
         "agent": "marketing-outreach-agent",
         "skill": "draft-outreach"
       }
-    ]
+    ],
+    "lastRun": 1782119022808
   },
   {
     "id": "csueb-gmail-assistant",
@@ -82,6 +83,90 @@
       {
         "from": "generate-draft",
         "to": "send-email"
+      }
+    ],
+    "steps": []
+  },
+  {
+    "id": "workflow-csueb-gmail-assistant-gmail-mcp-csueastbay-edu-1",
+    "name": "既存の workflow:csueb-gmail-assistant を起点に、Gmail MCP で @csueastbay.edu メールを取得・要約し、返信/新規作成まで1セッションで完結させる。",
+    "summary": "既存の workflow:csueb-gmail-assistant を起点に、Gmail MCP で @csueastbay.edu メールを取得・要約し、返信/新規作成まで1セッションで完結させる。",
+    "tags": [],
+    "nodes": [
+      {
+        "id": "input-1",
+        "kind": "input",
+        "x": 40,
+        "y": 40
+      },
+      {
+        "id": "s1",
+        "kind": "mcp",
+        "server": "workflow:csueb-gmail-assistan",
+        "tool": "workflow:csueb-gmail-assistant",
+        "x": 280,
+        "y": 40
+      },
+      {
+        "id": "s2",
+        "kind": "prompt",
+        "config": {
+          "template": "取得メールをスレッド単位で要約し、優先度・要返信フラグを付与\n\n{input}",
+          "tier": "cheap"
+        },
+        "x": 520,
+        "y": 40
+      },
+      {
+        "id": "s3",
+        "kind": "prompt",
+        "config": {
+          "template": "ユーザーの質問・指示（返信内容/新規作成）を受けてメール文面を生成\n\n{input}",
+          "tier": "strong"
+        },
+        "x": 760,
+        "y": 40
+      },
+      {
+        "id": "s4",
+        "kind": "mcp",
+        "server": "echo",
+        "tool": "send_email",
+        "x": 1000,
+        "y": 40
+      },
+      {
+        "id": "output-1",
+        "kind": "output",
+        "x": 1240,
+        "y": 40
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "source": "input-1",
+        "target": "s1"
+      },
+      {
+        "id": "e1",
+        "source": "s1",
+        "target": "s2"
+      },
+      {
+        "id": "e2",
+        "source": "s2",
+        "target": "s3"
+      },
+      {
+        "id": "e3",
+        "source": "s3",
+        "target": "s4"
+      },
+      {
+        "id": "e4",
+        "source": "s4",
+        "target": "output-1"
       }
     ],
     "steps": []

@@ -665,6 +665,8 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
   return trigger.type === 'schedule' ? { ...m, note: schedulerNote() } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
 }
+// pause/resume a saved automation without deleting it — scheduler & fireEvent both honor enabled (read fresh, no restart). Mirrors toggleIntegration.
+function toggleAutomation(id, on) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2)); return { id: it.id, name: it.name, enabled: it.enabled }; }
 const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
   const matched = matchingAutomations(event);
@@ -1098,6 +1100,7 @@ const server = http.createServer((req, res) => {
       let m;
       if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
+      if ((m = p.match(/^\/api\/automations\/([^/]+)\/toggle$/))) return json(res, 200, toggleAutomation(m[1], j.on));
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result|checkpoint)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : m[2] === 'checkpoint' ? ref(checkpoint(m[1], j)) : ref(postResult(m[1], j)));
       if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
