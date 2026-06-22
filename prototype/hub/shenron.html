@@ -190,49 +190,66 @@
       <div x-show="tab === 'runs'" class="p-6 space-y-4">
         <h2 class="text-xl font-bold text-slate-800">実行</h2>
         <p x-show="runs.length === 0" class="text-sm text-slate-400 py-12 text-center">実行履歴はありません</p>
-        <div class="space-y-3">
+        <div class="space-y-4">
           <template x-for="run in runs" :key="run.id">
-            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+
+              <!-- Header -->
+              <div class="px-5 py-4 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="font-semibold text-slate-800 truncate" x-text="flowName(run.flowId, run.id)"></p>
+                  <div class="flex items-center gap-2 mt-1 flex-wrap">
+                    <span class="text-xs font-mono text-slate-300" x-text="run.id"></span>
+                    <span class="text-xs text-slate-400" x-text="run.done + ' / ' + run.total + ' ステップ'"></span>
+                    <span x-show="errCount(run) > 0"
+                      class="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium"
+                      x-text="errCount(run) + ' 件のエラー'"></span>
+                    <span x-show="stubCount(run) > 0 && errCount(run) === 0"
+                      class="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded"
+                      x-text="stubCount(run) + ' 件 stub（LLM未設定）'"></span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
                   <span class="text-xs px-2.5 py-1 rounded-full font-medium"
                     :class="{
                       'bg-blue-100 text-blue-700': run.status === 'running',
                       'bg-green-100 text-green-700': run.status === 'completed',
                       'bg-gray-100 text-gray-500': run.status === 'cancelled'
-                    }" x-text="run.status"></span>
-                  <span class="text-xs font-mono text-slate-400" x-text="run.id"></span>
-                  <span x-show="run.flowId" class="text-xs text-slate-400" x-text="run.flowId"></span>
-                </div>
-                <div class="flex items-center gap-3">
-                  <span class="text-xs text-slate-400" x-text="run.done + ' / ' + run.total + ' nodes'"></span>
+                    }" x-text="statusJa(run.status)"></span>
                   <button x-show="run.status === 'running'" @click="stopRun(run.id)"
-                    class="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">⏹ Stop</button>
+                    class="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">⏹ 停止</button>
                 </div>
               </div>
 
               <!-- Progress bar -->
-              <div x-show="run.status === 'running'" class="w-full bg-gray-100 rounded-full h-1.5">
-                <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+              <div x-show="run.status === 'running'" class="h-1 bg-gray-100">
+                <div class="bg-indigo-500 h-1 transition-all duration-500"
                   :style="'width:' + (run.total > 0 ? Math.round(run.done / run.total * 100) : 0) + '%'"></div>
               </div>
 
-              <!-- Outputs -->
+              <!-- Outputs — errors first, then normal, then stubs -->
               <template x-if="run.outputs && Object.keys(run.outputs).length > 0">
-                <details>
-                  <summary class="text-xs text-indigo-600 cursor-pointer hover:underline select-none">
-                    出力を見る (<span x-text="Object.keys(run.outputs).length"></span> nodes)
-                  </summary>
-                  <div class="mt-2 space-y-1.5">
-                    <template x-for="[k, v] in Object.entries(run.outputs)" :key="k">
-                      <div class="bg-gray-50 rounded-lg p-3">
-                        <p class="text-xs text-slate-400 font-mono mb-1" x-text="k"></p>
-                        <p class="text-sm text-slate-700 whitespace-pre-wrap break-words" x-text="v"></p>
-                      </div>
-                    </template>
-                  </div>
-                </details>
+                <div class="border-t border-gray-50 divide-y divide-gray-50">
+                  <template x-for="[k, v] in sortedOutputs(run)" :key="k">
+                    <div x-show="v" class="px-5 py-3 space-y-1.5">
+                      <p class="text-xs font-medium text-slate-400" x-text="nodeLabel(k)"></p>
+                      <template x-for="(line, li) in parseLines(v)" :key="li">
+                        <div class="rounded-lg px-3 py-2 text-sm leading-relaxed"
+                          :class="{
+                            'bg-red-50 border border-red-100 text-red-700': line.type === 'error',
+                            'bg-gray-50 text-gray-400 text-xs':             line.type === 'stub',
+                            'bg-blue-50 text-slate-700':                    line.type === 'normal'
+                          }">
+                          <span x-show="line.type === 'error'" class="mr-1">⚠️</span>
+                          <span x-show="line.type === 'stub'"  class="mr-1 opacity-40">💬</span>
+                          <span x-text="line.text" class="whitespace-pre-wrap break-words"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
               </template>
+
             </div>
           </template>
         </div>
@@ -717,6 +734,51 @@
             this.config = await this.api('POST', '/api/config', { [key]: val });
             this.showToast('設定を保存しました');
           } catch (e) { this.showToast('エラー: ' + e.message, false); }
+        },
+
+        // ── Runs helpers ─────────────────────────────
+        flowName(flowId, id) {
+          if (!flowId) return '実行 ' + id;
+          return flowId.replace(/^workflow-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').trim() || flowId;
+        },
+        statusJa(s) {
+          return { running: '実行中', completed: '完了', cancelled: '停止済み' }[s] || s;
+        },
+        nodeLabel(k) {
+          if (!k) return k;
+          if (/^input/.test(k))  return '📥 入力';
+          if (/^output/.test(k)) return '📤 出力';
+          if (/^s(\d+)$/.test(k)) return 'ステップ ' + k.slice(1);
+          return k;
+        },
+        parseLines(v) {
+          if (!v) return [];
+          return String(v).split('\n').filter(l => l.trim()).map(l => {
+            if (l.startsWith('[error]')) {
+              const msg = l.replace('[error]', '').trim();
+              const m = msg.match(/no integration "([^"]+)"?/);
+              if (m) return { type: 'error', text: '「' + m[1] + '」が未接続 — ⚙ Settings > Integrations で追加してください' };
+              return { type: 'error', text: msg };
+            }
+            if (l.match(/^\[(?:prompt:stub|→ stub)\]/)) {
+              const text = l.replace(/^\[[^\]]+\]\s*/, '').trim();
+              return { type: 'stub', text: text || '（LLM未設定のためスタブ応答）' };
+            }
+            return { type: 'normal', text: l };
+          });
+        },
+        errCount(run) {
+          return Object.values(run.outputs || {}).filter(v => String(v).includes('[error]')).length;
+        },
+        stubCount(run) {
+          return Object.values(run.outputs || {}).filter(v => String(v).includes('[prompt:stub]')).length;
+        },
+        sortedOutputs(run) {
+          const entries = Object.entries(run.outputs || {}).filter(([,v]) => v);
+          const errors  = entries.filter(([,v]) => String(v).includes('[error]'));
+          const normals = entries.filter(([,v]) => !String(v).includes('[error]') && !String(v).includes('[prompt:stub]'));
+          const stubs   = entries.filter(([,v]) => !String(v).includes('[error]') && String(v).includes('[prompt:stub]'));
+          return [...errors, ...normals, ...stubs];
         },
 
         // ── Helpers ──────────────────────────────────
