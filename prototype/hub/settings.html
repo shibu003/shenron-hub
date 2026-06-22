@@ -132,6 +132,13 @@
     <div class="row" style="margin-top:10px"><button class="btn go" id="addIg">＋ サーバーを追加</button></div>
   </div>
 
+  <!-- オートメーション -->
+  <div class="card">
+    <h2>⏱ オートメーション</h2>
+    <p class="sub">保存済みフローの自動実行（スケジュール / build-state）。OFF で発火を即停止（削除はしません）。</p>
+    <div id="automations"></div>
+  </div>
+
   <!-- 環境 / キー -->
   <div class="card">
     <h2>🔑 環境・API キー</h2>
@@ -201,6 +208,46 @@ async function loadIntegrations(){
   });
 }
 
+// trigger オブジェクトを短い人間可読ラベルに。schedule は {type:"schedule",when:"0 2 * * *"} の 5フィールド cron、
+// build_state は {type:"build_state",match:{event:"review_completed",status:"green"}}。
+function triggerLabel(trigger){
+  if(!trigger || !trigger.type) return '—';
+  if(trigger.type==='build_state'){
+    const parts=Object.entries(trigger.match||{}).map(([k,v])=>`${k}=${v}`);
+    return parts.length ? `build: ${parts.join(' ')}` : 'build イベント';
+  }
+  if(trigger.type==='schedule'){
+    const f=String(trigger.when||'').trim().split(/\s+/);
+    if(f.length!==5) return trigger.when || 'スケジュール';
+    const [mi,h,dom,mon,dow]=f, nd=s=>/^\d+$/.test(s), DOW=['日','月','火','水','木','金','土'];
+    const t=`${h}:${mi.padStart(2,'0')}`;
+    let g;
+    if((g=mi.match(/^\*\/(\d+)$/)) && h==='*') return `${g[1]}分ごと`;
+    if(mi==='0' && (g=h.match(/^\*\/(\d+)$/))) return `${g[1]}時間ごと`;
+    if(h==='*' && nd(mi)) return `毎時 ${mi}分`;
+    if(nd(mi) && nd(h)){
+      if(dom==='*' && mon==='*' && dow==='*') return `毎日 ${t}`;
+      if(dom==='*' && mon==='*' && nd(dow)) return `毎週${DOW[(+dow)%7]} ${t}`;
+      if(nd(dom) && mon==='*' && dow==='*') return `毎月${dom}日 ${t}`;
+    }
+    return trigger.when;   // ponytail: 変則 cron は生のまま。完全パーサは入れない（YAGNI）
+  }
+  return trigger.type;
+}
+
+async function loadAutomations(){
+  let list=[]; try{ list=await api('/api/automations'); }catch{}
+  $('#automations').innerHTML = list.length ? list.map(a=>`
+    <div class="ig">
+      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(triggerLabel(a.trigger))}</span></div>
+      <label class="sw"><input type="checkbox" data-auto="${esc(a.id)}" ${a.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
+    </div>`).join('') : `<div class="note">保存されたオートメーションはありません。</div>`;
+  $('#automations').querySelectorAll('[data-auto]').forEach(el=>el.onchange=async()=>{
+    await api(`/api/automations/${encodeURIComponent(el.dataset.auto)}/toggle`,{on:el.checked});
+    toast(el.checked?'有効化しました':'無効化しました'); loadAutomations();
+  });
+}
+
 // --- interactions ---
 document.querySelectorAll('#cost button').forEach(b=>b.onclick=async()=>{
   await api('/api/config',{cost:b.dataset.cost}); toast('コストを更新: '+b.dataset.cost); loadConfig();
@@ -233,5 +280,5 @@ async function loadAutorun(){ let s; try{ s=await api('/api/state'); }catch{ ret
   const on = s.autorun !== false; $('#autorun').checked = on;
   $('#autorunState').textContent = on ? 'ON — hub が代理実行' : 'OFF — worker 待ち（broker-only）'; }
 
-loadConfig(); loadIntegrations(); loadAutorun();
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun();
 </script>

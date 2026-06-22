@@ -149,6 +149,8 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', enum: ['mcp', 'search'] }, command: { type: 'string' }, url: { type: 'string' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
   { name: 'add_automation', description: 'Register an automation that auto-runs a saved workflow on a schedule (cron) or a build-state event. Schedule example: trigger {type:"schedule", when:"0 9 * * 1"} (every Mon 9am, 5-field cron). NOTE: the in-hub scheduler fires ONLY while the hub host is running — for phone-only / no-always-on-host it will NOT fire (use an external scheduler like Google Apps Script); check the returned `note`.',
     inputSchema: { type: 'object', properties: { name: { type: 'string' }, trigger: { type: 'object', description: '{type:"schedule",when:"<cron>"} or {type:"build_state",match:{...}}' }, workflow: { type: 'string', description: 'saved workflow id to run' }, input: { type: 'string' } }, required: ['name', 'trigger', 'workflow'] } },
+  { name: 'toggle_automation', description: 'Enable or disable a saved automation (pause/resume) without deleting it — a disabled automation is skipped by the in-hub scheduler and by fire_event, effective immediately (no restart). Mirrors the cockpit toggle. Re-enable with on:true.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'automation id (from search_automations)' }, on: { type: 'boolean', description: 'true = enable, false = disable/pause' } }, required: ['id', 'on'] } },
   { name: 'get_config', description: 'Read 神龍\'s settings in one place (cost / scheduler / per-tier routing vendor+model / providers) + initial-setup hints (needs) + whether API keys are present. Secrets are never returned (presence only).',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'set_config', description: 'Update 神龍\'s settings from natural language or structured input (takes effect immediately, no restart). e.g. {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}. API keys CANNOT be set here (env/.dev.vars only). Returns the full updated settings.',
@@ -232,6 +234,11 @@ async function callTool(name, args = {}) {
     }
     case 'add_automation':                                      // Wave: schedule(cron)/build-state → auto-run a saved workflow (in-hub scheduler fires while the hub is up)
       return await hub('/api/automations', { name: args.name, trigger: args.trigger, workflow: args.workflow, input: args.input || '' });
+    case 'toggle_automation': {
+      const r = await hub(`/api/automations/${encodeURIComponent(args.id)}/toggle`, { on: args.on });
+      const a = AUTOMATIONS.find((x) => x.id === args.id); if (a) a.enabled = args.on !== false;   // keep the in-memory search index in sync (hub file is the source of truth for firing)
+      return r;
+    }
     case 'get_config': return await hub('/api/config');         // Wave: 全設定を1か所で読む（NL 設定変更の前後確認）
     case 'set_config': return await hub('/api/config', args || {});   // Wave: 設定を1か所で更新（自然文→構造化して渡す・即反映）
     case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,
