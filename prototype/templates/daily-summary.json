@@ -1,0 +1,14 @@
+{
+  "id": "daily-summary",
+  "name": "今日のまとめ",
+  "summary": "複数の文章（メール・チャット・メモ等）を貼ると、要点を箇条書きで日次サマリーにまとめる（組込LLMのみ・外部ツール不要・そのまま動く）。",
+  "nodes": [
+    { "id": "in", "kind": "input", "config": { "text": "" } },
+    { "id": "summarize", "kind": "prompt", "config": { "tier": "strong", "template": "以下の入力を読み、今日の要点を日本語の箇条書き（最大7項目）にまとめてください。各項目は1行・重要なもの順。最後に『次にやること』を1行だけ付けてください。\n\n--- 入力 ---\n{input}" } },
+    { "id": "out", "kind": "output" }
+  ],
+  "edges": [
+    { "id": "e0", "source": "in", "target": "summarize" },
+    { "id": "e1", "source": "summarize", "target": "out" }
+  ]
+}

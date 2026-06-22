@@ -175,6 +175,10 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { toAgentId: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['toAgentId', 'skill', 'input'] } },
   { name: 'run_workflow', description: 'ACT: run a workflow end-to-end (chained A2A handoffs). confirm:true to execute; otherwise returns a dry-run plan (attended).',
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id', 'input'] } },
+  { name: 'list_templates', description: 'List bundled flow templates (one-click installable starter flows). Small refs: id/name/summary/requires + any unmet gap warnings. Use install_template to save one as an editable workflow.',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'install_template', description: 'Install a bundled template by id → saves it as an editable workflow and returns its workflowId. Any missing required credential or not-yet-enabled integration is surfaced in `warnings` (install succeeds but the flow will gap at run time until resolved).',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'run_automation', description: 'ACT: fire one automation now (runs its bound workflow with its default input). confirm:true to execute; otherwise dry-run. --unattended mode fires enabled automations without confirm.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id'] } },
   { name: 'fire_event', description: 'ACT: feed a build-state event (e.g. {event:"review_completed",status:"green"}); returns the enabled automations whose build_state trigger matches, and fires them when confirm:true / --unattended. The build-state-triggered run.',
@@ -273,6 +277,8 @@ async function callTool(name, args = {}) {
       assertToken();
       return { result: await a2aSend(a.url, args.skill, args.input) };
     }
+    case 'list_templates': return await hub('/api/templates');
+    case 'install_template': return await hub(`/api/templates/${encodeURIComponent(args.id)}/install`, {});
     case 'run_workflow': {
       WORKFLOWS = loadJson('workflows.json', []);             // refresh: pick up flows saved from the cockpit
       const w = WORKFLOWS.find((x) => x.id === args.id); if (!w) throw new Error(`no workflow "${args.id}"`);

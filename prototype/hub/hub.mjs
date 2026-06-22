@@ -80,6 +80,18 @@ function closeRunListeners(runId) {   // terminal: flush 'done' already emitted 
 }
 const parseFmt = (p, inp) => String(p || '{input}').split('{input}').join(inp || '');   // Parser node: substitute {input} (pure string transform)
 const WF_FILE = sp('workflows.json', path.join(HERE, '..', 'mcp', 'workflows.json'));   // shared workflow store (nodes/edges canonical + steps[] shim)
+// Wave O2 — 同梱フローテンプレ（read-only）。templates/*.json を読み、ワンクリック install で saveWorkflow へ。
+const TEMPLATES_DIR = path.join(HERE, '..', 'templates');
+const readTemplates = () => { try { return fs.readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith('.json')).map((f) => { try { return JSON.parse(fs.readFileSync(path.join(TEMPLATES_DIR, f), 'utf8')); } catch { return null; } }).filter(Boolean); } catch { return []; } };
+// install 前の正直な gap 検査: requires 未設定 credential ＋ mcp ノードが参照する未登録/無効 integration を warning に集約（値は出さない・名前のみ）。
+function templateGaps(t) {
+  const warnings = [];
+  const haveCreds = new Set(listCredentials());
+  for (const id of (t.requires || [])) if (!haveCreds.has(id)) warnings.push(`未設定の credential "${id}" — ⚙ 設定で登録するまで run 時にこのテンプレが使う外部ツールは失敗します`);
+  const integs = readIntegrations();
+  for (const n of (t.nodes || [])) if (n.kind === 'mcp' && n.server) { const it = integs.find((x) => x.id === n.server); if (!it) warnings.push(`integration "${n.server}" が未登録 — install はできますが run 時に gap になります（⚙ 設定で接続）`); else if (it.enabled === false) warnings.push(`integration "${n.server}" が無効 — ⚙ 設定で有効化するまで run 時に gap になります`); }
+  return warnings;
+}
 let state = load();
 state.runs ||= {};                          // runId -> { nodes, edges, outputs, status } for in-flight DAG runs
 state.audit ||= [];                         // Wave H: hash-chained, tamper-evident trust trail
@@ -872,6 +884,8 @@ const MCP_TOOLS = [
   { name: 'set_config',         description: '神龍の設定を自然文/構造で更新（即反映・再起動不要）。例: {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}。⚠️ API key は設定不可（env/.dev.vars のみ）。返りは更新後の全設定。', inputSchema: { type: 'object', properties: { cost: { type: 'string', description: 'free|paid_ok' }, scheduler: { type: 'boolean' }, routing: { type: 'object', description: '{cheap:{vendor,model}, strong:{vendor,model}}' }, providers: { type: 'object', description: '{ollama:{host,model}, openai:{model}, anthropic:{model}}' } } } },
   { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
   { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
+  { name: 'list_templates',     description: '同梱フローテンプレ一覧（id/name/summary/requires/未設定 gap 警告）。install_template で1クリック導入。', inputSchema: { type: 'object', properties: {} } },
+  { name: 'install_template',   description: '同梱テンプレを編集可能な workflow として保存し workflow id を返す。requires 未設定 credential や未有効 integration があれば warnings に明示（install はできるが run 時 gap）。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
   { name: 'gen_component',      description: '不足ツールを Python MCP サーバーとして生成', inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
   { name: 'create_agent',       description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（このエージェントの役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/ codex / gemini / ollama 等' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
@@ -929,6 +943,8 @@ async function mcpDispatch(name, args) {
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
+  if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
+  if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
   if (name === 'gen_component') {
     const cached = matchComponent(readComponents(), args.what);
@@ -1016,6 +1032,8 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET') { const rm = p.match(/^\/api\/runs\/([^/]+)$/);   // M-2: full run by id
     if (rm) { const r = state.runs[rm[1]]; return r ? json(res, 200, r) : json(res, 404, { error: `no run "${rm[1]}"` }); } }
+  if (req.method === 'GET' && p === '/api/templates')   // Wave O2: 同梱テンプレ refs（id/name/summary/requires/nodeCount）＋未設定 gap 警告
+    return json(res, 200, readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) })));
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
@@ -1171,6 +1189,14 @@ const server = http.createServer((req, res) => {
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
       if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
+      { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
+        if (tm) {
+          const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
+          const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges });
+          const warnings = templateGaps(t);
+          trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length });   // 値は出さない・件数のみ
+          return json(res, 200, { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings });
+        } }
       if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
       if (p === '/api/langflow/run') { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // 🔗 delegate an exotic Langflow flow to /api/v1/run, fenced (audit appended → persist)
       if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
