@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐉 神龍</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="h-full" x-data="app()" x-init="init()">
+
+  <!-- Toast -->
+  <div x-show="toast.show" x-transition.opacity
+       class="fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg text-white text-sm font-medium pointer-events-none"
+       :class="toast.ok ? 'bg-green-600' : 'bg-red-600'" x-text="toast.msg"></div>
+
+  <div class="flex h-full">
+
+    <!-- Sidebar -->
+    <nav class="w-16 bg-slate-900 flex flex-col items-center py-4 gap-1 shrink-0 z-10">
+      <a href="/" class="text-xl mb-3 hover:opacity-70 transition-opacity" title="旧 UI">🐲</a>
+      <template x-for="t in tabs" :key="t.id">
+        <button @click="tab = t.id"
+          class="relative w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors"
+          :class="tab === t.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
+          :title="t.label">
+          <span class="text-lg leading-none" x-text="t.icon"></span>
+          <span class="leading-none text-slate-300" :class="tab === t.id ? 'text-white' : ''" x-text="t.label" style="font-size:9px"></span>
+          <!-- Pending badge -->
+          <span x-show="t.id === 'handoffs' && pendingHandoffs.length > 0"
+            class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-slate-900"></span>
+        </button>
+      </template>
+    </nav>
+
+    <!-- Main -->
+    <main class="flex-1 overflow-y-auto">
+
+      <!-- ====== 🐉 WISH ====== -->
+      <div x-show="tab === 'wish'" class="max-w-2xl mx-auto p-6 space-y-5">
+        <h1 class="text-2xl font-bold text-slate-800">何を叶えたいですか？</h1>
+
+        <!-- Input card -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <textarea x-model="goal" @keydown.meta.enter.prevent="submitWish()" rows="4"
+            placeholder="例: 毎週月曜に Slack でチームにレポートを送る"
+            class="w-full resize-none border border-gray-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 placeholder-gray-300"></textarea>
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex items-center gap-4">
+              <span class="text-xs text-slate-500">コスト</span>
+              <label class="flex items-center gap-1.5 cursor-pointer text-sm">
+                <input type="radio" x-model="cost" value="free" class="accent-indigo-600"> 無料のみ
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer text-sm">
+                <input type="radio" x-model="cost" value="paid_ok" class="accent-indigo-600"> 有料OK
+              </label>
+            </div>
+            <button @click="submitWish()" :disabled="planning || !goal.trim()"
+              class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors flex items-center gap-2">
+              <span x-show="planning" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block"></span>
+              🐉 プランを立てる
+            </button>
+          </div>
+        </div>
+
+        <!-- Clarify mode -->
+        <div x-show="plan && plan.mode === 'clarify'" class="space-y-4">
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <p class="text-sm font-medium text-amber-800">詳しく教えてください</p>
+          </div>
+
+          <template x-if="plan && plan.blockers && plan.blockers.length">
+            <div class="bg-red-50 border border-red-200 rounded-xl p-4 space-y-1">
+              <p class="text-xs font-semibold text-red-700 uppercase tracking-wide">⚠ ブロッカー</p>
+              <template x-for="b in plan.blockers"><p class="text-sm text-red-600" x-text="b"></p></template>
+            </div>
+          </template>
+
+          <template x-for="(q, qi) in (plan ? plan.clarify || [] : [])" :key="qi">
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+              <p class="font-medium text-slate-700 text-sm" x-text="q.question"></p>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="opt in q.options" :key="opt">
+                  <button @click="clarifyChoices[qi] = opt"
+                    class="px-3 py-1.5 rounded-lg text-sm border transition-colors"
+                    :class="clarifyChoices[qi] === opt
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'border-gray-200 text-slate-600 hover:border-indigo-400'">
+                    <span x-text="opt"></span>
+                  </button>
+                </template>
+              </div>
+              <p x-show="q.why" class="text-xs text-slate-400" x-text="q.why"></p>
+            </div>
+          </template>
+
+          <button @click="submitClarify()" :disabled="planning || !Object.keys(clarifyChoices).length"
+            class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors">
+            ↩ 再プラン
+          </button>
+        </div>
+
+        <!-- Plan mode -->
+        <div x-show="plan && plan.mode !== 'clarify'" class="space-y-4">
+
+          <!-- Summary text -->
+          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+            <pre class="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed" x-text="plan && plan.summary_text"></pre>
+          </div>
+
+          <!-- Blockers -->
+          <template x-if="plan && plan.blockers && plan.blockers.length">
+            <div class="bg-red-50 border border-red-200 rounded-xl p-4 space-y-1">
+              <p class="text-xs font-semibold text-red-700 uppercase tracking-wide">⚠ ブロッカー</p>
+              <template x-for="b in plan.blockers"><p class="text-sm text-red-600" x-text="b"></p></template>
+            </div>
+          </template>
+
+          <!-- Missing tools -->
+          <template x-if="plan && plan.missing && plan.missing.length">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+              <p class="text-xs font-semibold text-amber-800 uppercase tracking-wide">⚙ 不足ツール</p>
+              <template x-for="(m, mi) in plan.missing" :key="mi">
+                <div class="flex items-center justify-between bg-white rounded-lg px-3 py-2.5 shadow-sm">
+                  <div>
+                    <p class="text-sm font-medium text-slate-700" x-text="m.what"></p>
+                    <p class="text-xs text-slate-400" x-text="'step ' + m.step + ' · ' + m.kind"></p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span x-show="genState[mi] === 'done'" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-lg">生成済 → Deployments</span>
+                    <span x-show="genState[mi] === 'running'" class="text-xs text-slate-400 flex items-center gap-1">
+                      <span class="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin inline-block"></span> 生成中
+                    </span>
+                    <button x-show="!genState[mi]" @click="generateComponent(m.what, mi)"
+                      class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">⚙ 生成</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Save & Run -->
+          <div class="flex gap-2">
+            <input x-model="saveName" :placeholder="plan && plan.plain_summary || 'フロー名'"
+              class="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <button @click="saveWorkflow()" :disabled="!plan"
+              class="px-4 py-2.5 border border-indigo-300 text-indigo-600 rounded-xl text-sm font-medium hover:bg-indigo-50 disabled:opacity-40 transition-colors whitespace-nowrap">
+              💾 保存
+            </button>
+            <button @click="runPlan()" :disabled="!plan || !(plan.nodes && plan.nodes.length)"
+              class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors whitespace-nowrap">
+              ▶ 実行
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 📋 WORKFLOWS ====== -->
+      <div x-show="tab === 'workflows'" class="p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold text-slate-800">保存済みワークフロー</h2>
+          <button @click="loadWorkflows()" class="text-sm text-indigo-600 hover:underline">↻ 更新</button>
+        </div>
+        <p x-show="workflows.length === 0" class="text-sm text-slate-400 py-12 text-center">保存済みフローはありません</p>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <template x-for="wf in workflows" :key="wf.id">
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3 hover:shadow-md transition-shadow flex flex-col">
+              <div class="flex-1">
+                <p class="font-semibold text-slate-800 text-sm" x-text="wf.name"></p>
+                <p x-show="wf.summary" class="text-xs text-slate-400 mt-1 line-clamp-2" x-text="wf.summary"></p>
+              </div>
+              <div class="flex items-center justify-between pt-2 border-t border-gray-50">
+                <div class="text-xs text-slate-400 space-x-2">
+                  <span x-text="wf.steps + ' steps'"></span>
+                  <span x-show="wf.lastRun" x-text="'· ' + relTime(wf.lastRun)"></span>
+                </div>
+                <div class="flex gap-1.5">
+                  <button @click="makeSkill(wf.id)" title="Claude Code Skill を生成"
+                    class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors">📜</button>
+                  <button @click="runWorkflow(wf.id)"
+                    class="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors">▶ 実行</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ====== ⚡ RUNS ====== -->
+      <div x-show="tab === 'runs'" class="p-6 space-y-4">
+        <h2 class="text-xl font-bold text-slate-800">実行</h2>
+        <p x-show="runs.length === 0" class="text-sm text-slate-400 py-12 text-center">実行履歴はありません</p>
+        <div class="space-y-3">
+          <template x-for="run in runs" :key="run.id">
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs px-2.5 py-1 rounded-full font-medium"
+                    :class="{
+                      'bg-blue-100 text-blue-700': run.status === 'running',
+                      'bg-green-100 text-green-700': run.status === 'completed',
+                      'bg-gray-100 text-gray-500': run.status === 'cancelled'
+                    }" x-text="run.status"></span>
+                  <span class="text-xs font-mono text-slate-400" x-text="run.id"></span>
+                  <span x-show="run.flowId" class="text-xs text-slate-400" x-text="run.flowId"></span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-slate-400" x-text="run.done + ' / ' + run.total + ' nodes'"></span>
+                  <button x-show="run.status === 'running'" @click="stopRun(run.id)"
+                    class="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">⏹ Stop</button>
+                </div>
+              </div>
+
+              <!-- Progress bar -->
+              <div x-show="run.status === 'running'" class="w-full bg-gray-100 rounded-full h-1.5">
+                <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                  :style="'width:' + (run.total > 0 ? Math.round(run.done / run.total * 100) : 0) + '%'"></div>
+              </div>
+
+              <!-- Outputs -->
+              <template x-if="run.outputs && Object.keys(run.outputs).length > 0">
+                <details>
+                  <summary class="text-xs text-indigo-600 cursor-pointer hover:underline select-none">
+                    出力を見る (<span x-text="Object.keys(run.outputs).length"></span> nodes)
+                  </summary>
+                  <div class="mt-2 space-y-1.5">
+                    <template x-for="[k, v] in Object.entries(run.outputs)" :key="k">
+                      <div class="bg-gray-50 rounded-lg p-3">
+                        <p class="text-xs text-slate-400 font-mono mb-1" x-text="k"></p>
+                        <p class="text-sm text-slate-700 whitespace-pre-wrap break-words" x-text="v"></p>
+                      </div>
+                    </template>
+                  </div>
+                </details>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ====== ✅ HANDOFFS ====== -->
+      <div x-show="tab === 'handoffs'" class="p-6 space-y-5">
+        <h2 class="text-xl font-bold text-slate-800">承認</h2>
+
+        <!-- Pending -->
+        <div x-show="pendingHandoffs.length > 0" class="space-y-3">
+          <h3 class="text-xs font-semibold text-amber-700 uppercase tracking-wide">⏳ 承認待ち</h3>
+          <template x-for="h in pendingHandoffs" :key="h.id">
+            <div class="bg-white rounded-xl border border-amber-200 shadow-sm p-5 space-y-4">
+              <div>
+                <p class="font-semibold text-slate-800" x-text="h.checkpoint ? h.checkpoint.label : (h.skill || h.id)"></p>
+                <p x-show="h.checkpoint && h.checkpoint.tool" class="text-xs text-slate-500 mt-1"
+                  x-text="(h.checkpoint && h.checkpoint.tool || '') + ' · ' + (h.checkpoint && h.checkpoint.domain || '')"></p>
+                <p x-show="!h.checkpoint" class="text-xs text-slate-500 mt-1"
+                  x-text="h.from + ' → ' + h.to + ' · ' + h.skill"></p>
+              </div>
+              <img x-show="h.checkpoint && h.checkpoint.screenshot"
+                :src="h.checkpoint && h.checkpoint.screenshot || ''"
+                class="w-full max-h-52 object-contain rounded-lg border border-gray-100 bg-gray-50" alt="screenshot">
+              <div class="flex gap-3">
+                <button @click="approveHandoff(h.id)" class="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors">✅ 承認</button>
+                <button @click="declineHandoff(h.id)" class="flex-1 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors">❌ 拒否</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Recent -->
+        <div x-show="recentHandoffs.length > 0" class="space-y-2">
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">完了済み</h3>
+          <template x-for="h in recentHandoffs" :key="h.id">
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-sm text-slate-700 truncate" x-text="h.skill || h.id"></p>
+                <p x-show="h.result" class="text-xs text-slate-400 mt-0.5 truncate" x-text="h.result"></p>
+                <p x-show="h.error" class="text-xs text-red-500 mt-0.5" x-text="h.error"></p>
+              </div>
+              <span class="shrink-0 text-xs px-2 py-0.5 rounded-full mt-0.5"
+                :class="h.status === 'completed' ? 'bg-green-100 text-green-700' : h.status === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'"
+                x-text="h.status"></span>
+            </div>
+          </template>
+        </div>
+
+        <p x-show="pendingHandoffs.length === 0 && recentHandoffs.length === 0"
+          class="text-sm text-slate-400 py-12 text-center">承認待ちはありません</p>
+      </div>
+
+      <!-- ====== 🔧 DEPLOYMENTS ====== -->
+      <div x-show="tab === 'deployments'" class="p-6 space-y-8">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold text-slate-800">デプロイ済みツール</h2>
+          <button @click="loadDeployments()" class="text-sm text-indigo-600 hover:underline">↻ 更新</button>
+        </div>
+
+        <!-- Integrations -->
+        <section class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold text-slate-700">🔌 Integrations (MCP)</h3>
+            <button @click="showAddInt = !showAddInt" class="text-xs text-indigo-600 border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition-colors">＋ 追加</button>
+          </div>
+
+          <!-- Add form -->
+          <div x-show="showAddInt" x-transition class="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-2">
+            <input x-model="newInt.label" placeholder="ラベル (例: My Tool)"
+              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <input x-model="newInt.command" placeholder="コマンド (例: npx my-server) または URL (https://...)"
+              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <div class="flex gap-2">
+              <select x-model="newInt.kind" class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
+                <option value="mcp">mcp</option>
+                <option value="search">search</option>
+              </select>
+              <button @click="addIntegration()" :disabled="!newInt.label"
+                class="flex-1 bg-indigo-600 text-white rounded-lg text-sm py-2 hover:bg-indigo-700 disabled:opacity-40 transition-colors">追加</button>
+              <button @click="showAddInt = false" class="px-3 text-slate-400 hover:text-slate-600 text-sm">キャンセル</button>
+            </div>
+          </div>
+
+          <p x-show="integrations.length === 0" class="text-sm text-slate-400">なし</p>
+          <div class="space-y-2">
+            <template x-for="it in integrations" :key="it.id">
+              <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-slate-700 truncate" x-text="it.label"></p>
+                  <p class="text-xs text-slate-400" x-text="it.kind + ' · ' + (it.tools ? it.tools.length : 0) + ' tools' + (it.generated ? ' · 生成済' : '')"></p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                  <input type="checkbox" :checked="it.enabled !== false"
+                    @change="toggleIntegration(it.id, $event.target.checked)" class="sr-only peer">
+                  <div class="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-indigo-600
+                    after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all
+                    peer-checked:after:translate-x-full"></div>
+                </label>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <!-- Automations -->
+        <section class="space-y-3">
+          <h3 class="font-semibold text-slate-700">⏰ Automations</h3>
+          <p x-show="automations.length === 0" class="text-sm text-slate-400">なし</p>
+          <div class="space-y-2">
+            <template x-for="m in automations" :key="m.id">
+              <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-slate-700 truncate" x-text="m.name"></p>
+                  <p class="text-xs text-slate-400" x-text="(m.trigger || 'manual') + ' · workflow: ' + m.workflow"></p>
+                </div>
+                <button @click="fireAutomation(m.workflow)"
+                  class="shrink-0 ml-3 px-3 py-1.5 bg-gray-100 text-slate-600 rounded-lg text-xs hover:bg-indigo-100 hover:text-indigo-700 transition-colors">▶ 実行</button>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <!-- Generated Components -->
+        <section class="space-y-3">
+          <h3 class="font-semibold text-slate-700">🧩 生成ツール</h3>
+          <p x-show="components.length === 0" class="text-sm text-slate-400">なし</p>
+          <div class="space-y-2">
+            <template x-for="c in components" :key="c.id">
+              <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-slate-700 truncate" x-text="c.what"></p>
+                  <p class="text-xs text-slate-400" x-text="c.iters + ' iters · ' + relTime(c.createdAt)"></p>
+                </div>
+                <div class="shrink-0 ml-3 flex items-center gap-2">
+                  <span x-show="c.approved" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ 承認済</span>
+                  <button x-show="!c.approved" @click="approveComponent(c.id)"
+                    class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors">✅ 承認</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
+
+      <!-- ====== ⚙ SETTINGS ====== -->
+      <div x-show="tab === 'settings'" class="max-w-lg mx-auto p-6 space-y-5">
+        <h2 class="text-xl font-bold text-slate-800">設定</h2>
+
+        <template x-if="!config">
+          <p class="text-sm text-slate-400">読み込み中...</p>
+        </template>
+
+        <template x-if="config">
+          <div class="space-y-4">
+
+            <!-- Cost -->
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+              <p class="font-semibold text-slate-700 text-sm">💰 コストポリシー</p>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="radio" name="cost" value="free"
+                    :checked="config.config && config.config.cost !== 'paid_ok'"
+                    @change="setConfig('cost', 'free')" class="accent-indigo-600"> 無料のみ (free)
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="radio" name="cost" value="paid_ok"
+                    :checked="config.config && config.config.cost === 'paid_ok'"
+                    @change="setConfig('cost', 'paid_ok')" class="accent-indigo-600"> 有料OK (paid_ok)
+                </label>
+              </div>
+            </div>
+
+            <!-- Scheduler -->
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <p class="font-semibold text-slate-700 text-sm">⏰ スケジューラー</p>
+                <p class="text-xs text-slate-400 mt-1 leading-relaxed" x-text="config.scheduler && config.scheduler.note || ''"></p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                <input type="checkbox" :checked="config.schedulerOn"
+                  @change="setConfig('scheduler', {on: $event.target.checked})" class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-indigo-600
+                  after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all
+                  peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+
+            <!-- Managed mode notice -->
+            <div x-show="config.managed" class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <p class="text-sm text-amber-700">☁️ <strong>Managed モード:</strong> browser-control は利用できません。ローカル常駐箱にアップグレードすると全機能が使えます。</p>
+            </div>
+
+            <!-- API Keys -->
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+              <p class="font-semibold text-slate-700 text-sm">🔑 API キー (環境変数)</p>
+              <div class="space-y-1.5">
+                <template x-for="k in (config.keysPresent || [])" :key="k">
+                  <div class="flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"></span>
+                    <span class="text-sm font-mono text-slate-600" x-text="k"></span>
+                  </div>
+                </template>
+                <p x-show="!config.keysPresent || !config.keysPresent.length"
+                  class="text-sm text-slate-400">キー未設定（環境変数で設定してください）</p>
+              </div>
+            </div>
+
+            <!-- Needs -->
+            <template x-if="config.needs && config.needs.length">
+              <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-1">
+                <p class="text-xs font-semibold text-blue-700 uppercase tracking-wide">💡 初期設定が必要</p>
+                <template x-for="n in config.needs"><p class="text-sm text-blue-600" x-text="n"></p></template>
+              </div>
+            </template>
+
+            <!-- Hub link -->
+            <div class="text-center pt-2">
+              <a href="/" class="text-xs text-slate-400 hover:text-slate-600 underline">旧 UI (ビジュアルエディタ) →</a>
+            </div>
+          </div>
+        </template>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    function app() {
+      return {
+        tab: (location.hash.replace('#', '') || 'wish'),
+        tabs: [
+          { id: 'wish',        icon: '🐉', label: 'Wish'  },
+          { id: 'workflows',   icon: '📋', label: 'Flows' },
+          { id: 'runs',        icon: '⚡', label: 'Runs'  },
+          { id: 'handoffs',    icon: '✅', label: 'OKs'   },
+          { id: 'deployments', icon: '🔧', label: 'Tools' },
+          { id: 'settings',    icon: '⚙',  label: 'Config'},
+        ],
+
+        // Wish state
+        goal: '',
+        cost: 'free',
+        planning: false,
+        plan: null,
+        clarifyChoices: {},
+        saveName: '',
+        genState: {},   // {[mi]: 'running'|'done'|null}
+
+        // Data
+        workflows: [],
+        runs: [],
+        handoffs: [],
+        integrations: [],
+        automations: [],
+        components: [],
+        config: null,
+
+        // Deployments form
+        showAddInt: false,
+        newInt: { label: '', command: '', kind: 'mcp' },
+
+        // Toast
+        toast: { show: false, msg: '', ok: true },
+
+        get pendingHandoffs() {
+          return this.handoffs.filter(h => h.status === 'awaiting_approval');
+        },
+        get recentHandoffs() {
+          return this.handoffs
+            .filter(h => h.status !== 'awaiting_approval' && h.status !== 'submitted' && h.status !== 'running')
+            .slice(-15).reverse();
+        },
+
+        init() {
+          this.$watch('tab', t => {
+            location.hash = t;
+            this.onTabChange(t);
+          });
+          this.onTabChange(this.tab);
+          this.poll();
+          setInterval(() => this.poll(), 3000);
+        },
+
+        onTabChange(t) {
+          if (t === 'workflows')   this.loadWorkflows();
+          if (t === 'deployments') this.loadDeployments();
+          if (t === 'settings')    this.loadConfig();
+        },
+
+        async api(method, path, body) {
+          const res = await fetch(path, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: body !== undefined ? JSON.stringify(body) : undefined,
+          });
+          if (!res.ok) {
+            const e = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(e.error || res.statusText);
+          }
+          return res.json().catch(() => null);
+        },
+
+        showToast(msg, ok = true) {
+          this.toast = { show: true, msg, ok };
+          setTimeout(() => { this.toast.show = false; }, 3000);
+        },
+
+        // ── Polling ──────────────────────────────────
+        async poll() {
+          try {
+            const s = await this.api('GET', '/api/state');
+            this.runs = (s.runs || []).slice().reverse();
+            this.handoffs = s.handoffs || [];
+          } catch { /* hub offline */ }
+        },
+
+        // ── Wish ─────────────────────────────────────
+        async submitWish() {
+          if (!this.goal.trim() || this.planning) return;
+          this.planning = true;
+          this.plan = null;
+          this.clarifyChoices = {};
+          this.genState = {};
+          try {
+            const r = await this.api('POST', '/api/shenron/plan', { goal: this.goal, save: false, cost: this.cost });
+            r.mode = r.mode || (r.clarify && r.clarify.length ? 'clarify' : 'plan');
+            this.plan = r;
+            this.saveName = r.plain_summary || '';
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
+          this.planning = false;
+        },
+
+        async submitClarify() {
+          const choices = Object.values(this.clarifyChoices);
+          if (!choices.length || this.planning) return;
+          this.planning = true;
+          try {
+            const r = await this.api('POST', '/api/shenron/plan', {
+              goal: this.goal, save: false, cost: this.cost, context: { choices },
+            });
+            r.mode = r.mode || (r.clarify && r.clarify.length ? 'clarify' : 'plan');
+            this.plan = r;
+            this.clarifyChoices = {};
+            this.saveName = r.plain_summary || '';
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
+          this.planning = false;
+        },
+
+        async generateComponent(what, mi) {
+          this.genState = { ...this.genState, [mi]: 'running' };
+          try {
+            await this.api('POST', '/api/shenron/gen-component', { what });
+            this.genState = { ...this.genState, [mi]: 'done' };
+            this.showToast('⚙ 生成完了 — Deployments > 生成ツール で承認してください');
+          } catch (e) {
+            this.genState = { ...this.genState, [mi]: null };
+            this.showToast('生成エラー: ' + e.message, false);
+          }
+        },
+
+        async saveWorkflow() {
+          if (!this.plan) return;
+          try {
+            await this.api('POST', '/api/workflows', {
+              name: this.saveName || this.plan.plain_summary || 'untitled',
+              summary: this.plan.plain_summary || '',
+              nodes: this.plan.nodes || [],
+              edges: this.plan.edges || [],
+            });
+            this.showToast('💾 保存しました');
+          } catch (e) { this.showToast('保存エラー: ' + e.message, false); }
+        },
+
+        async runPlan() {
+          if (!this.plan || !this.plan.nodes) return;
+          try {
+            await this.api('POST', '/api/runflow', { nodes: this.plan.nodes, edges: this.plan.edges || [], input: this.goal });
+            this.tab = 'runs';
+            this.showToast('▶ 実行開始');
+          } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
+        },
+
+        // ── Workflows ────────────────────────────────
+        async loadWorkflows() {
+          try { this.workflows = await this.api('GET', '/api/workflows') || []; } catch { }
+        },
+
+        async runWorkflow(id) {
+          try {
+            await this.api('POST', '/api/runflow', { id });
+            this.tab = 'runs';
+            this.showToast('▶ 実行開始');
+          } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
+        },
+
+        async makeSkill(id) {
+          try {
+            const r = await this.api('POST', '/api/shenron/skill', { id });
+            this.showToast('📜 Skill 作成: ' + (r && r.path || ''));
+          } catch (e) { this.showToast('Skill エラー: ' + e.message, false); }
+        },
+
+        // ── Runs ─────────────────────────────────────
+        async stopRun(id) {
+          try {
+            await this.api('POST', `/api/runs/${id}/stop`, {});
+            this.showToast('⏹ 停止しました');
+          } catch (e) { this.showToast('停止エラー: ' + e.message, false); }
+        },
+
+        // ── Handoffs ─────────────────────────────────
+        async approveHandoff(id) {
+          try {
+            await this.api('POST', `/api/handoffs/${id}/approve`, {});
+            this.showToast('✅ 承認しました');
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
+        },
+
+        async declineHandoff(id) {
+          try {
+            await this.api('POST', `/api/handoffs/${id}/decline`, {});
+            this.showToast('❌ 拒否しました');
+          } catch { }
+        },
+
+        // ── Deployments ──────────────────────────────
+        async loadDeployments() {
+          try {
+            const [ints, autos, comps] = await Promise.all([
+              this.api('GET', '/api/integrations'),
+              this.api('GET', '/api/automations'),
+              this.api('GET', '/api/shenron/components'),
+            ]);
+            this.integrations = ints || [];
+            this.automations  = autos || [];
+            this.components   = comps || [];
+          } catch { }
+        },
+
+        async toggleIntegration(id, on) {
+          try { await this.api('POST', `/api/integrations/${encodeURIComponent(id)}/toggle`, { on }); }
+          catch (e) { this.showToast('エラー: ' + e.message, false); await this.loadDeployments(); }
+        },
+
+        async addIntegration() {
+          if (!this.newInt.label) return;
+          try {
+            await this.api('POST', '/api/integrations', {
+              label: this.newInt.label, kind: this.newInt.kind,
+              command: this.newInt.command, enabled: true,
+            });
+            this.newInt = { label: '', command: '', kind: 'mcp' };
+            this.showAddInt = false;
+            this.showToast('✅ Integration 追加');
+            this.loadDeployments();
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
+        },
+
+        async fireAutomation(workflowId) {
+          try {
+            await this.api('POST', '/api/runflow', { id: workflowId });
+            this.tab = 'runs';
+            this.showToast('▶ 実行開始');
+          } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
+        },
+
+        async approveComponent(id) {
+          try {
+            await this.api('POST', '/api/shenron/components/approve', { id });
+            this.showToast('✅ 承認・登録しました');
+            this.loadDeployments();
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
+        },
+
+        // ── Settings ─────────────────────────────────
+        async loadConfig() {
+          try { this.config = await this.api('GET', '/api/config'); } catch { }
+        },
+
+        async setConfig(key, val) {
+          try {
+            this.config = await this.api('POST', '/api/config', { [key]: val });
+            this.showToast('設定を保存しました');
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
+        },
+
+        // ── Helpers ──────────────────────────────────
+        relTime(ms) {
+          if (!ms) return '';
+          const d = Date.now() - ms;
+          if (d < 60000)    return '今';
+          if (d < 3600000)  return Math.floor(d / 60000) + '分前';
+          if (d < 86400000) return Math.floor(d / 3600000) + '時間前';
+          return Math.floor(d / 86400000) + '日前';
+        },
+      };
+    }
+  </script>
+</body>
+</html>

@@ -59,6 +59,7 @@ const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (
 const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no local browser worker, no login credentials
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
 const UI_FILE = path.join(HERE, 'ui.html');
+const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
 
 const now = () => Date.now();
@@ -830,6 +831,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI_FILE)); }
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
+  }
+  if (req.method === 'GET' && p === '/shenron') {
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
+    catch { return json(res, 404, { error: 'shenron.html not found' }); }
   }
   if (req.method === 'GET' && p === '/api/state')
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
