@@ -400,13 +400,32 @@ assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backwa
 
 // ---------- Wave R-1: 成果検証（evalExpect 純粋判定 + 完了ブロックの冪等ガード/リングバッファのロジック） ----------
 {
-  // evalExpect 契約: 常に {ok:boolean, reason:string}（TODO(human) 実装前は pass の stub）
+  // evalExpect 契約: 常に {ok:boolean, reason:string}
   const a = await evalExpect({ kind: 'assert', rule: 'contains:done' }, 'task done');
   assert.equal(typeof a.ok, 'boolean', 'R-1 evalExpect.ok is boolean');
   assert.equal(typeof a.reason, 'string', 'R-1 evalExpect.reason is string');
-  // judge path は run を注入できる＝実 LLM 不要で配線を検証（TODO(human) 実装後はここで yes/no が効く）
-  const j = await evalExpect({ kind: 'judge', rule: 'polite?' }, 'hello', { run: async () => 'YES' });
-  assert.equal(typeof j.ok, 'boolean', 'R-1 evalExpect judge with injected run returns boolean ok');
+  // assert: 決定論（LLM 不使用）。各 op の pass/fail を固定。
+  assert.ok((await evalExpect({ kind: 'assert', rule: 'contains:done' }, 'task done')).ok, 'R-1 assert contains pass');
+  assert.ok(!(await evalExpect({ kind: 'assert', rule: 'contains:done' }, 'still running')).ok, 'R-1 assert contains fail');
+  assert.ok((await evalExpect({ kind: 'assert', rule: '!contains:error' }, 'all good')).ok, 'R-1 assert !contains pass');
+  assert.ok(!(await evalExpect({ kind: 'assert', rule: '!contains:error' }, 'fatal error')).ok, 'R-1 assert !contains fail');
+  assert.ok((await evalExpect({ kind: 'assert', rule: 'regex:^OK\\b' }, 'OK 200')).ok, 'R-1 assert regex pass');
+  assert.ok(!(await evalExpect({ kind: 'assert', rule: 'regex:[' }, 'x')).ok, 'R-1 assert bad regex fails (not silent pass)');
+  assert.ok((await evalExpect({ kind: 'assert', rule: 'json:status=ok' }, '{"status":"ok"}')).ok, 'R-1 assert json path eq pass');
+  assert.ok(!(await evalExpect({ kind: 'assert', rule: 'json:status=ok' }, '{"status":"fail"}')).ok, 'R-1 assert json path eq fail');
+  assert.ok(!(await evalExpect({ kind: 'assert', rule: 'json:x' }, 'not json')).ok, 'R-1 assert json on non-json fails');
+  assert.ok((await evalExpect({ kind: 'assert', rule: 'done' }, 'task done')).ok, 'R-1 assert bare rule = contains fallback');
+  // judge: run を注入＝実 LLM 不要で yes/no と fail-closed を検証。
+  assert.ok((await evalExpect({ kind: 'judge', rule: 'polite?' }, 'hello', { run: async () => 'YES' })).ok, 'R-1 judge YES → ok');
+  assert.ok(!(await evalExpect({ kind: 'judge', rule: 'polite?' }, 'hello', { run: async () => 'NO' })).ok, 'R-1 judge NO → not ok');
+  assert.ok(!(await evalExpect({ kind: 'judge', rule: 'polite?' }, 'hi', { run: async () => '[gemini → stub] 未設定' })).ok, 'R-1 judge stub sentinel → fail-closed');
+  assert.ok(!(await evalExpect({ kind: 'judge', rule: 'polite?' }, 'hi', { run: async () => { throw new Error('boom'); } })).ok, 'R-1 judge vendor error → fail-closed');
+  // judge egress firewall: secret を含む出力は redact してから run に渡る（生値が vendor に出ない）。
+  let seen = '';
+  const jr = await evalExpect({ kind: 'judge', rule: 'ok?' }, 'token sk-ABCDEFGHIJKLMNOP1234', { run: async (_v, prompt) => { seen = prompt; return 'YES'; } });
+  assert.ok(jr.ok, 'R-1 judge with redaction still evaluates');
+  assert.ok(!seen.includes('sk-ABCDEFGHIJKLMNOP1234') && seen.includes('[redacted:'), 'R-1 judge redacts secret before vendor egress');
+  assert.ok(!jr.reason.includes('sk-'), 'R-1 judge reason carries no raw output');
   // 完了ブロックの exactly-once ガード（hub.mjs:585 completedAt のロジックを isolation で固定）
   let fires = 0; const run = {}; const fire = () => { if (!run.completedAt) { run.completedAt = 1; fires++; } };
   fire(); fire(); fire();

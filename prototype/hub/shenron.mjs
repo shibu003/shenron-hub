@@ -5,6 +5,7 @@
 //    プロンプトに「generic ツールは specific need を covered しない」を明記（spike0 でこれが効いた）。inventory を注入。
 //  - nodes/edges の port 検証・layout は hub 側（validateFlow/layoutFlow）に委譲。ここは raw を返す。
 import { runVendorAsync } from '../runner.mjs';
+import { redact } from '../trust.mjs';                       // Wave R-1: judge は actual を vendor へ送る新 egress → 送信前に必ず firewall
 import { callMcpTool, safeEnv, SECRET_RE } from '../mcp/mcp-client.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -392,7 +393,53 @@ export async function genComponent({ what, vendor = 'claude', maxIters = 3, run 
 //        既存の redact()/fenceEdge は効かない → 送信前に redact(trust.mjs) するか最低限 audit する設計判断が要る。
 //        vendor 失敗 sentinel（r.startsWith('[') && r.includes('→ stub]')）は fail-closed（{ok:false}）に倒す。
 //   reason には生 output を入れない（短い判定理由のみ）— checkResults / list_check_results に保存され露出するため。
+// runner の失敗 sentinel（`[<vendor> → stub] …` / `[<vendor> failed → stub] …` / `[stub] (no vendor …)`）を fail-closed に倒すための検出。
+const isStubFail = (s) => /(?:→ stub\]|^\[stub\])/.test(String(s ?? '').trim());
 export async function evalExpect(expect, actual, { run = runVendorAsync, vendor, model } = {}) {
-  // TODO(human): assert / judge の判定を実装。下は wiring/test が回るための暫定（常に pass）。
-  return { ok: true, reason: 'TODO(human): implement assert/judge in evalExpect' };
+  const rule = String(expect?.rule ?? '').trim();
+  const text = String(actual ?? '');
+  // assert — 決定論・LLM 不使用・$0。rule 文法 'op:arg'（prefix 無し＝contains フォールバック）。
+  if (expect?.kind === 'assert') {
+    if (!rule) return { ok: true, reason: 'assert: empty rule (no-op pass)' };
+    const m = rule.match(/^(!?[a-z-]+):([\s\S]*)$/i);
+    const op = m ? m[1].toLowerCase() : 'contains';
+    const arg = m ? m[2] : rule;
+    let ok, why;
+    switch (op) {
+      case 'contains': ok = text.includes(arg); why = `contains "${arg}"`; break;
+      case '!contains': case 'not-contains': case 'lacks': ok = !text.includes(arg); why = `lacks "${arg}"`; break;
+      case 'equals': case 'eq': ok = text.trim() === arg.trim(); why = 'equals exactly'; break;
+      case 'regex': case 're':
+        try { ok = new RegExp(arg).test(text); why = `matches /${arg}/`; }
+        catch (e) { return { ok: false, reason: `assert: bad regex (${e.message})` }; }    // 不正 rule は fail（黙って pass しない）
+        break;
+      case 'json': {                                                                        // 'json:dot.path=value'（一致）/ 'json:dot.path'（存在）
+        const eq = arg.indexOf('=');
+        const path = (eq >= 0 ? arg.slice(0, eq) : arg).trim();
+        const want = eq >= 0 ? arg.slice(eq + 1).trim() : undefined;
+        let val;
+        try { val = path.split('.').filter(Boolean).reduce((o, k) => (o == null ? o : o[k]), JSON.parse(text)); }
+        catch { return { ok: false, reason: 'assert: output is not JSON' }; }
+        ok = want === undefined ? (val !== undefined && val !== null) : (String(val) === want);
+        why = want === undefined ? `has ${path}` : `${path} == ${want}`;
+        break;
+      }
+      default: ok = text.includes(rule); why = `contains "${rule}"`;                        // 未知 op → rule 全体を contains 扱い（後方互換）
+    }
+    return { ok, reason: `assert ${op}: ${ok ? 'pass' : 'fail'} (${why})` };
+  }
+  // judge — cheap tier LLM の yes/no（従量0・本人サブスク）。⚠️ actual を vendor へ送る新 egress。
+  if (expect?.kind === 'judge') {
+    if (!rule) return { ok: true, reason: 'judge: empty rule (no-op pass)' };
+    const fw = redact(text);                                                                // 送信前に secret/PII firewall（philosophy #4・既存 redact/fenceEdge は届かない経路）
+    const prompt = `あなたは出力検査官です。次の出力が条件を満たすか YES か NO の一語だけで答えてください。\n条件: ${rule}\n--- 出力 ---\n${fw.text}\n--- ここまで ---\nYES か NO のみ:`;
+    let r;
+    try { r = await run(vendor || 'stub', prompt, 'NO', { model }); }
+    catch (e) { return { ok: false, reason: `judge: vendor error (fail-closed: ${e.message})` }; }
+    if (isStubFail(r)) return { ok: false, reason: 'judge: vendor unavailable (fail-closed)' };   // sentinel → fail-closed（沈黙の pass にしない）
+    const ok = /^\s*(yes|true|pass)\b/i.test(String(r ?? ''));                              // 期待外の応答は false に倒す（fail-closed 寄り）
+    const red = fw.removed.length ? ` [redacted ${fw.removed.reduce((n, x) => n + x.count, 0)}]` : '';
+    return { ok, reason: `judge: ${ok ? 'pass' : 'fail'}${red}` };                          // reason に生 output は入れない（list_check_results に保存され露出するため）
+  }
+  return { ok: true, reason: `unknown expect.kind "${expect?.kind}" (no-op pass)` };
 }
