@@ -23,6 +23,7 @@ import { openStdio } from '../mcp/mcp-client.mjs';
 import { redact } from '../trust.mjs';
 import { classify } from '../permissions.mjs';
 import { runVendorAsync } from '../runner.mjs';   // Wave 11c: the agent's brain — decide the next browser action from a goal + the live page
+import { looksLikeLogin } from '../match.mjs';     // Wave Login-1: ログイン要求画面の検出 heuristic（pure）
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -68,6 +69,21 @@ const textOf = (r) => {
 const domainOf = (r) => { const m = textOf(r).match(/Page URL:\s*(\S+)/); if (m) try { return new URL(m[1]).hostname; } catch {} return null; };
 const shotUri = (r) => { const img = (r?.content || []).find((c) => c.type === 'image'); return img ? `data:${img.mimeType};base64,${img.data}` : null; };
 
+// post a checkpoint and BLOCK until a human approves/declines in the cockpit. Returns true=approved, false=declined/rejected.
+// Shared by the per-step ask gate (11b) and the Login-1 login-required pause — one place that owns the poll loop.
+async function awaitCheckpoint(ctx, { screenshot, label, tool }) {
+  await api(`/api/handoffs/${ctx.h.id}/checkpoint`, { screenshot, label, tool, domain: ctx.domain });
+  let decided = null;
+  while (decided === null) {
+    await new Promise((res) => setTimeout(res, 1500));
+    const hh = (await api('/api/state')).handoffs.find((x) => x.id === ctx.h.id);
+    if (!hh) throw new Error(`handoff ${ctx.h.id} vanished during checkpoint`);
+    if (hh.status === 'rejected') return false;               // declined → abort; hub owns the 'rejected' status
+    decided = hh.checkpoint && hh.checkpoint.decided;
+  }
+  return decided !== 'declined';
+}
+
 // run ONE browser action through the full 11b gate: audit → classify(allow/ask/deny) → on ask screenshot +
 // checkpoint + BLOCK for human → execute (navigate cold-start 1-retry). Returns the result, or null if the
 // human declined (caller aborts; hub already set 'rejected'). ctx.domain is the live page domain (mutated).
@@ -83,16 +99,7 @@ async function runOne(client, ctx, step, i) {
   if (eff === 'ask') {
     const screenshot = SHOT ? shotUri(await client.call('browser_take_screenshot', { type: 'jpeg' }, { timeoutMs: 60000 })) : null;
     const label = `${tool}${ctx.domain ? ' @ ' + ctx.domain : ''} — ${redact(JSON.stringify(args), {}).text.slice(0, 200)}`;
-    await api(`/api/handoffs/${ctx.h.id}/checkpoint`, { screenshot, label, tool, domain: ctx.domain });
-    let decided = null;                                       // BLOCK until a human approves/declines in the cockpit
-    while (decided === null) {
-      await new Promise((res) => setTimeout(res, 1500));
-      const hh = (await api('/api/state')).handoffs.find((x) => x.id === ctx.h.id);
-      if (!hh) throw new Error(`handoff ${ctx.h.id} vanished during checkpoint`);
-      if (hh.status === 'rejected') return null;              // declined → abort; hub owns the 'rejected' status
-      decided = hh.checkpoint && hh.checkpoint.decided;
-    }
-    if (decided === 'declined') return null;
+    if (!(await awaitCheckpoint(ctx, { screenshot, label, tool })) ) return null;   // declined/rejected → abort
   }
   let r;
   try { r = await client.call(tool, args, { timeoutMs: 60000 }); }
@@ -130,10 +137,20 @@ const toolLine = (t) => { const req = t.inputSchema?.required || [], all = Objec
 async function runGoal(goal, rules, h) {
   const ctx = { h, rules, domain: null }, client = browser(), log = [];
   const schema = (await client.listTools()).filter((t) => t.name.startsWith('browser_')).map(toolLine).join('\n');   // real Playwright-MCP schema (arg names drift across versions) → agent uses correct args
-  let answer = '';
+  let answer = '', loginPrompted = false;
   for (let i = 0; i < MAX_STEPS; i++) {
     const snap = textOf(await client.call('browser_snapshot', {}, { timeoutMs: 60000 }));   // observe (read-only → classify allow, no gate)
     const d = domainOf({ content: [{ type: 'text', text: snap }] }); if (d) ctx.domain = d;
+    // Wave Login-1: ログイン要求画面を検出したら人を ask checkpoint で呼ぶ（自動入力しない＝ToS 安全）。一度承認されたら
+    // 同 handoff 内では再び聞かない（人がログインを終えた前提で続行）。検出/解消は hub に記録（login_status が読む）。
+    if (looksLikeLogin(snap)) {
+      await api('/api/login-detected', { domain: ctx.domain, resolved: false });
+      if (!loginPrompted) {
+        loginPrompted = true;
+        const screenshot = SHOT ? shotUri(await client.call('browser_take_screenshot', { type: 'jpeg' }, { timeoutMs: 60000 })) : null;
+        if (!(await awaitCheckpoint(ctx, { screenshot, label: `🔐 ログインが必要です${ctx.domain ? ' @ ' + ctx.domain : ''} — ログイン後に「承認」で続行`, tool: 'login-required' }))) return null;
+      }
+    } else if (loginPrompted) { loginPrompted = false; await api('/api/login-detected', { domain: ctx.domain, resolved: true }); }   // ログイン画面を抜けた＝成功として記録
     const out = await runVendorAsync(VENDOR, AGENT_PROMPT(goal, snap, schema), '{"done":true}');   // stub vendor → done (loop terminates)
     let act; try { act = JSON.parse(out.match(/\{[\s\S]*\}/)[0]); } catch { act = { done: true }; }
     if (act.done || !act.tool) { answer = act.answer || ''; break; }                         // capture the agent's final answer (report goals)

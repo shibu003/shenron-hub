@@ -124,6 +124,8 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
   { name: 'list_check_results', description: '直近の成果検証結果（runId/automationId/kind/passed/reason/at）。',
     inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
+  { name: 'login_status', description: 'browser-control の各ドメインのログイン生存状態。lastDetected=最後にログイン要求を検出した時刻 / lastOk=最後に通過した時刻 / needsLogin。無人 run でログインが切れていないか外から確認。domain 省略で全件。値（user/pass）は持たない（検出のみ）。',
+    inputSchema: { type: 'object', properties: { domain: { type: 'string', description: '対象ドメイン（省略で全件）' } } } },
   // --- remote-only: hub holds the workflow store + browser-control checkpoint state; stdio has no /api proxy for these.
   { name: 'save_workflow', surfaces: ['remote'], description: 'nodes/edges でフローを保存',
     inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
@@ -163,6 +165,7 @@ export const PROXY = {
   list_runs:         () => ({ method: 'GET',  path: '/api/runs' }),
   get_run:           (a) => ({ method: 'GET',  path: `/api/runs/${enc(a.id)}` }),
   test_notify:       () => ({ method: 'POST', path: '/api/notify/test', body: {} }),
+  login_status:      (a) => ({ method: 'GET',  path: a.domain ? `/api/login-status?domain=${enc(a.domain)}` : '/api/login-status' }),
 };
 
 // REMOTE_DENY — tools too security-sensitive to expose on the remote (claude.ai) surface.

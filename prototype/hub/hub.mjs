@@ -764,6 +764,17 @@ function firePreview(event) {                               // read-only: same m
 const SCHED_FILE = sp('schedule-state.json', path.join(HERE, 'schedule-state.json'));
 const readSchedState = () => { try { return JSON.parse(fs.readFileSync(SCHED_FILE, 'utf8')); } catch { return {}; } };
 const writeSchedState = (s) => { try { fs.writeFileSync(SCHED_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };
+// Wave Login-1 — クレデンシャル生命管理: browser-control がログイン要求を検出した/通過した状態を domain ごとに永続。
+// login_status MCP tool が読む＝無人 run でログインが切れていないか外から確認できる。値（user/pass）は一切持たない（検出のみ）。
+const LOGIN_FILE = sp('login-state.json', path.join(HERE, 'login-state.json'));
+const readLoginState = () => { try { return JSON.parse(fs.readFileSync(LOGIN_FILE, 'utf8')); } catch { return {}; } };
+const writeLoginState = (s) => { try { fs.writeFileSync(LOGIN_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };
+function recordLogin(domain, resolved) {
+  if (!domain) return readLoginState();
+  const s = readLoginState(); const e = s[domain] || {};
+  if (resolved) { e.lastOk = Date.now(); e.needsLogin = false; } else { e.lastDetected = Date.now(); e.needsLogin = true; }   // resolved=ログイン画面を抜けた（成功）/ false=ログイン要求を検出
+  s[domain] = e; writeLoginState(s); return s;
+}
 // tick: 各 schedule automation の「直近 due」を見て、まだ発火してなければ発火（live も catch-up も同経路）。
 // first-sight は baseline のみ（インストール前の履歴は back-fire しない）。downtime で過ぎた due は次の tick/boot で1回だけ追い発火（coalesced）。
 function tickScheduler() {
@@ -1103,6 +1114,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/audit')                // Wave H: tamper-evident trust trail + chain verification
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
   if (req.method === 'GET' && p === '/api/permissions') return json(res, 200, readPermissions());   // Wave 11b: browser-control allow/ask/deny ruleset (worker fetches to classify)
+  if (req.method === 'GET' && p === '/api/login-status') { const s = readLoginState(); const dom = u.searchParams.get('domain'); return json(res, 200, dom ? { domain: dom, ...(s[dom] || { needsLogin: false }) } : { logins: s }); }   // Wave Login-1: ログイン生存状態（domain 指定 or 全件）
   if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
     try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } }
   if (req.method === 'GET' && p === '/api/pubkey') {             // the hub's ed25519 public key as raw PEM — `curl .../api/pubkey > hub.pem`, pin it, verify receipts with NO hub
@@ -1236,6 +1248,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
       if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
+      if (p === '/api/login-detected') { const s = recordLogin(j.domain, !!j.resolved); trail('login-detected', { domain: j.domain || null, resolved: !!j.resolved }); return json(res, 200, { ok: true, state: j.domain ? s[j.domain] : null }); }   // Wave Login-1: worker → hub。ログイン要求の検出/解消を記録（audited・値は持たない）
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
       { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
         if (tm) {

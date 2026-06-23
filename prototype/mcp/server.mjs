@@ -263,6 +263,7 @@ async function callTool(name, args = {}) {
     // Wave R-1: 成果検証
     case 'set_check': return await hub('/api/check', { automation: args.automation, expect: args.expect });
     case 'list_check_results': return await hub('/api/check-results');
+    case 'login_status': return await hub(args.domain ? `/api/login-status?domain=${encodeURIComponent(args.domain)}` : '/api/login-status');   // Wave Login-1: ログイン生存状態（GET）
     default:
       if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
       throw new Error(`unknown tool: ${name}`);

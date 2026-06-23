@@ -39,6 +39,12 @@ export function lastDue(expr, now, capMin = 8 * 24 * 60) {
   return null;
 }
 
+// Wave Login-1 — accessibility snapshot がログイン要求画面か判定（pure・heuristic）。worker が無人 run 中に
+// 「ログインが切れて延々失敗」を検出 → 人を ask checkpoint で呼ぶ入口。自動入力はしない（ToS 安全）ので
+// false-positive 寄りで良い（人が承認/却下する）。日英のログイン語彙を accessibility tree テキストにマッチ。
+const LOGIN_RE = /\b(sign[\s-]?in|log[\s-]?in|sign[\s-]?on|password|passcode|two[\s-]?factor|2fa|verification code|one[\s-]?time code)\b|ログイン|サインイン|パスワード|認証コード|ログインしてください/i;
+export function looksLikeLogin(snapshot) { return LOGIN_RE.test(String(snapshot || '')); }
+
 // ponytail: one runnable self-check — `node prototype/match.mjs` asserts the DSL still matches. upgrade: more cases if a new operator lands.
 if (process.argv[1] && process.argv[1].endsWith('match.mjs')) {
   const ok = (c, m) => { if (!c) throw new Error('match.mjs self-check failed: ' + m); };
@@ -62,5 +68,10 @@ if (process.argv[1] && process.argv[1].endsWith('match.mjs')) {
   ok(lastDue('*/15 * * * *', new Date(2026, 5, 22, 13, 37)) === new Date(2026, 5, 22, 13, 30).getTime(), 'lastDue: 13:37 → 13:30');
   ok(lastDue('0 9 * * 1', new Date(2026, 5, 22, 8, 30)) === new Date(2026, 5, 15, 9, 0).getTime(), 'lastDue: before this week → previous Mon (catch-up window)');
   ok(lastDue('0 9 31 2 *', mon0900) === null, 'lastDue: impossible cron → null within cap');
+  // Login-1: ログイン画面検出 heuristic
+  ok(looksLikeLogin('textbox "Password"\nbutton "Sign in"'), 'login: password+signin detected');
+  ok(looksLikeLogin('heading "ログイン"\nbutton "次へ"'), 'login: JP ログイン detected');
+  ok(looksLikeLogin('Enter the verification code we sent'), 'login: 2FA code detected');
+  ok(!looksLikeLogin('heading "Dashboard"\nbutton "New post"\nlink "Settings"'), 'login: normal page not flagged');
   console.log('match.mjs self-check OK');
 }
