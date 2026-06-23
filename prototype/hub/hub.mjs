@@ -54,7 +54,7 @@ function configStatus() {   // 1か所の設定 + 初期設定 hint（secret は
   const cfg = liveCfg(), env = process.env, needs = [];
   if (!env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY) needs.push('LLM: ローカル `claude -p`(サブスク・従量0) で動く。クラウド/別 provider なら ANTHROPIC_API_KEY か OPENAI_API_KEY を env に。');
   if (cfg.routing && cfg.routing.cheap && cfg.routing.cheap.vendor === 'ollama') needs.push('cheap=ollama: `ollama serve` 起動 + モデル pull（OLLAMA_MODEL）が必要。');
-  needs.push('OpenClaw から繋ぐ: `~/.openclaw/openclaw.json` の mcp.servers に giogio を追加（stdio: `node prototype/mcp/server.mjs` / remote: `/mcp` を transport:"streamable-http"+auth:oauth）。skill は `clawhub skill install shenron`。');
+  needs.push('OpenClaw から繋ぐ: `~/.openclaw/openclaw.json` の mcp.servers に shenron を追加（stdio: `node prototype/mcp/server.mjs` / remote: `/mcp` を transport:"streamable-http"+auth:oauth）。skill は `clawhub skill install shenron`。');
   return { config: cfg, schedulerOn: schedulerOn(), keysPresent: { anthropic: !!env.ANTHROPIC_API_KEY, openai: !!env.OPENAI_API_KEY }, managed: managedMode(), needs };
 }
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : Number(process.env.PORT) || 8795; })();
