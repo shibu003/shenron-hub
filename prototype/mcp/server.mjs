@@ -264,6 +264,11 @@ async function callTool(name, args = {}) {
     case 'set_check': return await hub('/api/check', { automation: args.automation, expect: args.expect });
     case 'list_check_results': return await hub('/api/check-results');
     case 'login_status': return await hub(args.domain ? `/api/login-status?domain=${encodeURIComponent(args.domain)}` : '/api/login-status');   // Wave Login-1: ログイン生存状態（GET）
+    case 'set_goal': return await hub('/api/goals', args || {});                                    // Wave Goals-1: ゴール作成/更新
+    case 'get_goal': return await hub(`/api/goals/${encodeURIComponent(args.id)}`);
+    case 'list_goals': return (await hub('/api/goals')).goals;
+    case 'goal_checkin': return await hub(`/api/goals/${encodeURIComponent(args.id)}/checkin`, { value: args.value, note: args.note || '' });
+    case 'delete_goal': return await hub(`/api/goals/${encodeURIComponent(args.id)}/delete`, {});
     default:
       if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
       throw new Error(`unknown tool: ${name}`);

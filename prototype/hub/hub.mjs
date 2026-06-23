@@ -735,6 +735,34 @@ function setCheck(id, expect) {
   fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
   return { id: a.id, expect: a.expect || null };
 }
+// Wave Goals-1 — 長期ゴール記憶（automations.json 同型の自己完結 store）。最小＝CRUD + 手動 checkin で進捗表示。
+// metric 自動計測はしない（人が値を入れる）＝北極星①「ゴールを神龍に預ける」需要を測る Mom Test の台。
+// tick 相乗りの停滞/締切通知(Goals-2)・停滞時の次の手提案(Goals-3)は肉付け。
+const GOALS_FILE = sp('goals.json', path.join(HERE, '..', 'mcp', 'goals.json'));
+const readGoals = () => { try { return JSON.parse(fs.readFileSync(GOALS_FILE, 'utf8')); } catch { return []; } };
+const writeGoals = (arr) => fs.writeFileSync(GOALS_FILE, JSON.stringify(arr, null, 2));
+const goalPct = (g) => { const t = Number(g.target), c = Number(g.current); return Number.isFinite(t) && t !== 0 && Number.isFinite(c) ? Math.round((c / t) * 100) : null; };   // pure: 進捗率（target 無し/0 は null）
+const goalView = (g) => ({ ...g, pct: goalPct(g) });
+function saveGoal({ id, wish, metric, target, current, unit, deadline, automationIds, status }) {
+  const arr = readGoals(); const i = id ? arr.findIndex((g) => g.id === id) : -1; const prev = i >= 0 ? arr[i] : null;   // id 既知＝更新（未指定フィールドは保持）・新規＝wish 必須
+  if (!prev && !wish) throw new Error('goal needs a wish');
+  id = id || (wish || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32) || 'goal-' + randomUUID().slice(0, 4);
+  const g = { id, wish: wish ?? prev?.wish ?? '', metric: metric ?? prev?.metric ?? '', target: target ?? prev?.target ?? null,
+    current: current ?? prev?.current ?? 0, unit: unit ?? prev?.unit ?? '', deadline: deadline ?? prev?.deadline ?? null,
+    automationIds: automationIds ?? prev?.automationIds ?? [], checkins: prev?.checkins ?? [], status: status ?? prev?.status ?? 'active' };
+  if (i >= 0) arr[i] = g; else arr.push(g);
+  writeGoals(arr); return goalView(g);
+}
+function goalCheckin(id, value, note) {
+  const arr = readGoals(); const g = arr.find((x) => x.id === id); if (!g) throw new Error(`no goal "${id}"`);
+  const v = Number(value); if (!Number.isFinite(v)) throw new Error('checkin value must be a number');
+  (g.checkins ||= []).push({ ts: Date.now(), value: v, note: note || '' });
+  g.current = v;                                                              // 手動 checkin の最新値が現在値
+  if (g.target != null && Number.isFinite(Number(g.target)) && v >= Number(g.target)) g.status = 'reached';   // 目標到達で reached
+  writeGoals(arr); return goalView(g);
+}
+function deleteGoal(id) { const arr = readGoals(); const i = arr.findIndex((g) => g.id === id); if (i < 0) throw new Error(`no goal "${id}"`); arr.splice(i, 1); writeGoals(arr); return { id, deleted: true }; }
+
 const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
   const matched = matchingAutomations(event);
@@ -1020,6 +1048,11 @@ async function mcpDispatch(name, args) {
   if (name === 'forget')             return deleteMemory(args.id);
   if (name === 'set_check')          return setCheck(args.automation, args.expect);   // Wave R-1
   if (name === 'list_check_results') return (state.checkResults || []).slice(-(args.limit || 20));   // Wave R-1
+  if (name === 'set_goal')           return saveGoal(args);                              // Wave Goals-1
+  if (name === 'get_goal')           { const g = readGoals().find((x) => x.id === args.id); if (!g) throw new Error(`no goal "${args.id}"`); return goalView(g); }
+  if (name === 'list_goals')         return readGoals().map(goalView);
+  if (name === 'goal_checkin')       return goalCheckin(args.id, args.value, args.note);
+  if (name === 'delete_goal')        return deleteGoal(args.id);
   // Wave U-1: stdio-parity tools — list/get_handoff filter live state in-process; the rest loop back to /api.
   if (name === 'list_handoffs') { let hs = state.handoffs; if (args.agent) hs = hs.filter((h) => h.to === args.agent || h.from === args.agent); if (args.status) hs = hs.filter((h) => h.status === args.status); return hs.slice(-(args.limit || 20)).map(ref); }
   if (name === 'get_handoff')        return find(args.id);
@@ -1116,6 +1149,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
   if (req.method === 'GET' && p === '/api/permissions') return json(res, 200, readPermissions());   // Wave 11b: browser-control allow/ask/deny ruleset (worker fetches to classify)
   if (req.method === 'GET' && p === '/api/login-status') { const s = readLoginState(); const dom = u.searchParams.get('domain'); return json(res, 200, dom ? { domain: dom, ...(s[dom] || { needsLogin: false }) } : { logins: s }); }   // Wave Login-1: ログイン生存状態（domain 指定 or 全件）
+  if (req.method === 'GET' && p === '/api/goals') return json(res, 200, { goals: readGoals().map(goalView) });   // Wave Goals-1: ゴール一覧（進捗率付き）
+  if (req.method === 'GET' && p.startsWith('/api/goals/')) { const id = decodeURIComponent(p.slice('/api/goals/'.length)); const g = readGoals().find((x) => x.id === id); return g ? json(res, 200, goalView(g)) : json(res, 404, { error: `no goal "${id}"` }); }
   if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
     try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } }
   if (req.method === 'GET' && p === '/api/pubkey') {             // the hub's ed25519 public key as raw PEM — `curl .../api/pubkey > hub.pem`, pin it, verify receipts with NO hub
@@ -1250,6 +1285,9 @@ const server = http.createServer((req, res) => {
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
       if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
       if (p === '/api/login-detected') { const s = recordLogin(j.domain, !!j.resolved); trail('login-detected', { domain: j.domain || null, resolved: !!j.resolved }); return json(res, 200, { ok: true, state: j.domain ? s[j.domain] : null }); }   // Wave Login-1: worker → hub。ログイン要求の検出/解消を記録（audited・値は持たない）
+      if (p === '/api/goals') return json(res, 200, saveGoal(j || {}));                                     // Wave Goals-1: ゴール作成/更新
+      if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
+      if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
       { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
         if (tm) {
