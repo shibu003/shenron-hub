@@ -384,6 +384,34 @@ export async function genComponent({ what, vendor = 'claude', maxIters = 3, run 
   return { what, code, iters: maxIters, converged: false, error: err };
 }
 
+// Wave UI S4 — 成果物 UI 生成。JSX はブラウザでしか実行できないので Python のサンドボックス検証は不要。
+// bridge 規約（window.shenron.*・import 禁止・responsive）をプロンプトに埋め込む。
+const GEN_UI_PROMPT = (what) => `Write a React JSX component for: "${what}".
+
+RULES (non-negotiable):
+- Export as: export default function App() { ... }
+- NO import statements. React/ReactDOM are globals. Use React.useState, React.useEffect etc.
+- Flow actions use window.shenron (available as a global in the sandbox):
+    window.shenron.approve()             // approve the linked handoff
+    window.shenron.decline()             // decline the linked handoff
+    window.shenron.advance({ ...data })  // post a result and advance the flow
+  Each returns a Promise — await it and show the result to the user.
+- LLM calls: use fetch('https://api.anthropic.com/v1/messages', ...) normally — the sandbox proxies it via hub (API key stays on server, never exposed to the UI).
+- Responsive: works on mobile (320px wide) and desktop. Use inline styles or simple CSS-in-JS.
+- Show clear loading/error states for async actions.
+
+Output ONLY the JSX code inside one \`\`\`jsx fence. No prose.`;
+
+export async function genArtifactUi({ what, vendor = 'claude', run = runVendorAsync }) {
+  what = String(what || '').trim();
+  if (!what) throw new Error('what required');
+  const raw = String(await run(vendor, GEN_UI_PROMPT(what), '') || '').trim();
+  if (raw.startsWith('[') && raw.includes('stub]'))
+    return { what, code: '', converged: false, error: `no LLM vendor — set EXEC_VENDOR=claude. vendor said: ${raw.slice(0, 100)}` };
+  const code = extractCode(raw);
+  return { what, code, converged: !!(code && (code.includes('function App') || code.includes('App ='))) };
+}
+
 // Wave R-1 — 成果検証の判定中核（TODO(human)）。純粋関数（state 非依存）→ test_shenron が直接 import して検証可。
 // 契約: (expect:{kind:'assert'|'judge', rule:string}, actual:string, {run, vendor, model}) → Promise<{ok:boolean, reason:string}>
 //   ok=true ＝「run 出力(actual) が期待(rule) を満たした」。外れたら hub の checkOutcome が check_failed を通知する。

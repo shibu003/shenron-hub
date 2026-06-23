@@ -219,6 +219,7 @@ async function callTool(name, args = {}) {
     case 'set_policy': return await hub(`/api/agents/${args.agent}/policy`, { policy: args.policy });
     // 神龍 self-extension + co-pilot gates over MCP (web cockpit no longer required for the full lifecycle)
     case 'gen_component': return await hub('/api/shenron/gen-component', { what: args.what, ...(args.maxIters ? { maxIters: args.maxIters } : {}) });
+    case 'gen_artifact_ui': return await hub('/api/shenron/gen-artifact-ui', { what: args.what });
     case 'list_components': return await hub(args.id ? `/api/shenron/components?id=${encodeURIComponent(args.id)}` : '/api/shenron/components');
     case 'approve_component': return await hub('/api/shenron/components/approve', { id: args.id });
     case 'get_permissions': return await hub('/api/permissions');

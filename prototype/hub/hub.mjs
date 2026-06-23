@@ -27,7 +27,7 @@ import { setCredential, getCredential, listCredentials, deleteCredential } from 
 import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wave U-1: tool defs single-sourced (shared with stdio server.mjs)
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
@@ -1082,6 +1082,7 @@ async function mcpDispatch(name, args) {
     const saved = r.converged ? saveComponent(r) : null;
     return saved ? { ...r, id: saved.id, approved: false } : r;
   }
+  if (name === 'gen_artifact_ui')    return genArtifactUi({ what: args.what, vendor: EXEC_VENDOR || 'claude' });
   if (name === 'create_agent')       return createAgent({ name: args.name, systemPrompt: args.instructions, vendor: args.vendor, model: args.model });   // P-1: 作成 → 直後に agent_<name> が tools/list に出る
   if (name === 'run_agent')          return runAgentSync(args.name, args.input);                 // P-2
   if (name === 'delete_agent')       return removeAgent(args.name);                              // P-1
@@ -1404,6 +1405,12 @@ const server = http.createServer((req, res) => {
       if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR（Wave B③: planFlow に集約＝remote-MCP と同一経路。have/missing は LLM-resolve §1.5-F、nodes/edges validate+layout、available も返す）
         planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost })       // Wave 5: context で対話修正／gap:'off'|'ask'|'auto' = 道具生成の枝／cost:'free'|'paid_ok'
           .then((r) => json(res, 200, r))
+          .catch((e) => json(res, 400, { error: e.message }));
+        return;
+      }
+      if (p === '/api/shenron/gen-artifact-ui') {   // Wave UI S4: JSX 成果物 UI 生成
+        genArtifactUi({ what: j.what, vendor: EXEC_VENDOR || 'claude' })
+          .then((r) => { trail('gen-artifact-ui', { what: r.what, converged: r.converged }); json(res, 200, r); })
           .catch((e) => json(res, 400, { error: e.message }));
         return;
       }
