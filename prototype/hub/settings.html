@@ -496,7 +496,9 @@ async function loadSuggestions(){
   });
   $('#suggestions').querySelectorAll('[data-apply]').forEach(el=>el.onclick=async()=>{
     const r=await api(`/api/suggestions/${encodeURIComponent(el.dataset.apply)}/apply`,{});
-    const msg = el.dataset.kind==='automate' ? '定期自動化を設定しました（毎日 9:00）' : '適用しました';
+    const msg = el.dataset.kind==='automate' ? '定期自動化を設定しました（毎日 9:00）'
+              : (el.dataset.kind==='goal' && r&&r.applied&&r.applied.workflowId) ? `次の手フローを作成しました（🗂 Flows: ${r.applied.workflowId}）`   // Goals-3.1: 提案を実体化
+              : '適用しました';
     toast(msg); loadSuggestions();
   });
 }

@@ -894,12 +894,22 @@ function dismissSuggestion(id) {
   const arr = readSuggestions(); const s = arr.find((x) => x.id === id); if (!s) throw new Error(`no suggestion "${id}"`);
   s.status = 'dismissed'; writeSuggestions(arr); return { id, status: 'dismissed' };
 }
-function applySuggestion(id) {
+// Wave Goals-3 — 「次の手」提案プロンプト（goalSuggest の preview と applySuggestion の実体化で共有）。
+function goalSuggestPrompt(g) {
+  const u = g.unit || '';
+  const cur = `${g.current ?? 0}${u}${g.target != null ? ` / ${g.target}${u}` : ''}`;
+  return `${g.wish}（現状 ${cur}${g.deadline ? `・期限 ${g.deadline}` : ''}・停滞中）。このゴール達成に向けた具体的な次の一手を flow で提案して。`;
+}
+async function applySuggestion(id) {
   const arr = readSuggestions(); const s = arr.find((x) => x.id === id); if (!s) throw new Error(`no suggestion "${id}"`);
   s.status = 'applied';
   if (s.kind === 'automate' && s.workflowId) {
     const cron = '0 9 * * *';   // ponytail: 既定 daily 9am — 使う前に edit できる
     saveAutomation({ name: `定期化: ${s.reason.slice(0, 40)}`, trigger: { type: 'schedule', when: cron }, workflow: s.workflowId, input: '' });
+  }
+  if (s.kind === 'goal' && s.goalId && !s.workflowId) {                        // Wave Goals-3.1: 「次の手」提案を採用 → save:false で捨てた flow を save:true で実体化（採用時だけ生成＝遅延）
+    const g = readGoals().find((x) => x.id === s.goalId);
+    if (g) { const plan = await planFlow({ goal: goalSuggestPrompt(g), save: true }); s.workflowId = plan.workflowId || null; }   // clarify 等で workflow が出ない場合は null（apply 自体は成功）
   }
   writeSuggestions(arr); return { id, status: 'applied', applied: s };
 }
@@ -908,10 +918,7 @@ function applySuggestion(id) {
 // suggestions.json に kind:'goal' を冪等 push（同 goalId の open が無ければ）＝受信箱に先回りで出す。
 async function goalSuggest(id) {
   const g = readGoals().find((x) => x.id === id); if (!g) throw new Error(`no goal "${id}"`);
-  const u = g.unit || '';
-  const cur = `${g.current ?? 0}${u}${g.target != null ? ` / ${g.target}${u}` : ''}`;
-  const prompt = `${g.wish}（現状 ${cur}${g.deadline ? `・期限 ${g.deadline}` : ''}・停滞中）。このゴール達成に向けた具体的な次の一手を flow で提案して。`;
-  const plan = await planFlow({ goal: prompt, save: false });                         // 提案のみ・保存しない（採用は plan_flow save:true で）
+  const plan = await planFlow({ goal: goalSuggestPrompt(g), save: false });           // 提案のみ・保存しない（採用＝apply_suggestion で save:true 実体化）
   const summary = plan.plain_summary || plan.summary_text || plan.goal || '';
   const arr = readSuggestions();
   if (!arr.some((s) => s.status === 'open' && s.goalId === g.id)) {                    // 同 goal の open 提案が無ければ push（冪等）
@@ -1273,7 +1280,7 @@ async function mcpDispatch(name, args) {
   if (name === 'delete_goal')        return deleteGoal(args.id);
   if (name === 'list_suggestions')   { const all = readSuggestions(); const st = args.status || 'open'; return st === 'all' ? all : all.filter((s) => s.status === st); }   // Ambient-1
   if (name === 'dismiss_suggestion') return dismissSuggestion(args.id);   // Ambient-1
-  if (name === 'apply_suggestion')   return applySuggestion(args.id);     // Ambient-1
+  if (name === 'apply_suggestion')   return await applySuggestion(args.id);     // Ambient-1 + Goals-3.1（goal 提案は flow を実体化）
   // Wave U-1: stdio-parity tools — list/get_handoff filter live state in-process; the rest loop back to /api.
   if (name === 'list_handoffs') { let hs = state.handoffs; if (args.agent) hs = hs.filter((h) => h.to === args.agent || h.from === args.agent); if (args.status) hs = hs.filter((h) => h.status === args.status); return hs.slice(-(args.limit || 20)).map(ref); }
   if (name === 'get_handoff')        return find(args.id);
@@ -1527,7 +1534,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       if (p.startsWith('/api/suggestions/') && p.endsWith('/dismiss')) { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/dismiss'.length)); return json(res, 200, dismissSuggestion(id)); }   // Ambient-1
-      if (p.startsWith('/api/suggestions/') && p.endsWith('/apply'))   { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/apply'.length)); return json(res, 200, applySuggestion(id)); }   // Ambient-1
+      if (p.startsWith('/api/suggestions/') && p.endsWith('/apply'))   { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/apply'.length)); applySuggestion(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Ambient-1 + Goals-3.1（goal 提案は save:true 実体化で async）
       if (p === '/api/goals') return json(res, 200, saveGoal(j || {}));                                     // Wave Goals-1: ゴール作成/更新
       if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
       if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }

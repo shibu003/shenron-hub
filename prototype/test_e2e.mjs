@@ -90,6 +90,10 @@ try {
   const sug = await call('list_suggestions', { status: 'open' });
   const goalSugs = (Array.isArray(sug) ? sug : []).filter((s) => s.kind === 'goal' && s.goalId === ga.id);
   ok('Goals-3: suggestions に kind:goal が 1 件だけ push される（冪等）', goalSugs.length === 1);
+
+  // ─── Wave Goals-3.1: goal 提案を apply → save:false で捨てた「次の手」flow を save:true で実体化（workflowId 付与）───
+  const applied = await call('apply_suggestion', { id: goalSugs[0].id });
+  ok('Goals-3.1: goal 提案 apply → 次の手 flow が実体化（workflowId）+ status=applied', applied && applied.applied && applied.applied.status === 'applied' && !!applied.applied.workflowId);
   mcp.close();
 
   // ─── 3-stage browser permission gate (real browser, pre-baked steps, deterministic) ───
