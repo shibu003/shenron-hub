@@ -782,7 +782,7 @@ function applySuggestion(id) {
   writeSuggestions(arr); return { id, status: 'applied', applied: s };
 }
 
-// detectSuggestions — TODO(human): state.runs と state.audit を観察して提案を生成するロジック。
+// detectSuggestions — state.runs と state.audit を観察して提案を生成する。
 // - kind:'automate': 同じ workflow を手動で REPEAT_THRESHOLD 回以上 fire している → 定期化を提案
 // - kind:'fix': 同じ flow が FAIL_THRESHOLD 回連続 fail している → 調査/set_check を提案
 // 提案は冪等（同じ workflowId/flowId の open 提案が既存なら追加しない）。cap=100。

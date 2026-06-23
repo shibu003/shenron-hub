@@ -437,9 +437,9 @@ export async function evalExpect(expect, actual, { run = runVendorAsync, vendor,
     let ok, why;
     switch (op) {
       case 'contains': ok = text.includes(arg); why = `contains "${arg}"`; break;
-      case '!contains': case 'not-contains': case 'lacks': ok = !text.includes(arg); why = `lacks "${arg}"`; break;
-      case 'equals': case 'eq': ok = text.trim() === arg.trim(); why = 'equals exactly'; break;
-      case 'regex': case 're':
+      case '!contains': ok = !text.includes(arg); why = `lacks "${arg}"`; break;
+      case 'equals': ok = text.trim() === arg.trim(); why = 'equals exactly'; break;
+      case 'regex':
         try { ok = new RegExp(arg).test(text); why = `matches /${arg}/`; }
         catch (e) { return { ok: false, reason: `assert: bad regex (${e.message})` }; }    // 不正 rule は fail（黙って pass しない）
         break;
