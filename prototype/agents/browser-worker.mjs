@@ -6,7 +6,7 @@
 // stateful seam that closes the "API 無し / UI のみ" branch of the decision tree (docs/13 §J).
 //
 //   node prototype/agents/browser-worker.mjs [--hub …] [--once] [--vendor claude] [--max-steps 12] [--no-screenshot] [--isolated] [--pw "<cmd>"]
-//   default = persistent login profile (~/.giogio/browser-profile); --isolated = ephemeral (tests/CI)
+//   default = persistent login profile (~/.shenron/browser-profile); --isolated = ephemeral (tests/CI)
 //
 // Handoff input is EITHER JSON {steps:[{tool, args}]} (pre-baked Playwright-MCP steps, 11a/b) OR a plain
 // natural-language goal (11c: the planner's agent:browser-control node hands off the intent). For an NL goal
@@ -32,11 +32,11 @@ const argOf = (f) => { const i = process.argv.indexOf(f); return i > -1 ? proces
 const HUB = (argOf('--hub') || 'http://localhost:8795').replace(/\/$/, '');
 // Persistent browser profile: the user logs in ONCE and the session (cookies/login) is reused across runs —
 // 「人のログイン session を資産化」, the no-API branch's substitute for an API key. The profile dir is OURS
-// (~/.giogio/browser-profile), separate from the operator's own Chrome → no collision. --isolated → ephemeral
+// (~/.shenron/browser-profile), separate from the operator's own Chrome → no collision. --isolated → ephemeral
 // in-memory profile (tests/CI, or to avoid touching the persistent one). --pw overrides the whole command.
 // ponytail: one shared profile dir → one worker at a time (the ticking guard already serializes). Per-worker
 // dirs if you ever run several. Path must be space-free (openStdio splits argv on whitespace).
-const PROFILE = path.join(os.homedir(), '.giogio', 'browser-profile');
+const PROFILE = path.join(os.homedir(), '.shenron', 'browser-profile');
 const ISOLATED = process.argv.includes('--isolated');
 const PW = argOf('--pw') || (ISOLATED ? 'npx @playwright/mcp@latest --isolated' : `npx @playwright/mcp@latest --user-data-dir ${PROFILE}`);
 if (!argOf('--pw') && !ISOLATED) fs.mkdirSync(PROFILE, { recursive: true });

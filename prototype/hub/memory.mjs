@@ -1,11 +1,11 @@
-// memory.mjs — cross-session memory store. ~/.giogio/memory.json に [{id,text,tags,createdAt}]。
+// memory.mjs — cross-session memory store. ~/.shenron/memory.json に [{id,text,tags,createdAt}]。
 // ponytail: per-machine local JSON; embedding 無しの keyword/tag マッチ（server.mjs searchIndex と同型）。秘密値は入れない前提だが量制御は topN で。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-const DIR = path.join(os.homedir(), '.giogio');
+const DIR = path.join(os.homedir(), '.shenron');
 const FILE = path.join(DIR, 'memory.json');
 const read = () => { try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { return []; } };
 const write = (rows) => { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(FILE, JSON.stringify(rows), { mode: 0o600 }); };
@@ -47,7 +47,7 @@ export function relevantMemories(query = '', topN = 3) {
 }
 
 // ponytail: 関連度の最小自己チェック（CJK bigram が日本語 recall を救うこと＋英語偽陽性ゼロ）。
-// 実行: node prototype/hub/memory.mjs --selftest （~/.giogio は触らず純関数のみ検証）
+// 実行: node prototype/hub/memory.mjs --selftest （~/.shenron は触らず純関数のみ検証）
 if (process.argv[1] && process.argv[1].endsWith('memory.mjs') && process.argv.includes('--selftest')) {
   const score = (q, text, tags = []) => { const hay = text.toLowerCase(); const tagHay = tags.join(' ').toLowerCase();
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);

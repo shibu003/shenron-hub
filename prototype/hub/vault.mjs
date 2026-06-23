@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const SVC = 'shenron-hub';
-const DIR = path.join(os.homedir(), '.giogio');
+const DIR = path.join(os.homedir(), '.shenron');
 const META = path.join(DIR, 'credential-index.json'); // key names only
 const FILE = path.join(DIR, 'credentials.json');      // non-mac: base64-obfuscated values
 const mac = process.platform === 'darwin';

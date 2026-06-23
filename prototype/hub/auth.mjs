@@ -1,13 +1,13 @@
 // auth.mjs — 登録・ログイン・メール認証。外部依存ゼロ(Node.js crypto のみ)。
-// Users → ~/.giogio/users.json (mode 0o600)
+// Users → ~/.shenron/users.json (mode 0o600)
 // Sessions → in-memory Map (再起動で無効化。自己ホスト用途では許容範囲)
-// Session secret → ~/.giogio/session-secret.key (初回生成・再起動後も維持)
+// Session secret → ~/.shenron/session-secret.key (初回生成・再起動後も維持)
 import { scryptSync, randomBytes, timingSafeEqual, createHmac } from 'node:crypto'; // timingSafeEqual: パスワード比較用(タイミング攻撃防止)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const DIR   = path.join(os.homedir(), '.giogio');
+const DIR   = path.join(os.homedir(), '.shenron');
 const USERS = path.join(DIR, 'users.json');
 const SKEY  = path.join(DIR, 'session-secret.key');
 
