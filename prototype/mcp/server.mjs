@@ -154,6 +154,7 @@ async function callTool(name, args = {}) {
       return r;
     }
     case 'hub_health': return await hub('/api/health');          // Wave O-3: 認証不要の死活確認
+    case 'hub_doctor': return await hub('/api/doctor');          // Wave N-3: セットアップ診断
     case 'get_config': return await hub('/api/config');         // Wave: 全設定を1か所で読む（NL 設定変更の前後確認）
     case 'set_config': return await hub('/api/config', args || {});   // Wave: 設定を1か所で更新（自然文→構造化して渡す・即反映）
     case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,

@@ -36,6 +36,8 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'automation id (from search_automations)' }, on: { type: 'boolean', description: 'true = enable, false = disable/pause' } }, required: ['id', 'on'] } },
   { name: 'hub_health', description: 'Check hub liveness — returns ok:true, uptime (seconds since start), scheduler state (on/off), version. No auth required. Use to verify the hub is running before long operations, or as a watchdog ping target.',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'hub_doctor', description: '神龍の初回セットアップ診断 — Node バージョン・Playwright Chromium インストール・ポート競合・A2A_SHARED_TOKEN・ユーザー登録状態を確認し、問題があれば修正コマンドを返す。詰まったらまずここを呼ぶ。',
+    inputSchema: { type: 'object', properties: {} } },
   { name: 'get_config', description: 'Read 神龍\'s settings in one place (cost / scheduler / per-tier routing vendor+model / providers) + initial-setup hints (needs) + whether API keys are present. Secrets are never returned (presence only).',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'set_config', description: 'Update 神龍\'s settings from natural language or structured input (takes effect immediately, no restart). e.g. {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}. API keys CANNOT be set here (env/.dev.vars only). Returns the full updated settings.',
@@ -172,6 +174,7 @@ export const TOOLS = [
 // GET = no body. list_handoffs/get_handoff are NOT here — they filter /api/state and are handled in-process.
 const enc = encodeURIComponent;
 export const PROXY = {
+  hub_doctor:         () => ({ method: 'GET',  path: '/api/doctor' }),
   toggle_automation: (a) => ({ method: 'POST', path: `/api/automations/${enc(a.id)}/toggle`, body: { on: a.on } }),
   list_components:   (a) => ({ method: 'GET',  path: a.id ? `/api/shenron/components?id=${enc(a.id)}` : '/api/shenron/components' }),
   approve_component: (a) => ({ method: 'POST', path: '/api/shenron/components/approve', body: { id: a.id } }),

@@ -26,6 +26,7 @@ import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
 import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wave U-1: tool defs single-sourced (shared with stdio server.mjs)
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
+import { runDoctor } from './doctor.mjs';   // Wave N-3
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
@@ -1221,6 +1222,9 @@ const server = http.createServer((req, res) => {
   // Wave O-3: health check — no auth (external cron / watchdog can call this)
   if (req.method === 'GET' && p === '/api/health')
     return json(res, 200, { ok: true, uptime: Math.round(process.uptime()), scheduler: schedulerOn(), version: HUB_VERSION });
+  // Wave N-3: doctor — no auth (初回セットアップ診断・問題を抱えている状態でも呼べる)
+  if (req.method === 'GET' && p === '/api/doctor')
+    return json(res, 200, await runDoctor(PORT));
   // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
   if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')
