@@ -415,4 +415,36 @@ assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backwa
   let buf = []; for (let i = 0; i < 60; i++) { buf.push(i); if (buf.length > 50) buf = buf.slice(-50); }
   assert.ok(buf.length <= 50 && buf[buf.length - 1] === 59, 'R-1 checkResults ring buffer caps at 50, keeps newest');
 }
+// ---------- Wave U-1: MCP surface divergence guard ----------
+// 公開している tool は必ず dispatch 経路を持つこと。TOOLS に足して配線を忘れたらここで red。
+{
+  const { TOOLS, PROXY, forStdio, forRemote } = await import('../mcp/tools.mjs');
+  const { readFileSync } = await import('node:fs');
+  const names = TOOLS.map((t) => t.name);
+  assert.equal(new Set(names).size, names.length, 'U-1: no duplicate tool names in TOOLS');
+  for (const k of Object.keys(PROXY)) assert.ok(names.includes(k), `U-1: PROXY key "${k}" must be a defined tool`);
+
+  // stdio: server.mjs callTool の case ラベルが forStdio tool を全部覆うこと
+  const serverSrc = readFileSync(new URL('../mcp/server.mjs', import.meta.url), 'utf8');
+  const stdioHandled = new Set([...serverSrc.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1]));
+  for (const t of TOOLS.filter(forStdio)) assert.ok(stdioHandled.has(t.name), `U-1: stdio tool "${t.name}" advertised but no callTool case`);
+
+  // remote: mcpDispatch の name=== 分岐 ∪ PROXY ∪ in-process special-case が forRemote tool を全部覆うこと
+  const hubSrc = readFileSync(new URL('./hub.mjs', import.meta.url), 'utf8');
+  const remoteHandled = new Set([...hubSrc.matchAll(/name === '([a-z_]+)'/g)].map((m) => m[1]));
+  for (const k of Object.keys(PROXY)) remoteHandled.add(k);
+  for (const t of TOOLS.filter(forRemote)) assert.ok(remoteHandled.has(t.name), `U-1: remote tool "${t.name}" advertised but mcpDispatch can't serve it`);
+
+  // 構造不変: REMOTE_DENY で明示的に塞いだ以外の proxy tool は必ず remote に出る（人間の許可判断を尊重しつつ回帰検出）
+  const { REMOTE_DENY } = await import('../mcp/tools.mjs');
+  const remoteNames = new Set(TOOLS.filter(forRemote).map((t) => t.name));
+  for (const k of Object.keys(PROXY)) {
+    if (REMOTE_DENY.has(k)) assert.ok(!remoteNames.has(k), `U-1: "${k}" is REMOTE_DENY'd → must NOT be on remote`);
+    else assert.ok(remoteNames.has(k), `U-1: proxy tool "${k}" should be remote-exposed (or add to REMOTE_DENY)`);
+  }
+  // hidden ≠ blocked: mcpDispatch (remote 専用経路) は REMOTE_DENY を advertise から外すだけでなく dispatch でも拒否すること
+  // （tools/list に出さなくても名前で直接呼べば proxySelf が通る穴を塞いだ・E2E 確認済 2026-06-22）。guard 行が消えたらここで red。
+  assert.ok(/REMOTE_DENY\.has\(name\)/.test(hubSrc), 'U-1: mcpDispatch must reject REMOTE_DENY tools at dispatch (not just hide them)');
+  console.log(`U-1 surface guard OK — stdio ${TOOLS.filter(forStdio).length} / remote ${remoteNames.size} tools, all dispatchable (REMOTE_DENY: ${REMOTE_DENY.size})`);
+}
 console.log('test_shenron OK');

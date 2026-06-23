@@ -17,6 +17,7 @@ import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { triggerMatches } from '../match.mjs';
+import { TOOLS, forStdio } from './tools.mjs';   // Wave U-1: tool defs single-sourced (shared with hub remote-MCP)
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const AGENTS_DIR = path.join(HERE, '..', 'agents');
@@ -127,131 +128,8 @@ async function hub(p, body) {
 }
 const hRef = (h) => ({ id: h.id, from: h.from, to: h.to, skill: h.skill, status: h.status });
 
-// ---------- tools ----------
-const TOOLS = [
-  { name: 'search_agents', description: 'Search the agent index. Returns small refs (id/name/company/skill/tags) — token-light. Use get_agent for full detail.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
-  { name: 'get_agent', description: 'Get one agent\'s full card by id (on demand).',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'search_workflows', description: 'Search the workflow/automation index. Returns small refs. Use get_workflow for the full definition.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
-  { name: 'get_workflow', description: 'Get one workflow\'s full definition (steps) by id.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'search_automations', description: 'Search the automation index (trigger-bound workflow runs: schedule/build_state). Returns small refs — token-light. Use get_automation for the full definition.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
-  { name: 'get_automation', description: 'Get one automation\'s full definition (trigger + bound workflow + default input) by id.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'search_integrations', description: 'Search the integration index (connected MCP servers + their external-action tools: email/post/etc). Returns small refs (id/label/kind/enabled/toolCount/tags) — token-light. Use get_integration for the full tool list.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
-  { name: 'get_integration', description: 'Get one integration\'s full definition (kind + command/url + tools with accepts/emits) by id.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'add_integration', description: 'Register an MCP server with giogio so its tools appear in plan_flow\'s available list and resolve as flow nodes. IMPORTANT: the tools YOUR client connects (e.g. claude.ai\'s Gmail) are invisible to giogio — MCP servers cannot see each other — so to let a flow use such a service, register it here (or rely on agent:browser-control for UI-only services). kind defaults to "mcp" ("search" for a search-provider). Provide command (stdio) or url (HTTP) and the tools it exposes.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', enum: ['mcp', 'search'] }, command: { type: 'string' }, url: { type: 'string' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
-  { name: 'add_automation', description: 'Register an automation that auto-runs a saved workflow on a schedule (cron) or a build-state event. Schedule example: trigger {type:"schedule", when:"0 9 * * 1"} (every Mon 9am, 5-field cron). NOTE: the in-hub scheduler fires ONLY while the hub host is running — for phone-only / no-always-on-host it will NOT fire (use an external scheduler like Google Apps Script); check the returned `note`.',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' }, trigger: { type: 'object', description: '{type:"schedule",when:"<cron>"} or {type:"build_state",match:{...}}' }, workflow: { type: 'string', description: 'saved workflow id to run' }, input: { type: 'string' } }, required: ['name', 'trigger', 'workflow'] } },
-  { name: 'toggle_automation', description: 'Enable or disable a saved automation (pause/resume) without deleting it — a disabled automation is skipped by the in-hub scheduler and by fire_event, effective immediately (no restart). Mirrors the cockpit toggle. Re-enable with on:true.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'automation id (from search_automations)' }, on: { type: 'boolean', description: 'true = enable, false = disable/pause' } }, required: ['id', 'on'] } },
-  { name: 'get_config', description: 'Read 神龍\'s settings in one place (cost / scheduler / per-tier routing vendor+model / providers) + initial-setup hints (needs) + whether API keys are present. Secrets are never returned (presence only).',
-    inputSchema: { type: 'object', properties: {} } },
-  { name: 'set_config', description: 'Update 神龍\'s settings from natural language or structured input (takes effect immediately, no restart). e.g. {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}. API keys CANNOT be set here (env/.dev.vars only). Returns the full updated settings.',
-    inputSchema: { type: 'object', properties: { cost: { type: 'string', enum: ['free', 'paid_ok'] }, scheduler: { type: 'boolean' }, routing: { type: 'object' }, providers: { type: 'object' } } } },
-  { name: 'build_state', description: 'Summary of the BuildHUD state (counts, ids, attended/unattended). Summary only — not a full dump.',
-    inputSchema: { type: 'object', properties: {} } },
-  { name: 'plan_flow', description: '神龍: turn a natural-language goal into a flow — ordered steps, which existing tools/agents cover each (have), and which are MISSING (gaps to build). Returns `available` (registered agents/tools/workflows + built-in agent:browser-control). Saves it to the workflow store so it is viewable in the web cockpit (🗂 Flows); pass save:false to design without saving. gap controls self-extension: "ask" (default) surfaces gaps to build, "auto" auto-generates them, "off" plans with existing tools only. DISCOVER-FIRST: it researches the goal across all options (registered tools / APIs / free MCP / platforms like Apps Script / browser-control / generate) and surfaces blockers (no-API / ToS / license). If the goal is ambiguous or has blockers, it returns `clarify` (questions+options, mode:"clarify") INSTEAD of a plan — present those to the user, then call plan_flow again with their answers in `context.choices` (e.g. [{"question":"...","answer":"..."}]). Also returns summary_text + diagram_mermaid/diagram_ascii so you can show the plan and confirm before running — no web cockpit needed. ROUTING PROPOSAL (お財布適応): each step also gets a model route shown in summary_text + a `routing` array — its tier (cheap/strong, picked by the planner from the step\'s content) maps to a concrete vendor/model+cost per your wallet config: cheap→your free subscription or a local model (~$0), strong→your Claude, a high-stakes step→consensus across N models. Cheap auto-escalates to strong only if it fails. NOTE: tools your client connects (e.g. claude.ai\'s Gmail) are NOT visible here — register them with add_integration, or a UI-only service resolves to agent:browser-control. Designs, does not run — act on it with run_workflow.',
-    inputSchema: { type: 'object', properties: { goal: { type: 'string' }, save: { type: 'boolean' }, gap: { type: 'string', enum: ['off', 'ask', 'auto'] }, cost: { type: 'string', enum: ['free', 'paid_ok'], description: 'free (default): only $0-marginal options, paid steps surfaced as opt-in; paid_ok: may use paid tools, cost disclosed' }, context: { type: 'object', description: 'discover-first の clarify 回答を返す時に使う: { choices: [{ question, answer }] } を入れて再呼び出しすると plan に進む' } }, required: ['goal'] } },
-  { name: 'gen_component', description: '神龍: BUILD a missing tool for a gap — generates a standalone MCP server (claude/codex writes stdlib code), then spawn+handshake+run verifies it and repairs in a loop. Returns the converged code + a pending component id. The self-extension step: when no existing tool/MCP covers a step, 神龍 writes one. Approve it with approve_component to make it usable.',
-    inputSchema: { type: 'object', properties: { what: { type: 'string' }, maxIters: { type: 'number' } }, required: ['what'] } },
-  { name: 'list_components', description: 'List generated components (the build→vet→remember store). Small refs (id/what/approved/iters); pending (approved:false) await approve_component, approved ones are live integrations. Pass id for the full code.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } } } },
-  { name: 'approve_component', description: 'Human gate: approve a generated component by id → writes prototype/mcp/generated/<id>.py and registers it as an MCP integration (ladder rejoin). After this, re-plan resolves the gap to a real mcp node and run_workflow can use it.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'get_permissions', description: 'Get the browser-control permission ruleset (allow/ask/deny). Read-only browser tools default allow; mutating/outbound default ask. Controls when the computer-use worker pauses for a human checkpoint.',
-    inputSchema: { type: 'object', properties: {} } },
-  { name: 'set_permission', description: '「常に許可」: append an allow rule to the browser-control ruleset so a tool (optionally scoped to a domain) stops asking. Mirrors the cockpit always-allow button; audited.',
-    inputSchema: { type: 'object', properties: { tool: { type: 'string' }, domain: { type: 'string' } }, required: ['tool'] } },
-  { name: 'make_skill', description: '神龍 Wave 7: turn a saved workflow into a Claude Code SKILL.md (a thin wrapper that calls run_workflow). Returns the slug + path so a local agent can invoke the flow as a skill.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'run_handoff', description: 'ACT: send one handoff to an agent skill (A2A). confirm:true to execute; otherwise returns a dry-run plan (attended).',
-    inputSchema: { type: 'object', properties: { toAgentId: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['toAgentId', 'skill', 'input'] } },
-  { name: 'run_workflow', description: 'ACT: run a workflow end-to-end (chained A2A handoffs). confirm:true to execute; otherwise returns a dry-run plan (attended).',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id', 'input'] } },
-  { name: 'list_templates', description: 'List bundled flow templates (one-click installable starter flows). Small refs: id/name/summary/requires + any unmet gap warnings. Use install_template to save one as an editable workflow.',
-    inputSchema: { type: 'object', properties: {} } },
-  { name: 'install_template', description: 'Install a bundled template by id → saves it as an editable workflow and returns its workflowId. Any missing required credential or not-yet-enabled integration is surfaced in `warnings` (install succeeds but the flow will gap at run time until resolved).',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'run_automation', description: 'ACT: fire one automation now (runs its bound workflow with its default input). confirm:true to execute; otherwise dry-run. --unattended mode fires enabled automations without confirm.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['id'] } },
-  { name: 'fire_event', description: 'ACT: feed a build-state event (e.g. {event:"review_completed",status:"green"}); returns the enabled automations whose build_state trigger matches, and fires them when confirm:true / --unattended. The build-state-triggered run.',
-    inputSchema: { type: 'object', properties: { event: { type: 'object' }, input: { type: 'string' }, confirm: { type: 'boolean' } }, required: ['event'] } },
-  // --- durable inbox (offline-tolerant handoffs via the hub). Unlike run_handoff (sync, recipient must be online),
-  //     send_handoff survives the recipient being offline — delivered + acted on (approve/auto) at its next poll. ---
-  { name: 'send_handoff', description: 'Durable handoff: enqueue work to an agent\'s inbox (hub). Survives the recipient being OFFLINE — delivered on its next poll. Does NOT need the recipient online (unlike run_handoff).',
-    inputSchema: { type: 'object', properties: { to: { type: 'string' }, skill: { type: 'string' }, input: { type: 'string' }, from: { type: 'string' } }, required: ['to', 'skill'] } },
-  { name: 'list_handoffs', description: 'List inbox handoffs (hub). Small refs (id/from/to/skill/status) — token-light. Optional agent/status/limit filter.',
-    inputSchema: { type: 'object', properties: { agent: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } } } },
-  { name: 'get_handoff', description: 'Get one handoff\'s full record (input/result/error/history) by id.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'poll_inbox', description: 'ACT as an agent coming online: heartbeat (presence) + claim its runnable (auto/approved) handoffs from the hub.',
-    inputSchema: { type: 'object', properties: { agent: { type: 'string' } }, required: ['agent'] } },
-  { name: 'approve_handoff', description: 'Approve an awaiting_approval handoff — it runs on the recipient\'s next poll.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'decline_handoff', description: 'Decline an awaiting_approval handoff.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'set_policy', description: 'Set an agent\'s inbox policy: "approval" (human gate) or "auto" (run on poll, automation-like).',
-    inputSchema: { type: 'object', properties: { agent: { type: 'string' }, policy: { type: 'string' } }, required: ['agent', 'policy'] } },
-  // Wave H: Push通知
-  { name: 'set_notify', description: 'Register a webhook endpoint to receive push notifications when a flow run completes or is cancelled. format:"slack" wraps the payload as a Slack Incoming Webhook message. Optionally pass a Bearer token. Set enabled:false to pause.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, url: { type: 'string', description: 'Webhook URL (Slack/Discord/LINE/generic)' }, format: { type: 'string', enum: ['slack', 'json'], description: 'slack=Slack Incoming Webhook payload, json=raw status JSON' }, token: { type: 'string', description: 'Optional Bearer token for Authorization header' }, enabled: { type: 'boolean' } }, required: ['url'] } },
-  // Wave I: Credential vault
-  { name: 'set_credential', description: 'Store a named credential securely (macOS Keychain on Mac, file-based elsewhere). Stored values are never returned by get_credential or list_credentials — only presence is confirmed. Use to pre-store API keys / passwords that flows reference by name.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Credential name (e.g. "rakuten-password", "twitter-api-key")' }, value: { type: 'string', description: 'The secret value' } }, required: ['id', 'value'] } },
-  { name: 'get_credential', description: 'Check whether a credential exists by id. Returns { id, present: true/false } — the value is NEVER returned (stays in the vault, never enters AI context).',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'list_credentials', description: 'List stored credential ids (names only — values are never returned).',
-    inputSchema: { type: 'object', properties: {} } },
-  { name: 'delete_credential', description: 'Delete a stored credential by id.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  // Wave J: Skill共有
-  { name: 'export_skill', description: 'Export a generated component (skill) as a portable JSON blob. Strip internal IDs/credentials — safe to share. Returns { what, code, iters, shenron:"1" }.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Component id from list_components' } }, required: ['id'] } },
-  { name: 'import_skill', description: 'Import a skill JSON blob (from export_skill or community). Saves as a pending component — approve with approve_component to activate. Provide code+what directly or a blob object.',
-    inputSchema: { type: 'object', properties: { what: { type: 'string' }, code: { type: 'string' }, blob: { type: 'object', description: 'Pass the full export_skill blob here instead of what+code' } } } },
-  // Wave L: Auth management (admin view)
-  { name: 'list_users', description: '登録済みユーザー一覧（id/email/verified/createdAt）。パスワードは返らない。',
-    inputSchema: { type: 'object', properties: {} } },
-  // Wave M-1: パスワードリセット
-  { name: 'reset_password', description: 'パスワードリセット。email だけ渡すと hub ターミナルにリセットリンクを出力（reset-request）。token + password を渡すとリセット実行（reset）。両方公開エンドポイント（認証不要）。',
-    inputSchema: { type: 'object', properties: { email: { type: 'string', description: 'reset-request: メールアドレス' }, token: { type: 'string', description: 'reset: リセットリンクのトークン' }, password: { type: 'string', description: 'reset: 新しいパスワード' } } } },
-  // Wave M-2: run 履歴
-  { name: 'list_runs', description: '直近 20 件のフロー実行履歴（id/flowId/status/done/total/outputs）。',
-    inputSchema: { type: 'object', properties: {} } },
-  { name: 'get_run', description: 'runId でフロー実行の全フィールドを取得（outputs/skipped/routerPick を含む）。',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'stream_run', description: '実行中フローの進捗を購読: 接続時の各ノード出力 snapshot ＋ run 完了/キャンセルまで（最大 timeout 秒）待って完了ノードと最終 status を集約で返す。長時間 push ではなくスナップショット。',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
-  // Wave M-3: 通知テスト
-  { name: 'test_notify', description: '有効な通知 integration (kind:notify) 全てにテスト payload を送信し、各 URL の成否を返す。',
-    inputSchema: { type: 'object', properties: {} } },
-  // Wave P: Agent Factory
-  { name: 'create_agent', description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/codex/gemini/ollama' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
-  { name: 'run_agent', description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ）。',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
-  { name: 'delete_agent', description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
-  { name: 'export_agent_mcp', description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
-  // Wave S: セッション横断メモリ
-  { name: 'remember', description: '神龍に長期記憶を1件保存（セッションを跨いで以降の agent 実行に自動で前置注入される）。秘密値は入れない。',
-    inputSchema: { type: 'object', properties: { text: { type: 'string' }, tags: { type: 'array' } }, required: ['text'] } },
-  { name: 'recall', description: '保存済みの記憶を取得。query で keyword/tag マッチ、未指定で新しい順 topN。',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
-  { name: 'forget', description: '記憶を id 指定で削除（recall の id）。',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  // Wave R-1: 成果検証（automation の run 完了後に期待を突き合わせ、外れたら通知）
-  { name: 'set_check', description: 'automation に成果検証(expect)を付与/解除。expect:{kind:"assert"|"judge", rule, maxRetry}・null/省略で解除。run 完了時に flowResult を rule と突き合わせ、外れたら check_failed 通知。⚠️ judge は run 出力(PII 含みうる)を vendor LLM に送る＝新 egress。秘匿 flow は assert を使うこと。', inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
-  { name: 'list_check_results', description: '直近の成果検証結果（runId/automationId/kind/passed/reason/at）。', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-];
+// ---------- tools ---------- (defs live in ./tools.mjs; stdio surface = forStdio filter)
+const STDIO_TOOLS = TOOLS.filter(forStdio);
 
 async function callTool(name, args = {}) {
   switch (name) {
@@ -428,7 +306,7 @@ rl.on('line', async (line) => {
           capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'buildhud-mcp', version: '0.1.0' } });
       case 'notifications/initialized': return;            // notification, no reply
       case 'ping': return ok(id, {});
-      case 'tools/list': return ok(id, { tools: [...TOOLS, ...await agentTools()] });   // P-2: hub の live local agents を agent_<name> tool として append
+      case 'tools/list': return ok(id, { tools: [...STDIO_TOOLS, ...await agentTools()] });   // P-2: hub の live local agents を agent_<name> tool として append
       case 'tools/call': {
         try { return ok(id, asText(await callTool(params?.name, params?.arguments))); }
         catch (e) { return ok(id, { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true }); }

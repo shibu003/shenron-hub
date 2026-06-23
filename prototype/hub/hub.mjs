@@ -24,6 +24,7 @@ import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
+import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wave U-1: tool defs single-sourced (shared with stdio server.mjs)
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
@@ -911,33 +912,17 @@ const bearerOk = (req) => {
 
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
 const mcpSessions = new Map(); // sessionId → SSE res
-const MCP_TOOLS = [
-  { name: 'plan_flow',          description: '神龍: 自然文ゴール → 実フロー（順序ステップ＋既存ツールでの解決 have / 不足 gap）。DISCOVER-FIRST: 願いを全機構横断で研究し地雷(API無/ToS/許可)も検出。曖昧 or 地雷があれば plan でなく `clarify`(question+options・mode:"clarify") を返す→ ユーザーに提示し、回答を `context.choices`(例 [{question,answer}]) に入れて再呼び出し。`available`（登録済みエージェント/ツール/フロー＋組込 agent:browser-control）と人間可読 `summary_text` + `diagram_mermaid`/`diagram_ascii` も返す。ROUTING 提案(お財布適応): 各 step に model 経路を付けて summary_text + `routing` 配列で返す — step の tier(cheap/strong・planner が内容から判定) を財布設定に応じた vendor/model+cost に対応(cheap→無料サブスク/ローカル ~$0・strong→本人 Claude・high-stakes→N モデル consensus)。cheap は失敗時だけ strong に自動昇格。既定で保存（save:false で設計のみ）。NOTE: あなたの MCP client が接続しているツール（claude.ai の Gmail 等）はここからは見えません（MCP 仕様: server 同士は互いを見られない）→ 使わせたいツールは add_integration で登録するか、UI のみのサービスは agent:browser-control に解決されます。', inputSchema: { type: 'object', properties: { goal: { type: 'string', description: '実現したいこと' }, save: { type: 'boolean' }, gap: { type: 'string', description: 'off|ask|auto' }, cost: { type: 'string', description: 'free(既定・従量0優先・有料は opt-in 化)|paid_ok(有料ツール可・コスト開示)' }, context: { type: 'object', description: 'discover の clarify 回答 { choices:[{question,answer}] } を入れて再呼び出し→plan へ' } }, required: ['goal'] } },
-  { name: 'add_integration',    description: '自分の MCP server を giogio に登録 → plan_flow の available に出て、フローのノードとして解決される。client 接続は giogio から見えないので、使わせたいツールはこれで登録する。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', description: 'mcp（既定）| search' }, command: { type: 'string', description: 'stdio MCP の起動コマンド' }, url: { type: 'string', description: 'HTTP MCP の URL' }, tools: { type: 'array', description: '[{name, accepts?, emits?}]' } }, required: ['id', 'label'] } },
-  { name: 'add_automation',     description: 'スケジュール(cron) or build-state イベントで保存済み workflow を自動実行する automation を登録。schedule 例: trigger {type:"schedule", when:"0 9 * * 1"}（毎週月曜9時）。⚠️ in-hub scheduler は hub 起動中のみ発火（スマホのみ/常駐hub無しでは動かない→外部 scheduler を使う）。返りの note を確認。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, trigger: { type: 'object', description: '{type:"schedule",when:"<cron 5-field>"} or {type:"build_state",match:{...}}' }, workflow: { type: 'string', description: '実行する保存済み workflow id' }, input: { type: 'string' } }, required: ['name', 'trigger', 'workflow'] } },
-  { name: 'get_config',         description: '神龍の全設定を1か所で読む（cost / scheduler / routing(cheap・strong の vendor+model) / providers）＋初期設定 hint(needs)＋API key の在否。⚠️ secret 値は返らない。', inputSchema: { type: 'object', properties: {} } },
-  { name: 'set_config',         description: '神龍の設定を自然文/構造で更新（即反映・再起動不要）。例: {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}。⚠️ API key は設定不可（env/.dev.vars のみ）。返りは更新後の全設定。', inputSchema: { type: 'object', properties: { cost: { type: 'string', description: 'free|paid_ok' }, scheduler: { type: 'boolean' }, routing: { type: 'object', description: '{cheap:{vendor,model}, strong:{vendor,model}}' }, providers: { type: 'object', description: '{ollama:{host,model}, openai:{model}, anthropic:{model}}' } } } },
-  { name: 'save_workflow',      description: 'nodes/edges でフローを保存', inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
-  { name: 'list_workflows',     description: '保存済みフロー一覧', inputSchema: { type: 'object', properties: {} } },
-  { name: 'list_templates',     description: '同梱フローテンプレ一覧（id/name/summary/requires/未設定 gap 警告）。install_template で1クリック導入。', inputSchema: { type: 'object', properties: {} } },
-  { name: 'install_template',   description: '同梱テンプレを編集可能な workflow として保存し workflow id を返す。requires 未設定 credential や未有効 integration があれば warnings に明示（install はできるが run 時 gap）。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'run_workflow',       description: '保存済みフローを実行', inputSchema: { type: 'object', properties: { id: { type: 'string' }, input: { type: 'string' } }, required: ['id'] } },
-  { name: 'gen_component',      description: '不足ツールを Python MCP サーバーとして生成', inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
-  { name: 'create_agent',       description: 'エージェントを作成 → 即この MCP の tool 一覧に agent_<name> として現れ、すぐ呼べる。name は小文字[a-z0-9-]。instructions=システムプロンプト（役割・出力形式）。vendor 既定 claude（あなたのサブスク＝従量0）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, instructions: { type: 'string', description: 'システムプロンプト（このエージェントの役割・振る舞い・出力形式）' }, vendor: { type: 'string', description: 'claude（既定）/ codex / gemini / ollama 等' }, model: { type: 'string' } }, required: ['name', 'instructions'] } },
-  { name: 'run_agent',          description: '作成済みエージェントを実行して結果を返す（agent_<name> tool と同じ・name を知っていればこちらでも）。', inputSchema: { type: 'object', properties: { name: { type: 'string' }, input: { type: 'string' } }, required: ['name', 'input'] } },
-  { name: 'delete_agent',       description: '作成済み local エージェントを削除（進行中の run は触らない・新規受付のみ停止）。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
-  { name: 'export_agent_mcp',   description: 'エージェントを hub 非依存の standalone Python MCP server として書出 → 任意の MCP client に登録できるポータブル成果物。返りの registerHint に登録方法。', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
-  { name: 'stream_run',         description: '実行中フローの進捗を購読: 接続時点の各ノード出力 snapshot を返し、run が完了/キャンセルするまで（最大 timeout 秒）待って、その間に完了したノードと最終 status をまとめて1回で返す。長時間 push ではなく集約スナップショット（MCP は常駐 SSE を保持しない）。ライブ追記が要る UI は GET /api/runs/:id/stream（EventSource）を直接使う。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, timeout: { type: 'number', description: '待機上限秒（既定 30・上限 120）' } }, required: ['id'] } },
-  { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
-  { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
-  // Wave S: セッション横断メモリ
-  { name: 'remember', description: '神龍に長期記憶を1件保存（セッションを跨いで以降の agent 実行に自動で前置注入される）。例: remember("ユーザーは関西弁が好み", tags:["tone"])。秘密値は入れない。', inputSchema: { type: 'object', properties: { text: { type: 'string', description: '覚えておく内容' }, tags: { type: 'array', description: '任意のタグ（検索の重み付けに使う）' } }, required: ['text'] } },
-  { name: 'recall', description: '保存済みの記憶を取得。query 指定で keyword/tag マッチ上位、未指定で新しい順 topN。', inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
-  { name: 'forget', description: '記憶を id 指定で削除（recall の id）。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  // Wave R-1: 成果検証
-  { name: 'set_check',          description: '神龍 Wave R-1: automation に成果検証(expect)を付与/解除。expect:{kind:"assert"|"judge", rule, maxRetry} で付与（onFail は notify 固定）・null/省略で解除。run 完了時に flowResult を rule と突き合わせ外れたら check_failed 通知。⚠️ judge は run 出力(flowResult・PII 含みうる)を vendor LLM に送る＝新しい egress。秘匿データを扱う flow は assert を使うか入力に秘密を含めないこと。', inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
-  { name: 'list_check_results', description: '神龍 Wave R-1: 直近の成果検証結果（runId/automationId/kind/passed/reason/at）。', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
-];
+const REMOTE_TOOLS = TOOLS.filter(forRemote);   // Wave U-1: defs single-sourced in ../mcp/tools.mjs; remote surface = forRemote filter
+// Wave U-1: pure /api-proxy tools loop back to the hub's own routes (route = single truth, no re-impl).
+// ponytail: loopback self-call — tiny loopback cost; upgrade to direct fn calls only if it shows on a profile.
+async function proxySelf(name, args) {
+  const r = PROXY[name](args);
+  const headers = { 'content-type': 'application/json', ...(SHARED_TOKEN ? { authorization: `Bearer ${SHARED_TOKEN}` } : {}) };
+  const resp = await fetch(`http://localhost:${PORT}${r.path}`, { method: r.method, headers, body: r.method === 'GET' ? undefined : JSON.stringify(r.body || {}) });
+  const text = await resp.text(); let j; try { j = JSON.parse(text); } catch { j = text; }
+  if (!resp.ok) throw new Error(j && j.error ? j.error : `hub ${r.path} → ${resp.status}`);
+  return j;
+}
 // Wave B: 何が「使える」かの正直な要約。registered（agents/tools/workflows）＋組込（browser-control/prompt）。
 // 生成済み道具は integration.generated で印。⚠️ client が繋ぐ MCP（claude.ai の Gmail 等）は MCP 仕様上ここから見えない＝note で明示。
 function availableSummary() {
@@ -978,6 +963,7 @@ async function planFlow({ goal, save, gap, context, cost }) {
 }
 
 async function mcpDispatch(name, args) {
+  if (REMOTE_DENY.has(name)) throw new Error(`tool "${name}" is not available on the remote surface`);   // Wave U-1: REMOTE_DENY は advertise を絞るだけでなく dispatch も塞ぐ（hidden ≠ blocked・remote 専用経路 = ここで一括拒否）
   if (name === 'plan_flow')          return planFlow({ goal: args.goal, save: args.save !== false, gap: args.gap, context: args.context, cost: args.cost });   // Wave B③: 在庫返しでなく実 plan（have/missing/図）に統一
   if (name === 'add_integration')    return saveIntegration({ id: args.id, label: args.label, kind: args.kind || 'mcp', command: args.command || '', url: args.url || '', enabled: args.enabled, tools: args.tools || [] });
   if (name === 'add_automation')     return saveAutomation({ name: args.name, trigger: args.trigger, workflow: args.workflow, input: args.input || '' });   // Wave: schedule/build-state 起点で workflow 自動実行（schedule は in-hub scheduler が hub 起動中に発火）
@@ -1022,6 +1008,10 @@ async function mcpDispatch(name, args) {
   if (name === 'forget')             return deleteMemory(args.id);
   if (name === 'set_check')          return setCheck(args.automation, args.expect);   // Wave R-1
   if (name === 'list_check_results') return (state.checkResults || []).slice(-(args.limit || 20));   // Wave R-1
+  // Wave U-1: stdio-parity tools — list/get_handoff filter live state in-process; the rest loop back to /api.
+  if (name === 'list_handoffs') { let hs = state.handoffs; if (args.agent) hs = hs.filter((h) => h.to === args.agent || h.from === args.agent); if (args.status) hs = hs.filter((h) => h.status === args.status); return hs.slice(-(args.limit || 20)).map(ref); }
+  if (name === 'get_handoff')        return find(args.id);
+  if (PROXY[name])                   return proxySelf(name, args);
   throw new Error(`unknown tool "${name}"`);
 }
 
@@ -1159,7 +1149,7 @@ const server = http.createServer((req, res) => {
         if (method === 'initialize' || method === 'notifications/initialized') {
           return json(res, 200, method === 'initialize' ? { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } } : {});
         }
-        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: [...MCP_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
+        if (method === 'tools/list') return json(res, 200, { jsonrpc: '2.0', id, result: { tools: [...REMOTE_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
         if (method === 'tools/call') {
           mcpDispatch((params || {}).name, (params || {}).arguments || {})
             .then((r) => json(res, 200, { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
@@ -1229,7 +1219,7 @@ const server = http.createServer((req, res) => {
         if (method === 'initialize' || method === 'notifications/initialized') {
           if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } });
         } else if (method === 'tools/list') {
-          send({ jsonrpc: '2.0', id, result: { tools: [...MCP_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
+          send({ jsonrpc: '2.0', id, result: { tools: [...REMOTE_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
         } else if (method === 'tools/call') {
           mcpDispatch((params || {}).name, (params || {}).arguments || {})
             .then((r) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
