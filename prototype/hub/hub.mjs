@@ -1138,7 +1138,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, readComponents().map((c) => ({ id: c.id, what: c.what, iters: c.iters, approved: c.approved, credentials: c.credentials || [], createdAt: c.createdAt })));   // credentials=BYO-credential 名のみ（値は持たない）→ panel の 🔑 バッジ
   }
   if (req.method === 'GET' && p === '/api/automations')
-    return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false })));
+    return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false, ...(m.expect ? { expect: m.expect } : {}) })));   // UI-Compat-2: expect を surface（成果検証 UI が「設定済み」を表示）
   if (req.method === 'GET' && p === '/api/integrations')         // connected MCP servers (Wave F.2)
     return json(res, 200, readIntegrations());
   if (req.method === 'GET' && p === '/api/integrations/search')  // clean-mcp token-light index: SMALL refs (id/label/kind/enabled/toolCount/tags)

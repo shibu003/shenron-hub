@@ -139,6 +139,39 @@
     <div id="automations"></div>
   </div>
 
+  <!-- ゴール -->
+  <div class="card">
+    <h2>🎯 ゴール</h2>
+    <p class="sub">長期の願い（例「3ヶ月でフォロワー1000」）を神龍に預け、手動チェックインで進捗を追います。</p>
+    <div id="goals"></div>
+    <div class="two" style="margin-top:10px">
+      <input type="text" id="g_wish" placeholder="願い（例: フォロワーを増やす）">
+      <input type="text" id="g_metric" placeholder="指標（例: followers）">
+    </div>
+    <div class="two" style="margin-top:8px">
+      <input type="number" id="g_target" placeholder="目標値（例: 1000）">
+      <input type="text" id="g_unit" placeholder="単位（任意・例: 人）">
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addGoal">＋ ゴールを追加</button></div>
+  </div>
+
+  <!-- 成果検証 -->
+  <div class="card">
+    <h2>✅ 成果検証（自動チェック）</h2>
+    <p class="sub">オートメーションの実行結果が期待どおりか自動判定し、外れたら通知します。assert=決定論（$0）・judge=AI が yes/no。</p>
+    <div id="checks"></div>
+    <div class="two" style="margin-top:10px">
+      <select id="ck_auto" style="padding:8px;border-radius:8px;background:var(--bg2,#1a1a2e);color:inherit;border:1px solid var(--bd,#333)"></select>
+      <select id="ck_kind" style="padding:8px;border-radius:8px;background:var(--bg2,#1a1a2e);color:inherit;border:1px solid var(--bd,#333)">
+        <option value="assert">assert（決定論・$0）</option>
+        <option value="judge">judge（AI yes/no）</option>
+      </select>
+    </div>
+    <input type="text" id="ck_rule" placeholder="期待ルール（assert: contains:done / regex:^OK / judge: 丁寧か?）" style="margin-top:8px">
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addCheck">期待を設定</button></div>
+    <div id="checkResults" style="margin-top:12px"></div>
+  </div>
+
   <!-- クレデンシャル保管庫 -->
   <div class="card">
     <h2>🔐 クレデンシャル保管庫</h2>
@@ -311,6 +344,70 @@ async function loadAutorun(){ let s; try{ s=await api('/api/state'); }catch{ ret
   const on = s.autorun !== false; $('#autorun').checked = on;
   $('#autorunState').textContent = on ? 'ON — hub が代理実行' : 'OFF — worker 待ち（broker-only）'; }
 
+// --- ゴール（CRUD + 手動 checkin） ---
+async function loadGoals(){
+  let list=[]; try{ list=(await api('/api/goals')).goals||[]; }catch{}
+  $('#goals').innerHTML = list.length ? list.map(g=>{
+    const pct = g.pct!=null ? g.pct : null;
+    const bar = pct!=null ? `<div style="height:6px;background:#2a2a3e;border-radius:3px;margin-top:6px"><div style="height:6px;width:${Math.min(100,Math.max(0,pct))}%;background:var(--green,#3fb950);border-radius:3px"></div></div>` : '';
+    return `<div class="ig" style="display:block">
+      <div class="nm" style="display:flex;justify-content:space-between;align-items:center">
+        <b>${esc(g.wish||g.id)}</b>
+        <span>${esc(String(g.current??0))}${g.unit?esc(g.unit):''} / ${g.target!=null?esc(String(g.target)):'—'}${g.unit?esc(g.unit):''}${pct!=null?` · ${pct}%`:''} · ${esc(g.status||'active')}</span>
+      </div>${bar}
+      <div class="row" style="gap:8px;margin-top:8px">
+        <input type="number" data-ckval="${esc(g.id)}" placeholder="現在値を入力" style="flex:1">
+        <button class="btn" data-checkin="${esc(g.id)}">記録</button>
+        <button class="btn" data-delgoal="${esc(g.id)}">削除</button>
+      </div>
+    </div>`;
+  }).join('') : `<div class="note">ゴールはまだありません。</div>`;
+  $('#goals').querySelectorAll('[data-checkin]').forEach(el=>el.onclick=async()=>{
+    const inp=$(`[data-ckval="${el.dataset.checkin}"]`); const v=inp.value.trim();
+    if(v==='') return toast('現在値を入力してください');
+    await api(`/api/goals/${encodeURIComponent(el.dataset.checkin)}/checkin`,{value:Number(v)}); toast('進捗を記録しました'); loadGoals();
+  });
+  $('#goals').querySelectorAll('[data-delgoal]').forEach(el=>el.onclick=async()=>{
+    await api(`/api/goals/${encodeURIComponent(el.dataset.delgoal)}/delete`,{}); toast('削除しました'); loadGoals();
+  });
+}
+$('#addGoal').onclick = async ()=>{
+  const wish=$('#g_wish').value.trim(); if(!wish) return toast('願いを入力してください');
+  const body={ wish, metric:$('#g_metric').value.trim() };
+  const t=$('#g_target').value.trim(); if(t) body.target=Number(t);
+  const u=$('#g_unit').value.trim(); if(u) body.unit=u;
+  await api('/api/goals',body);
+  $('#g_wish').value=$('#g_metric').value=$('#g_target').value=$('#g_unit').value=''; toast('ゴールを追加しました'); loadGoals();
+};
+
+// --- 成果検証（automation に expect 付与・直近結果表示） ---
+async function loadChecks(){
+  let autos=[]; try{ autos=await api('/api/automations'); }catch{}
+  // automation select を埋める + expect 済みを一覧
+  $('#ck_auto').innerHTML = autos.length ? autos.map(a=>`<option value="${esc(a.id)}">${esc(a.name||a.id)}</option>`).join('') : `<option value="">（オートメーション無し）</option>`;
+  const withExpect = autos.filter(a=>a.expect&&a.expect.kind);
+  $('#checks').innerHTML = withExpect.length ? withExpect.map(a=>`
+    <div class="ig">
+      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(a.expect.kind)}: ${esc(a.expect.rule||'')}</span></div>
+      <button class="btn" data-delcheck="${esc(a.id)}">解除</button>
+    </div>`).join('') : `<div class="note">期待を設定したオートメーションはありません。</div>`;
+  $('#checks').querySelectorAll('[data-delcheck]').forEach(el=>el.onclick=async()=>{
+    await api('/api/check',{automation:el.dataset.delcheck,expect:null}); toast('期待を解除しました'); loadChecks();
+  });
+  // 直近の検証結果（/api/check-results は生配列を返す）
+  let results=[]; try{ const r=await api('/api/check-results'); results=Array.isArray(r)?r:[]; }catch{}
+  if(results.length){
+    $('#checkResults').innerHTML = `<div class="sub" style="margin-bottom:6px">直近の検証結果</div>`+results.slice(-5).reverse().map(r=>`
+      <div class="ig"><div class="nm"><b>${r.passed?'✅':'❌'} ${esc(r.automationId||'')}</b><span>${esc(r.reason||'')}</span></div></div>`).join('');
+  } else $('#checkResults').innerHTML='';
+}
+$('#addCheck').onclick = async ()=>{
+  const automation=$('#ck_auto').value; if(!automation) return toast('オートメーションがありません');
+  const rule=$('#ck_rule').value.trim(); if(!rule) return toast('期待ルールを入力してください');
+  await api('/api/check',{automation,expect:{kind:$('#ck_kind').value,rule}});
+  $('#ck_rule').value=''; toast('期待を設定しました'); loadChecks();
+};
+
 // --- クレデンシャル保管庫（値は持たない・在否のみ） ---
 async function loadCredentials(){
   let ids=[]; try{ const r=await api('/api/credentials',{action:'list'}); ids=r.ids||[]; }catch{}
@@ -361,5 +458,5 @@ $('#testNt').onclick = async ()=>{
   toast(r.sent ? `テスト送信: ${ok}/${r.sent} 成功` : '有効な通知先がありません');
 };
 
-loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers();
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks();
 </script>
