@@ -1122,6 +1122,13 @@ async function mcpDispatch(name, args) {
   if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
   if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
+  if (name === 'run_automation') {   // Wave U-2: remote 露出（confirm ゲートなし＝ツール呼び出し自体がユーザーの明示操作）
+    const m = readAutomations().find((x) => x.id === args.id);
+    if (!m) throw new Error(`no automation "${args.id}"`);
+    if (m.enabled === false) throw new Error(`automation "${m.id}" is disabled`);
+    return runFlow({ id: m.workflow, input: args.input ?? m.input ?? '', fromAutomation: m.id });
+  }
+  if (name === 'fire_event')         return fireEvent(args.event || {}, args.input);   // Wave U-2: remote 露出（既存 fireEvent 直呼び）
   if (name === 'gen_component') {
     const cached = matchComponent(readComponents(), args.what);
     if (cached) return { what: cached.what, iters: 0, converged: true, id: cached.id, approved: true, cached: true };
