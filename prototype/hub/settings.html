@@ -139,6 +139,13 @@
     <div id="automations"></div>
   </div>
 
+  <!-- テンプレート -->
+  <div class="card">
+    <h2>📦 テンプレート</h2>
+    <p class="sub">同梱の定番フローをワンクリックで導入。導入後は編集可能なワークフローとして複製されます。</p>
+    <div id="templates"></div>
+  </div>
+
   <!-- ゴール -->
   <div class="card">
     <h2>🎯 ゴール</h2>
@@ -210,6 +217,7 @@
     <div class="row" id="keys"></div>
     <div class="row" id="modeRow"></div>
     <ul class="needs" id="needs" style="margin:8px 0 0; padding-left:18px"></ul>
+    <div id="users" style="margin-top:12px"></div>
   </div>
 </main>
 
@@ -344,6 +352,33 @@ async function loadAutorun(){ let s; try{ s=await api('/api/state'); }catch{ ret
   const on = s.autorun !== false; $('#autorun').checked = on;
   $('#autorunState').textContent = on ? 'ON — hub が代理実行' : 'OFF — worker 待ち（broker-only）'; }
 
+// --- テンプレート（ワンクリック install） ---
+async function loadTemplates(){
+  let list=[]; try{ list=await api('/api/templates'); }catch{}
+  list=Array.isArray(list)?list:(list.templates||[]);
+  $('#templates').innerHTML = list.length ? list.map(t=>{
+    const warn=(t.warnings&&t.warnings.length)?`<div class="note warn" style="margin-top:6px">⚠️ ${t.warnings.map(esc).join(' / ')}</div>`:'';
+    return `<div class="ig" style="display:block">
+      <div class="nm" style="display:flex;justify-content:space-between;align-items:center">
+        <b>${esc(t.name||t.id)}</b><button class="btn go" data-install="${esc(t.id)}">導入</button>
+      </div>
+      <div class="sub" style="margin:4px 0 0">${esc(t.summary||'')}${t.nodes?` · ${t.nodes} ノード`:''}</div>${warn}
+    </div>`;
+  }).join('') : `<div class="note">同梱テンプレートはありません。</div>`;
+  $('#templates').querySelectorAll('[data-install]').forEach(el=>el.onclick=async()=>{
+    const r=await api(`/api/templates/${encodeURIComponent(el.dataset.install)}/install`,{});
+    toast(r.warnings&&r.warnings.length?`導入しました（要設定: ${r.warnings.length}件）`:'導入しました'); loadAutomations();
+  });
+}
+
+// --- ユーザー（auth 設定時のみ・閲覧） ---
+async function loadUsers(){
+  let users=[]; try{ const r=await api('/api/auth/users'); users=Array.isArray(r)?r:(r.users||[]); }catch{ return; }
+  if(!users.length){ $('#users').innerHTML=''; return; }
+  $('#users').innerHTML = `<div class="sub" style="margin-bottom:6px">👥 登録ユーザー（${users.length}）</div>`+users.map(u=>`
+    <div class="ig"><div class="nm"><b>${esc(u.email||u.id)}</b><span>${u.verified?'✓ 認証済み':'未認証'}</span></div></div>`).join('');
+}
+
 // --- ゴール（CRUD + 手動 checkin） ---
 async function loadGoals(){
   let list=[]; try{ list=(await api('/api/goals')).goals||[]; }catch{}
@@ -458,5 +493,5 @@ $('#testNt').onclick = async ()=>{
   toast(r.sent ? `テスト送信: ${ok}/${r.sent} 成功` : '有効な通知先がありません');
 };
 
-loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks();
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadTemplates(); loadUsers();
 </script>
