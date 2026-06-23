@@ -28,7 +28,7 @@ import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wa
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { runDoctor } from './doctor.mjs';   // Wave N-3
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
@@ -720,6 +720,7 @@ function advanceFrom(run, nodeId) {
     run.completedAt = now();   // Wave R-1: exactly-once ガード。完了ブロックは 'cancelled' しか見ず、ネスト親の再入で emit/notify/SSE-event が二重発火しうる既存バグ→1センチネルで完了 side-effect も成果検証も run 毎1回に。
     run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed'); emitRunEvent(run.id, { type: 'done', status: 'completed' }); closeRunListeners(run.id);   // O1: SSE 購読者に done（completedAt ガードで一度だけ）
     setImmediate(() => checkOutcome(run));   // Wave R-1: 成果検証は同期 advanceFrom 再帰の外へ（judge は async）。冪等は上の completedAt が担保。
+    if (run.fromAutomation) setImmediate(() => goalAutoProgress(run.fromAutomation));   // Wave Goals-2: bound automation の成功 run → ゴール current +1（completedAt ガード下で exactly-once）
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -759,17 +760,25 @@ function saveIntegration({ id, label, kind, command, url, enabled, tools, genera
   writeIntegrations(arr); return it;
 }
 function toggleIntegration(id, on) { const arr = readIntegrations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no integration "${id}"`); it.enabled = on !== false; writeIntegrations(arr); return it; }
-// Wave H: Push通知 — fire enabled kind:'notify' integrations when a flow run completes or is cancelled
-function emitRunNotify(run, status) {
+// Wave H: Push通知 — enabled kind:'notify' integration へ webhook POST。run 完了/キャンセルと Goals-2 の goal イベントが共有する 1 ループ。
+function pushNotify(jsonBody, slackText) {   // Wave Goals-2: 通知ループを単一化（emitRunNotify / emitGoalNotify が共有）
   const notifiers = readIntegrations().filter((i) => i.enabled !== false && i.kind === 'notify' && i.url);
   if (!notifiers.length) return;
-  const label = run.flowId || run.id;
-  const body = { status, runId: run.id, flowId: run.flowId || null, label, at: new Date().toISOString() };
   for (const n of notifiers) {
-    const payload = n.format === 'slack' ? { text: `神龍 ${status === 'completed' ? '✅' : '⚠️'} *${label}* (${status})` } : body;
+    const payload = n.format === 'slack' ? { text: slackText } : jsonBody;
     fetch(n.url, { method: 'POST', headers: { 'content-type': 'application/json', ...(n.token ? { authorization: `Bearer ${n.token}` } : {}) }, body: JSON.stringify(payload) })
       .catch((e) => console.error('[notify]', n.id, e.message));
   }
+}
+function emitRunNotify(run, status) {
+  const label = run.flowId || run.id;
+  pushNotify({ status, runId: run.id, flowId: run.flowId || null, label, at: new Date().toISOString() },
+    `神龍 ${status === 'completed' ? '✅' : '⚠️'} *${label}* (${status})`);
+}
+// Wave Goals-2: ゴールの停滞/期限接近を notify integration に push（goalId/wish/pct のみ・値は無し）。status=goal_stalled|goal_deadline|goal_reached。
+function emitGoalNotify(g, status) {
+  pushNotify({ status, goalId: g.id, wish: g.wish, pct: goalPct(g), at: new Date().toISOString() },
+    `神龍 🎯 *${g.wish}* (${status}${goalPct(g) != null ? ` ${goalPct(g)}%` : ''})`);
 }
 // Wave J — build-state IR: a first-class, named event vocabulary (vs n8n's generic webhook) + a small,
 // no-eval match DSL. The deeper this IR, the harder it is for a generic iPaaS to copy ("IR depth = moat").
@@ -826,19 +835,49 @@ function saveGoal({ id, wish, metric, target, current, unit, deadline, automatio
   id = id || (wish || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32) || 'goal-' + randomUUID().slice(0, 4);
   const g = { id, wish: wish ?? prev?.wish ?? '', metric: metric ?? prev?.metric ?? '', target: target ?? prev?.target ?? null,
     current: current ?? prev?.current ?? 0, unit: unit ?? prev?.unit ?? '', deadline: deadline ?? prev?.deadline ?? null,
-    automationIds: automationIds ?? prev?.automationIds ?? [], checkins: prev?.checkins ?? [], status: status ?? prev?.status ?? 'active' };
+    automationIds: automationIds ?? prev?.automationIds ?? [], checkins: prev?.checkins ?? [], status: status ?? prev?.status ?? 'active',
+    createdAt: prev?.createdAt ?? Date.now(), notified: prev?.notified ?? {} };   // Wave Goals-2: createdAt=停滞判定の基準（checkin 無しゴールの起点）/ notified=通知冪等フラグ
   if (i >= 0) arr[i] = g; else arr.push(g);
   writeGoals(arr); return goalView(g);
 }
+// Wave Goals-2: 停滞ゴールに進捗が入ったら active に戻し、停滞通知の冪等フラグをクリア（次に停滞したら再通知できる）。
+const reactivateGoal = (g) => { if (g.status === 'stalled') { g.status = 'active'; if (g.notified) g.notified.stalled = null; } };
 function goalCheckin(id, value, note) {
   const arr = readGoals(); const g = arr.find((x) => x.id === id); if (!g) throw new Error(`no goal "${id}"`);
   const v = Number(value); if (!Number.isFinite(v)) throw new Error('checkin value must be a number');
   (g.checkins ||= []).push({ ts: Date.now(), value: v, note: note || '' });
   g.current = v;                                                              // 手動 checkin の最新値が現在値
+  reactivateGoal(g);                                                          // Wave Goals-2: 手動 checkin は停滞を解除
   if (g.target != null && Number.isFinite(Number(g.target)) && v >= Number(g.target)) g.status = 'reached';   // 目標到達で reached
   writeGoals(arr); return goalView(g);
 }
 function deleteGoal(id) { const arr = readGoals(); const i = arr.findIndex((g) => g.id === id); if (i < 0) throw new Error(`no goal "${id}"`); arr.splice(i, 1); writeGoals(arr); return { id, deleted: true }; }
+// Wave Goals-2 — bound automation の run が完了したら、それを束ねるゴールの current を +1（カウント式）。
+// ponytail: 完了 run = 成功とみなしカウント（expect fail でも +1）。check-pass ゲートにするなら checkOutcome 後に移す。
+function goalAutoProgress(autoId) {
+  if (!autoId) return;
+  const arr = readGoals(); let changed = false;
+  for (const g of arr) {
+    if (!Array.isArray(g.automationIds) || !g.automationIds.includes(autoId) || g.status === 'reached') continue;
+    g.current = (Number(g.current) || 0) + 1;
+    (g.checkins ||= []).push({ ts: Date.now(), value: g.current, note: `auto: ${autoId}`, auto: true });
+    reactivateGoal(g);
+    if (g.target != null && Number.isFinite(Number(g.target)) && g.current >= Number(g.target)) g.status = 'reached';
+    changed = true; trail('goal-auto-progress', { goal: g.id, automation: autoId, current: g.current });   // trail は save() 込み（ただし goals.json は別 store → 明示 writeGoals 要）
+  }
+  if (changed) writeGoals(arr);
+}
+// Wave Goals-2 — tick 相乗り: active ゴールの期限接近/停滞を検出し、一度だけ通知（notified フラグで冪等）。
+function checkGoals() {
+  const now = Date.now(); const arr = readGoals(); let changed = false;
+  for (const g of arr) {
+    if (g.status !== 'active') continue;
+    const s = goalStatus(g, now); g.notified ||= {};
+    if (s.deadlineNear && !g.notified.deadline) { g.notified.deadline = now; emitGoalNotify(g, 'goal_deadline'); changed = true; trail('goal-deadline', { goal: g.id, deadline: g.deadline }); }
+    if (s.stalled && !g.notified.stalled) { g.status = 'stalled'; g.notified.stalled = now; emitGoalNotify(g, 'goal_stalled'); changed = true; trail('goal-stalled', { goal: g.id }); }
+  }
+  if (changed) writeGoals(arr);
+}
 
 // Wave Ambient-1 — 観察→提案（自分データのみ・外部受信箱は読まない）。
 // suggestions.json に { id, kind, reason, evidence, workflowId?, status } を積む。
@@ -959,6 +998,7 @@ function tickScheduler() {
   }
   if (changed) writeSchedState(st);
   detectSuggestions();   // Ambient-1: 自分 run/audit を観察して提案を生成（外部 IO なし）
+  checkGoals();          // Wave Goals-2: active ゴールの期限接近/停滞を検出して通知（外部 IO なし・notify push は best-effort）
 }
 
 // ---------- Ghost Writer (Wave L): NL → a validated, laid-out flow. Generation ≠ execution — the human

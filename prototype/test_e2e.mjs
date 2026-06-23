@@ -14,7 +14,7 @@ const ROOT = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));   /
 const PORT = 8907, HUB = `http://localhost:${PORT}`;
 const PERMFILE = path.join(ROOT, 'prototype/mcp/permissions.json');
 // shared-store files the test mutates → saved aside before, restored after (so the real ones are never polluted)
-const ISOLATE = ['prototype/hub/inbox.json', 'prototype/mcp/workflows.json', 'prototype/mcp/components.json', 'prototype/mcp/integrations.json', 'prototype/mcp/goals.json'].map((p) => path.join(ROOT, p));
+const ISOLATE = ['prototype/hub/inbox.json', 'prototype/mcp/workflows.json', 'prototype/mcp/components.json', 'prototype/mcp/integrations.json', 'prototype/mcp/goals.json', 'prototype/mcp/automations.json'].map((p) => path.join(ROOT, p));
 const results = []; const ok = (n, c) => { results.push(!!c); console.log((c ? '✅' : '❌') + ' ' + n); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hubGet = async (p) => (await fetch(HUB + p)).json();
@@ -64,6 +64,15 @@ try {
   ok('MCP goal_checkin target 到達 → status=reached + pct=100', g2.current === 1000 && g2.pct === 100 && g2.status === 'reached');
   const gl = await call('list_goals');
   ok('MCP list_goals → 作った goal が pct 付きで出る（両surface 機能確認）', Array.isArray(gl) && gl.some((g) => g.id === g0.id && g.pct === 100));
+
+  // ─── Wave Goals-2: bound automation の成功 run → goal.current 自動 +1（カウント式・北極星①の能動性）───
+  const plg = await call('plan_flow', { goal: 'summarize the input', save: true, gap: 'off' });   // input→prompt→output（stub で確実に完走・gap 無し）
+  const auto = await hubPost('/api/automations', { name: 'goal-auto-e2e', trigger: { type: 'build_state', match: { event: 'goal_e2e' } }, workflow: plg.workflowId });
+  const ga = await call('set_goal', { wish: '自動進捗テスト', metric: 'runs', target: 3, unit: '回', automationIds: [auto.id] });
+  ok('MCP set_goal automationIds 紐付け → active・current 0', ga && ga.status === 'active' && ga.current === 0 && (ga.automationIds || []).includes(auto.id));
+  await hubPost('/api/fire', { event: { event: 'goal_e2e' } });   // build_state event → bound automation を fromAutomation 付きで run
+  let gp = ga; for (let i = 0; i < 20 && gp.current < 1; i++) { await sleep(300); gp = await call('get_goal', { id: ga.id }); }   // 完了→setImmediate(goalAutoProgress) を待つ
+  ok('Goals-2: bound automation の run 完了 → current +1 + auto checkin が付く', gp.current === 1 && (gp.checkins || []).some((c) => c.auto && /^auto: /.test(c.note)));
   mcp.close();
 
   // ─── 3-stage browser permission gate (real browser, pre-baked steps, deterministic) ───

@@ -473,3 +473,20 @@ export async function evalExpect(expect, actual, { run = runVendorAsync, vendor,
   }
   return { ok: true, reason: `unknown expect.kind "${expect?.kind}" (no-op pass)` };
 }
+
+// Wave Goals-2 — ゴールの停滞/期限接近を判定する純粋関数（state 非依存・evalExpect 踏襲）→ test_shenron が直接 import。
+// 契約: (g, now:ms, {stallMs, deadlineMs}) → { stalled, deadlineNear }
+//   lastActivity = max(最新 checkin.ts, g.createdAt)。stalled = active かつ無活動 > stallMs。
+//   deadlineNear = active かつ deadline まで <= deadlineMs（overdue=過ぎた期限も near）。active 以外は両方 false。
+export const GOAL_STALL_MS = 14 * 24 * 60 * 60 * 1000;     // 14日 checkin 無し → 停滞
+export const GOAL_DEADLINE_MS = 3 * 24 * 60 * 60 * 1000;   // 期限 3日前以内（overdue 含む）→ 接近
+export function goalStatus(g, now, { stallMs = GOAL_STALL_MS, deadlineMs = GOAL_DEADLINE_MS } = {}) {
+  if (!g || g.status !== 'active') return { stalled: false, deadlineNear: false };
+  const checkins = Array.isArray(g.checkins) ? g.checkins : [];
+  const lastCheckin = checkins.length ? Number(checkins[checkins.length - 1].ts) || 0 : 0;
+  const lastActivity = Math.max(lastCheckin, Number(g.createdAt) || 0);
+  const stalled = lastActivity > 0 && (now - lastActivity) > stallMs;   // createdAt/checkin が無い旧データは停滞判定しない（誤発火防止）
+  const dl = g.deadline ? Date.parse(g.deadline) : NaN;
+  const deadlineNear = Number.isFinite(dl) && (dl - now) <= deadlineMs;
+  return { stalled, deadlineNear };
+}

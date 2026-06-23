@@ -403,7 +403,7 @@ async function loadGoals(){
     return `<div class="ig" style="display:block">
       <div class="nm" style="display:flex;justify-content:space-between;align-items:center">
         <b>${esc(g.wish||g.id)}</b>
-        <span>${esc(String(g.current??0))}${g.unit?esc(g.unit):''} / ${g.target!=null?esc(String(g.target)):'—'}${g.unit?esc(g.unit):''}${pct!=null?` · ${pct}%`:''} · ${esc(g.status||'active')}</span>
+        <span>${esc(String(g.current??0))}${g.unit?esc(g.unit):''} / ${g.target!=null?esc(String(g.target)):'—'}${g.unit?esc(g.unit):''}${pct!=null?` · ${pct}%`:''} · <span style="color:${g.status==='stalled'?'#f0883e':g.status==='reached'?'#3fb950':'#8b949e'}">${esc(g.status||'active')}</span></span>
       </div>${bar}
       <div class="row" style="gap:8px;margin-top:8px">
         <input type="number" data-ckval="${esc(g.id)}" placeholder="現在値を入力" style="flex:1">

@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan, evalExpect, goalStatus } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
 import { openStdio } from '../mcp/mcp-client.mjs';
 import { classify, SEED_RULES, addAllowRule } from '../permissions.mjs';
@@ -479,5 +479,20 @@ assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backwa
   assert.ok(/REPEAT_THRESHOLD/.test(hubSrc), 'Ambient-1: REPEAT_THRESHOLD defined');
   assert.ok(/FAIL_THRESHOLD/.test(hubSrc), 'Ambient-1: FAIL_THRESHOLD defined');
   console.log('Ambient-1 detect guard OK');
+}
+// ---------- Wave Goals-2: goalStatus 純粋判定（停滞/期限接近） ----------
+{
+  const now = 1_700_000_000_000;   // 固定 now（決定論）
+  const DAY = 86400000;
+  const opt = { stallMs: 10 * DAY, deadlineMs: 3 * DAY };
+  const base = { status: 'active', createdAt: now - DAY, checkins: [{ ts: now - DAY, value: 1 }] };   // 1日前に活動・期限なし
+  assert.deepEqual(goalStatus({ ...base }, now, opt), { stalled: false, deadlineNear: false }, 'Goals-2: 最近活動・期限無し→平常');
+  assert.equal(goalStatus({ ...base, createdAt: now - 30 * DAY, checkins: [{ ts: now - 20 * DAY, value: 1 }] }, now, opt).stalled, true, 'Goals-2: 20日無活動→停滞');
+  assert.equal(goalStatus({ ...base, deadline: new Date(now + 2 * DAY).toISOString() }, now, opt).deadlineNear, true, 'Goals-2: 期限2日後→接近');
+  assert.equal(goalStatus({ ...base, deadline: new Date(now - DAY).toISOString() }, now, opt).deadlineNear, true, 'Goals-2: overdue→接近');
+  assert.equal(goalStatus({ ...base, deadline: new Date(now + 30 * DAY).toISOString() }, now, opt).deadlineNear, false, 'Goals-2: 期限遠い→非接近');
+  assert.deepEqual(goalStatus({ status: 'reached', createdAt: now - 99 * DAY, deadline: new Date(now).toISOString() }, now, opt), { stalled: false, deadlineNear: false }, 'Goals-2: reached は対象外');
+  assert.equal(goalStatus({ status: 'active' }, now, opt).stalled, false, 'Goals-2: 旧データ(createdAt/checkin 無)→停滞誤発火しない');
+  console.log('Goals-2 goalStatus OK');
 }
 console.log('test_shenron OK');
