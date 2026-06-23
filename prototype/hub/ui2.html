@@ -1237,15 +1237,18 @@ document.addEventListener('click', e=>{ if(!e.target.closest('#ctxMenu')) closeC
 if(!sessionStorage.getItem('bh_init')){ sessionStorage.setItem('bh_init','1'); setTimeout(()=>{ state.agents.forEach(a=>{ if(!HIDDEN.has(a.id)) COLLAPSED.add(a.id); }); localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED])); render(); }, 600); }
 setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
 
-// ---------- Wave UI S1: 成果物 UI ビューア ----------
-function openArtifact(code) {
+// ---------- Wave UI S1+S2: 成果物 UI ビューア + flow advance bridge ----------
+let _artHandoffId = null;
+function openArtifact(code, handoffId) {
+  _artHandoffId = handoffId || null;
   document.getElementById('artifactPanel').style.display = 'block';
   if (code) document.getElementById('artifactCode').value = code;
 }
 function closeArtifact() { document.getElementById('artifactPanel').style.display = 'none'; }
 
 // fetch shim を srcdoc に埋め込む（null-origin iframe は相対 fetch 不可 → postMessage ブリッジ）
-const ARTIFACT_SHIM = `<script>(function(){var _f=window.fetch,_p={},_i=0;window.addEventListener('message',function(e){var d=e.data;if(d&&d.type==='art-res'&&_p[d.id]){_p[d.id](d);delete _p[d.id];}});window.fetch=function(u,o){var s=typeof u==='string'?u:(u&&u.href)||'';if(s.indexOf('api.anthropic.com')>=0){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(new Response(JSON.stringify(d.data),{status:d.status||200,headers:{'content-type':'application/json'}}));};window.parent.postMessage({type:'art-req',id:id,body:o&&o.body},'*');});}return _f.call(this,u,o);};})();<\/script>`;
+// S2: window.shenron.approve/decline/advance を追加 — art-flow-req/res ペアで hub へ転送
+const ARTIFACT_SHIM = `<script>(function(){var _f=window.fetch,_p={},_i=0;window.addEventListener('message',function(e){var d=e.data;if(d&&(d.type==='art-res'||d.type==='art-flow-res')&&_p[d.id]){_p[d.id](d);delete _p[d.id];}});window.shenron={approve:function(){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(d.data);};window.parent.postMessage({type:'art-approve',id:id},'*');});},decline:function(){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(d.data);};window.parent.postMessage({type:'art-decline',id:id},'*');});},advance:function(data){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(d.data);};window.parent.postMessage({type:'art-advance',id:id,data:data},'*');});}};window.fetch=function(u,o){var s=typeof u==='string'?u:(u&&u.href)||'';if(s.indexOf('api.anthropic.com')>=0){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(new Response(JSON.stringify(d.data),{status:d.status||200,headers:{'content-type':'application/json'}}));};window.parent.postMessage({type:'art-req',id:id,body:o&&o.body},'*');});}return _f.call(this,u,o);};})();<\/script>`;
 
 function renderArtifact() {
   const raw = document.getElementById('artifactCode').value.trim(); if (!raw) return;
@@ -1265,15 +1268,26 @@ ${code}
   document.getElementById('artifactFrame').srcdoc = src;
 }
 
-// postMessage ブリッジ: iframe → /api/artifact-llm → iframe（ROADMAP Wave UI S1 fetch-shim）
+// postMessage ブリッジ: iframe → hub（source 検証済みホワイトリスト）
+// S1: art-req → /api/artifact-llm    S2: art-approve/decline/advance → /api/handoffs/:id/*
 window.addEventListener('message', async function(e) {
   const frame = document.getElementById('artifactFrame');
   if (!frame || e.source !== frame.contentWindow) return;   // source 検証（ホワイトリスト）
-  const d = e.data; if (!d || d.type !== 'art-req') return;
-  try {
-    const r = await fetch('/api/artifact-llm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: d.body });
-    frame.contentWindow.postMessage({ type: 'art-res', id: d.id, status: r.status, data: await r.json() }, '*');
-  } catch(err) { frame.contentWindow.postMessage({ type: 'art-res', id: d.id, error: err.message }, '*'); }
+  const d = e.data; if (!d) return;
+  if (d.type === 'art-req') {
+    try {
+      const r = await fetch('/api/artifact-llm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: d.body });
+      frame.contentWindow.postMessage({ type: 'art-res', id: d.id, status: r.status, data: await r.json() }, '*');
+    } catch(err) { frame.contentWindow.postMessage({ type: 'art-res', id: d.id, error: err.message }, '*'); }
+  } else if (d.type === 'art-approve' || d.type === 'art-decline' || d.type === 'art-advance') {
+    if (!_artHandoffId) { frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, error: 'no handoff linked' }, '*'); return; }
+    const action = d.type === 'art-advance' ? 'result' : d.type === 'art-approve' ? 'approve' : 'decline';
+    const body = d.type === 'art-advance' ? JSON.stringify({ result: d.data }) : '{}';
+    try {
+      const r = await fetch(`/api/handoffs/${_artHandoffId}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, data: await r.json() }, '*');
+    } catch(err) { frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, error: err.message }, '*'); }
+  }
 });
 // Escape で閉じる
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('artifactPanel').style.display!=='none') closeArtifact(); }, true);
