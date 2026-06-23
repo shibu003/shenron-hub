@@ -213,6 +213,9 @@ async function callTool(name, args = {}) {
     case 'poll_inbox': { const { runnable } = await hub('/api/poll', { agent: args.agent }); return { runnable: runnable.map(hRef) }; }
     case 'approve_handoff': return hRef(await hub(`/api/handoffs/${args.id}/approve`, {}));
     case 'decline_handoff': return hRef(await hub(`/api/handoffs/${args.id}/decline`, {}));
+    case 'advance_artifact': return await hub(`/api/handoffs/${args.id}/result`, { result: args.result });
+    case 'set_flow_ui': return await hub(`/api/workflows/${encodeURIComponent(args.id)}/ui`, { code: args.code });
+    case 'get_flow_ui': return await hub(`/api/workflows/${encodeURIComponent(args.id)}/ui`);
     case 'set_policy': return await hub(`/api/agents/${args.agent}/policy`, { policy: args.policy });
     // 神龍 self-extension + co-pilot gates over MCP (web cockpit no longer required for the full lifecycle)
     case 'gen_component': return await hub('/api/shenron/gen-component', { what: args.what, ...(args.maxIters ? { maxIters: args.maxIters } : {}) });

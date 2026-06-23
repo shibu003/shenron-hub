@@ -297,13 +297,13 @@ function touchWorkflowRun(flowId) {
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === flowId);
   if (i < 0) return; arr[i].lastRun = now(); fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
 }
-function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
+function saveWorkflow({ id, name, summary, tags, nodes, edges, ui }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'flow-' + randomUUID().slice(0, 4);
   const steps = toposort(nodes, edges).filter((n) => n.agent && n.skill).map((n) => ({ agent: n.agent, skill: n.skill })); // derived shim
-  const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, steps };
+  const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, steps, ...(ui != null ? { ui } : {}) };
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
-  if (i >= 0) arr[i] = wf; else arr.push(wf);
+  if (i >= 0) arr[i] = { ...arr[i], ...wf }; else arr.push(wf);
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return wf;
 }
@@ -1194,8 +1194,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
-    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null })));
+    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui })));
   }
+  { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: get artifact UI code for a workflow
+    if (um && req.method === 'GET') { const w = readWorkflows().find((w) => w.id === decodeURIComponent(um[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${um[1]}"` }); } }
   if (req.method === 'GET' && p === '/api/shenron/components') {                           // Wave 8: 生成部品の登録庫。?id= で full code、無しは token-light refs（pending は人ゲート待ち）
     const cid = u.searchParams.get('id');
     if (cid) { const c = readComponents().find((c) => c.id === cid); return c ? json(res, 200, c) : json(res, 404, { error: `no component "${cid}"` }); }
@@ -1364,6 +1366,8 @@ const server = http.createServer((req, res) => {
       if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
       if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
+      { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
+        if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2)); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
       { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
         if (tm) {
           const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
