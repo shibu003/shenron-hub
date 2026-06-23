@@ -179,6 +179,14 @@
     <div id="checkResults" style="margin-top:12px"></div>
   </div>
 
+  <!-- Ambient-1 提案 -->
+  <div class="card">
+    <h2>💡 神龍の提案</h2>
+    <p class="sub">神龍が自分の実行履歴を観察して「定期化できそう」「連続 fail 中」などを自動で提案します。外部受信箱は読みません。</p>
+    <div id="suggestions"></div>
+    <div class="row" style="margin-top:8px"><button class="btn" onclick="loadSuggestions()">↺ 更新</button></div>
+  </div>
+
   <!-- クレデンシャル保管庫 -->
   <div class="card">
     <h2>🔐 クレデンシャル保管庫</h2>
@@ -443,6 +451,32 @@ $('#addCheck').onclick = async ()=>{
   $('#ck_rule').value=''; toast('期待を設定しました'); loadChecks();
 };
 
+// --- Ambient-1 提案（list_suggestions / dismiss_suggestion / apply_suggestion） ---
+const KIND_LABEL = { automate:'⚡ 定期化を提案', fix:'🔧 修正を提案' };
+async function loadSuggestions(){
+  let list=[]; try{ const r=await api('/api/suggestions?status=open'); list=r.suggestions||[]; }catch{}
+  $('#suggestions').innerHTML = list.length ? list.map(s=>`
+    <div class="ig" style="display:block" id="sg-${esc(s.id)}">
+      <div class="nm" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <b style="font-size:12px">${esc(KIND_LABEL[s.kind]||s.kind)}</b>
+        <span class="badge">${esc(s.kind)}</span>
+      </div>
+      <div style="color:var(--txt);font-size:12px;margin:6px 0">${esc(s.reason)}</div>
+      <div class="row" style="gap:8px;margin:0">
+        <button class="btn go" data-apply="${esc(s.id)}" data-kind="${esc(s.kind)}">✅ 適用</button>
+        <button class="btn" data-dismiss="${esc(s.id)}">✕ 非表示</button>
+      </div>
+    </div>`).join('') : `<div class="note">提案はありません（hub が稼働中に自動で生成されます）。</div>`;
+  $('#suggestions').querySelectorAll('[data-dismiss]').forEach(el=>el.onclick=async()=>{
+    await api(`/api/suggestions/${encodeURIComponent(el.dataset.dismiss)}/dismiss`,{}); toast('非表示にしました'); loadSuggestions();
+  });
+  $('#suggestions').querySelectorAll('[data-apply]').forEach(el=>el.onclick=async()=>{
+    const r=await api(`/api/suggestions/${encodeURIComponent(el.dataset.apply)}/apply`,{});
+    const msg = el.dataset.kind==='automate' ? '定期自動化を設定しました（毎日 9:00）' : '適用しました';
+    toast(msg); loadSuggestions();
+  });
+}
+
 // --- クレデンシャル保管庫（値は持たない・在否のみ） ---
 async function loadCredentials(){
   let ids=[]; try{ const r=await api('/api/credentials',{action:'list'}); ids=r.ids||[]; }catch{}
@@ -493,5 +527,5 @@ $('#testNt').onclick = async ()=>{
   toast(r.sent ? `テスト送信: ${ok}/${r.sent} 成功` : '有効な通知先がありません');
 };
 
-loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadTemplates(); loadUsers();
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadTemplates(); loadUsers(); loadSuggestions();
 </script>
