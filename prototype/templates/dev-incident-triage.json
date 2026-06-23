@@ -1,0 +1,18 @@
+{
+  "id": "dev-incident-triage",
+  "name": "インシデント初動トリアージ",
+  "summary": "エラーログ・スタックトレース・例外メッセージを貼り付けると、根本原因の仮説・即時緩和策・調査ポイントを返します。外部 integration 不要。fire_event {type:\"ci_fail\", log:\"...\"} と組み合わせると CI 失敗を自動トリアージできます（dog-food シナリオ）。",
+  "requires": [],
+  "nodes": [
+    { "id": "in",     "kind": "input",  "config": { "text": "" } },
+    { "id": "triage", "kind": "prompt", "config": {
+      "tier": "cheap",
+      "template": "次のエラーログ/スタックトレースをトリアージしてください。\n① 根本原因の仮説（最有力1つ・3行以内）\n② 今すぐできる緩和策（3行以内）\n③ 深掘り調査すべき箇所（3行以内）\n\n--- ログ ---\n{input}"
+    }},
+    { "id": "out",    "kind": "output" }
+  ],
+  "edges": [
+    { "id": "e0", "source": "in",     "target": "triage" },
+    { "id": "e1", "source": "triage", "target": "out" }
+  ]
+}

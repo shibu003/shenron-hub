@@ -1,0 +1,18 @@
+{
+  "id": "dev-changelog",
+  "name": "CHANGELOG 生成",
+  "summary": "git log --oneline のテキストを渡すと、エンドユーザー向け CHANGELOG エントリーを生成します。外部 integration 不要。schedule automation で毎週月曜に自動生成、Slack 通知 integration と組み合わせると週次リリースノートが自動化できます。",
+  "requires": [],
+  "nodes": [
+    { "id": "in",  "kind": "input",  "config": { "text": "" } },
+    { "id": "gen", "kind": "prompt", "config": {
+      "tier": "cheap",
+      "template": "次の git log から、エンドユーザー向けの CHANGELOG エントリーを生成してください。\n形式:\n## 変更履歴\n### Added（新機能）\n### Fixed（バグ修正）\n### Changed（変更・改善）\n該当なければセクションを省略。commit hash は除き、機能・修正の内容を平易な日本語1行で。\n\n--- git log ---\n{input}"
+    }},
+    { "id": "out", "kind": "output" }
+  ],
+  "edges": [
+    { "id": "e0", "source": "in",  "target": "gen" },
+    { "id": "e1", "source": "gen", "target": "out" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "dev-code-review",
+  "name": "コードレビュー",
+  "summary": "コードスニペットを渡すと、バグ・セキュリティリスク・改善提案を簡潔にレビューします。外部 integration 不要（claude -p で完結）。set_check で「❌ が含まれない」アサートを付けると品質退行を自動検知できます。",
+  "requires": [],
+  "nodes": [
+    { "id": "in",     "kind": "input",  "config": { "text": "" } },
+    { "id": "review", "kind": "prompt", "config": {
+      "tier": "cheap",
+      "template": "次のコードをレビューしてください。①バグ・ロジックエラー ②セキュリティリスク ③改善提案 の3点を各3行以内で簡潔に。問題なければ「✅ 問題なし」と返してください。\n\n---\n{input}"
+    }},
+    { "id": "out",    "kind": "output" }
+  ],
+  "edges": [
+    { "id": "e0", "source": "in",     "target": "review" },
+    { "id": "e1", "source": "review", "target": "out" }
+  ]
+}
