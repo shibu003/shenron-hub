@@ -182,6 +182,8 @@
                   <span x-show="wf.lastRun" x-text="'· ' + relTime(wf.lastRun)"></span>
                 </div>
                 <div class="flex gap-1.5">
+                  <button @click="cloneWorkflow(wf.id)" title="複製（fork → 改造して別フローの部品に再利用）"
+                    class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors">⧉</button>
                   <button @click="makeSkill(wf.id)" title="Claude Code Skill を生成"
                     class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors">📜</button>
                   <button @click="runWorkflow(wf.id)"
@@ -669,6 +671,14 @@
             const r = await this.api('POST', '/api/shenron/skill', { id });
             this.showToast('📜 Skill 作成: ' + (r && r.path || ''));
           } catch (e) { this.showToast('Skill エラー: ' + e.message, false); }
+        },
+
+        async cloneWorkflow(id) {   // Wave Remix-1: fork → 編集可能なコピー（元は不変・別フローに sub-flow として再利用可）
+          try {
+            const r = await this.api('POST', `/api/workflows/${encodeURIComponent(id)}/clone`, {});
+            await this.loadWorkflows();
+            this.showToast('⧉ 複製: ' + (r && r.name || ''));
+          } catch (e) { this.showToast('複製エラー: ' + e.message, false); }
         },
 
         // ── Runs (O1 live SSE) ───────────────────────

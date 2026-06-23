@@ -414,7 +414,7 @@ export async function genArtifactUi({ what, vendor = 'claude', run = runVendorAs
   return { what, code, converged: !!(code && (code.includes('function App') || code.includes('App ='))) };
 }
 
-// Wave R-1 — 成果検証の判定中核（TODO(human)）。純粋関数（state 非依存）→ test_shenron が直接 import して検証可。
+// Wave R-1 — 成果検証の判定中核（evalExpect・実装済 99aa25b）。純粋関数（state 非依存）→ test_shenron が直接 import して検証可。
 // 契約: (expect:{kind:'assert'|'judge', rule:string}, actual:string, {run, vendor, model}) → Promise<{ok:boolean, reason:string}>
 //   ok=true ＝「run 出力(actual) が期待(rule) を満たした」。外れたら hub の checkOutcome が check_failed を通知する。
 //   assert: LLM 不使用の決定論。rule の文法を決めて actual を判定（例 'contains:done' → actual.includes('done')）。

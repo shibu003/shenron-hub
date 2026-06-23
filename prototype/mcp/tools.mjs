@@ -159,6 +159,8 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },
   { name: 'list_workflows', surfaces: ['remote'], description: '保存済みフロー一覧',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'clone_workflow', surfaces: ['remote'], description: 'フローを fork（複製）して新しい編集可能なコピーを作る。元は変えずコピーを改造し、別フローに sub-flow ノードとして再利用できる。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: '複製元の workflow id' }, name: { type: 'string', description: '新しい名前（省略時は「元名 (copy)」）' } }, required: ['id'] } },
   { name: 'get_checkpoint', surfaces: ['remote'], description: 'browser-control の承認待ちステップ取得',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', surfaces: ['remote'], description: 'browser ステップをモバイルから承認/拒否',

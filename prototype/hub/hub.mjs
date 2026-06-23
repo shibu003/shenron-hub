@@ -308,6 +308,24 @@ function saveWorkflow({ id, name, summary, tags, nodes, edges, ui }) {
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return wf;
 }
+// Wave Remix-1 — fork a saved flow into a NEW editable copy. The reuse-as-a-part half already works:
+// a saved flow can be dropped into another flow as a sub-flow node (kind:'workflow' + node.ref → fireWorkflowNode).
+// What was missing is forking — making a copy you can modify WITHOUT touching the original. install_template
+// clones bundled templates the same way (saveWorkflow); this generalizes it to your OWN flows.
+function cloneWorkflow(id, name) {
+  const src = readWorkflows().find((w) => w.id === id);
+  if (!src) throw new Error(`no workflow "${id}"`);
+  const newId = `${src.id}-copy-${randomUUID().slice(0, 4)}`;   // explicit fresh id (random suffix) → never overwrites src or a prior clone
+  return saveWorkflow({
+    id: newId,
+    name: name || `${src.name} (copy)`,
+    summary: src.summary || '',
+    tags: src.tags || [],
+    nodes: structuredClone(src.nodes || []),   // deep copy → editing the fork never mutates the original (no shared refs)
+    edges: structuredClone(src.edges || []),
+    ...(src.ui != null ? { ui: src.ui } : {}),  // carry the attached artifact UI so the fork still renders
+  });   // lastRun intentionally not copied (per-copy); automations bind by id in automations.json → fork starts unbound to any trigger
+}
 function runFlow({ id, nodes, edges, input, parent, fromAutomation }) {
   if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
@@ -344,7 +362,7 @@ function flowResult(run) {
   const ks = Object.keys(run.outputs); return ks.length ? run.outputs[ks[ks.length - 1]] : '';
 }
 // Wave R-1 — 成果検証: run を起動した automation が expect を持てば、完了後に flowResult を突き合わせ、外れたら通知。
-// 呼び出しは完了ブロック(advanceFrom:585)から setImmediate で run 毎1回だけ（completedAt ガード済み）。判定は shenron.evalExpect（純粋・TODO(human)）。
+// 呼び出しは完了ブロック(advanceFrom:585)から setImmediate で run 毎1回だけ（completedAt ガード済み）。判定は shenron.evalExpect（純粋・実装済）。
 async function checkOutcome(run) {
   try {
     if (run.check) return;                                                // 冪等の二重防御: setImmediate が万一二重 queue されても / 将来 boot replay(R-3) を足しても run 毎1回だけ記録
@@ -1098,6 +1116,7 @@ async function mcpDispatch(name, args) {
   if (name === 'get_config')         return configStatus();
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
+  if (name === 'clone_workflow')     return cloneWorkflow(args.id, args.name);   // Wave Remix-1: fork a saved flow → new editable copy
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
   if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
   if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
@@ -1403,6 +1422,8 @@ const server = http.createServer((req, res) => {
       if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
       { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
         if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2)); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
+      { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy
+        if (cm) { try { return json(res, 200, cloneWorkflow(decodeURIComponent(cm[1]), j.name)); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
       { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
         if (tm) {
           const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
