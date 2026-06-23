@@ -14,7 +14,7 @@ const ROOT = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));   /
 const PORT = 8907, HUB = `http://localhost:${PORT}`;
 const PERMFILE = path.join(ROOT, 'prototype/mcp/permissions.json');
 // shared-store files the test mutates → saved aside before, restored after (so the real ones are never polluted)
-const ISOLATE = ['prototype/hub/inbox.json', 'prototype/mcp/workflows.json', 'prototype/mcp/components.json', 'prototype/mcp/integrations.json'].map((p) => path.join(ROOT, p));
+const ISOLATE = ['prototype/hub/inbox.json', 'prototype/mcp/workflows.json', 'prototype/mcp/components.json', 'prototype/mcp/integrations.json', 'prototype/mcp/goals.json'].map((p) => path.join(ROOT, p));
 const results = []; const ok = (n, c) => { results.push(!!c); console.log((c ? '✅' : '❌') + ' ' + n); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hubGet = async (p) => (await fetch(HUB + p)).json();
@@ -54,6 +54,16 @@ try {
   const comps = await call('list_components'); ok('MCP list_components → array', Array.isArray(comps));
   if (plSave?.workflowId) { const sk = await call('make_skill', { id: plSave.workflowId }); madeSkillSlug = sk?.slug; ok('MCP make_skill → SKILL.md written', sk && sk.path && fs.existsSync(path.join(ROOT, sk.path))); } else ok('MCP make_skill', false);
   ok('MCP search_agents → array', Array.isArray(await call('search_agents', { query: 'x' })));
+
+  // ─── Wave Goals-1: ゴール記憶 concierge — set→checkin→list が全て MCP で完結（cockpit 無し・北極星）───
+  const g0 = await call('set_goal', { wish: '3ヶ月でフォロワー1000', metric: 'followers', target: 1000, unit: '人' });
+  ok('MCP set_goal → id + 初期 pct=0 + active', g0 && !!g0.id && g0.pct === 0 && g0.status === 'active');
+  const g1 = await call('goal_checkin', { id: g0.id, value: 250, note: 'week1' });
+  ok('MCP goal_checkin 250 → current/pct 更新・未到達は active', g1.current === 250 && g1.pct === 25 && g1.status === 'active' && g1.checkins.length === 1);
+  const g2 = await call('goal_checkin', { id: g0.id, value: 1000 });   // target 到達ブランチ
+  ok('MCP goal_checkin target 到達 → status=reached + pct=100', g2.current === 1000 && g2.pct === 100 && g2.status === 'reached');
+  const gl = await call('list_goals');
+  ok('MCP list_goals → 作った goal が pct 付きで出る（両surface 機能確認）', Array.isArray(gl) && gl.some((g) => g.id === g0.id && g.pct === 100));
   mcp.close();
 
   // ─── 3-stage browser permission gate (real browser, pre-baked steps, deterministic) ───

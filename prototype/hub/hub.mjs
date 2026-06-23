@@ -1223,8 +1223,9 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/health')
     return json(res, 200, { ok: true, uptime: Math.round(process.uptime()), scheduler: schedulerOn(), version: HUB_VERSION });
   // Wave N-3: doctor — no auth (初回セットアップ診断・問題を抱えている状態でも呼べる)
+  // この handler は非 async（POST は内側 async cb で処理）→ 外側 sync スコープでは await 不可。Promise を直接返す。
   if (req.method === 'GET' && p === '/api/doctor')
-    return json(res, 200, await runDoctor(PORT));
+    return runDoctor(PORT).then((d) => json(res, 200, d), (e) => json(res, 500, { error: e.message }));
   // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
   if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')
