@@ -398,7 +398,7 @@ async function checkOutcome(run) {
     if (run.check) return;                                                // 冪等の二重防御: setImmediate が万一二重 queue されても / 将来 boot replay を足しても run 毎1回だけ記録
     const auto = run.fromAutomation ? readAutomations().find((a) => a.id === run.fromAutomation) : null;
     const expect = auto && auto.expect;
-    if (!expect || !expect.kind) return;                                  // automation 無し / expect 無し ＝ no-op（後方互換）
+    if (!expect || !expect.kind) { if (auto) goalAutoProgress(auto.id); return; }   // automation 無し → no-op。expect 無し automation は完了=成功でゴール +1（Goals-2.1: 後方互換）
     const route = tierRoute('cheap');                                     // judge は従量0 の cheap tier（assert は LLM 不使用）
     const result = flowResult(run);                                       // R-3: structureSig でも使うためキャッシュ
     const r = await evalExpect(expect, result, { vendor: route.vendor, model: route.model });
@@ -408,6 +408,7 @@ async function checkOutcome(run) {
     (state.checkResults ||= []).push(rec);
     if (state.checkResults.length > 50) state.checkResults = state.checkResults.slice(-50);   // ring buffer（list_check_results 用）。run 毎の run.check は inbox.json に残る
     checkDrift(run, auto.id, sig, !!r.ok);                               // Wave R-3: 連続 fail / 構造急変を即時検出
+    if (r.ok) goalAutoProgress(auto.id);                                 // Wave Goals-2.1: expect 有り → 成果検証 pass の run だけゴールを +1（fail run はカウントしない）
     if (!r.ok) {
       emitRunNotify(run, 'check_failed');
       if (expect.onFail === 'repair' && (run.repairCount || 0) < (expect.maxRetry ?? 1))
@@ -719,8 +720,7 @@ function advanceFrom(run, nodeId) {
   if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id)) && !run.completedAt) {
     run.completedAt = now();   // Wave R-1: exactly-once ガード。完了ブロックは 'cancelled' しか見ず、ネスト親の再入で emit/notify/SSE-event が二重発火しうる既存バグ→1センチネルで完了 side-effect も成果検証も run 毎1回に。
     run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed'); emitRunEvent(run.id, { type: 'done', status: 'completed' }); closeRunListeners(run.id);   // O1: SSE 購読者に done（completedAt ガードで一度だけ）
-    setImmediate(() => checkOutcome(run));   // Wave R-1: 成果検証は同期 advanceFrom 再帰の外へ（judge は async）。冪等は上の completedAt が担保。
-    if (run.fromAutomation) setImmediate(() => goalAutoProgress(run.fromAutomation));   // Wave Goals-2: bound automation の成功 run → ゴール current +1（completedAt ガード下で exactly-once）
+    setImmediate(() => checkOutcome(run));   // Wave R-1: 成果検証は同期 advanceFrom 再帰の外へ（judge は async）。冪等は上の completedAt が担保。Goals-2.1: ゴール current +1 も checkOutcome 内へ移設（expect pass を尊重）
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -842,18 +842,24 @@ function saveGoal({ id, wish, metric, target, current, unit, deadline, automatio
 }
 // Wave Goals-2: 停滞ゴールに進捗が入ったら active に戻し、停滞通知の冪等フラグをクリア（次に停滞したら再通知できる）。
 const reactivateGoal = (g) => { if (g.status === 'stalled') { g.status = 'active'; if (g.notified) g.notified.stalled = null; } };
+// Wave Goals-2.1: target 到達なら reached + 一度だけ達成を祝う通知（notified.reached で冪等）。goalCheckin / goalAutoProgress 共有。
+function reachGoal(g) {
+  if (g.target == null || !Number.isFinite(Number(g.target)) || Number(g.current) < Number(g.target)) return;
+  g.status = 'reached';
+  if (!(g.notified ||= {}).reached) { g.notified.reached = Date.now(); emitGoalNotify(g, 'goal_reached'); }
+}
 function goalCheckin(id, value, note) {
   const arr = readGoals(); const g = arr.find((x) => x.id === id); if (!g) throw new Error(`no goal "${id}"`);
   const v = Number(value); if (!Number.isFinite(v)) throw new Error('checkin value must be a number');
   (g.checkins ||= []).push({ ts: Date.now(), value: v, note: note || '' });
   g.current = v;                                                              // 手動 checkin の最新値が現在値
   reactivateGoal(g);                                                          // Wave Goals-2: 手動 checkin は停滞を解除
-  if (g.target != null && Number.isFinite(Number(g.target)) && v >= Number(g.target)) g.status = 'reached';   // 目標到達で reached
+  reachGoal(g);                                                               // Wave Goals-2.1: 到達なら reached + 達成通知（冪等）
   writeGoals(arr); return goalView(g);
 }
 function deleteGoal(id) { const arr = readGoals(); const i = arr.findIndex((g) => g.id === id); if (i < 0) throw new Error(`no goal "${id}"`); arr.splice(i, 1); writeGoals(arr); return { id, deleted: true }; }
-// Wave Goals-2 — bound automation の run が完了したら、それを束ねるゴールの current を +1（カウント式）。
-// ponytail: 完了 run = 成功とみなしカウント（expect fail でも +1）。check-pass ゲートにするなら checkOutcome 後に移す。
+// Wave Goals-2 — bound automation の run が成功したら、それを束ねるゴールの current を +1（カウント式）。
+// Goals-2.1: 呼び出しは checkOutcome から — expect 有り automation は pass した run だけ / expect 無しは完了でカウント。
 function goalAutoProgress(autoId) {
   if (!autoId) return;
   const arr = readGoals(); let changed = false;
@@ -862,7 +868,7 @@ function goalAutoProgress(autoId) {
     g.current = (Number(g.current) || 0) + 1;
     (g.checkins ||= []).push({ ts: Date.now(), value: g.current, note: `auto: ${autoId}`, auto: true });
     reactivateGoal(g);
-    if (g.target != null && Number.isFinite(Number(g.target)) && g.current >= Number(g.target)) g.status = 'reached';
+    reachGoal(g);                                                            // Wave Goals-2.1: 到達なら reached + 達成通知（冪等）
     changed = true; trail('goal-auto-progress', { goal: g.id, automation: autoId, current: g.current });   // trail は save() 込み（ただし goals.json は別 store → 明示 writeGoals 要）
   }
   if (changed) writeGoals(arr);

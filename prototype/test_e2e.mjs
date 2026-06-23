@@ -74,6 +74,15 @@ try {
   let gp = ga; for (let i = 0; i < 20 && gp.current < 1; i++) { await sleep(300); gp = await call('get_goal', { id: ga.id }); }   // 完了→setImmediate(goalAutoProgress) を待つ
   ok('Goals-2: bound automation の run 完了 → current +1 + auto checkin が付く', gp.current === 1 && (gp.checkins || []).some((c) => c.auto && /^auto: /.test(c.note)));
 
+  // ─── Wave Goals-2.1: expect 付き automation は check-pass した run だけ goal を +1（fail run はカウントしない・pass ゲート）───
+  const autoF = await hubPost('/api/automations', { name: 'goal-gate-e2e', trigger: { type: 'build_state', match: { event: 'goal_gate' } }, workflow: plg.workflowId });
+  await call('set_check', { automation: autoF.id, expect: { kind: 'assert', rule: 'contains:zzz_never_matches_zzz' } });   // 決定論で必ず fail（$0・stub 出力に含まれない）
+  const gf = await call('set_goal', { wish: 'ゲートテスト', metric: 'runs', target: 5, automationIds: [autoF.id] });
+  await hubPost('/api/fire', { event: { event: 'goal_gate' } });
+  let checked = false; for (let i = 0; i < 20 && !checked; i++) { await sleep(300); const cr = await call('list_check_results'); checked = (Array.isArray(cr) ? cr : []).some((c) => c.automationId === autoF.id && c.passed === false); }   // 成果検証 fail が記録されるまで待つ（=goalAutoProgress の skip 判定も同実行内で済む）
+  const gfAfter = await call('get_goal', { id: gf.id });
+  ok('Goals-2.1: expect fail の run は goal current を +1 しない（pass ゲート）', checked && gfAfter.current === 0);
+
   // ─── Wave Goals-3: 停滞ゴールの「次の手」を planFlow で提案（stub vendor・従量0）＋ suggestions に kind:goal を冪等 push ───
   const gs1 = await call('goal_suggest', { id: ga.id });
   ok('MCP goal_suggest → plan を返す（goalId + nodes/summary）', gs1 && gs1.goalId === ga.id && (Array.isArray(gs1.nodes) || gs1.mode === 'clarify'));
