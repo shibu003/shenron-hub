@@ -139,6 +139,37 @@
     <div id="automations"></div>
   </div>
 
+  <!-- クレデンシャル保管庫 -->
+  <div class="card">
+    <h2>🔐 クレデンシャル保管庫</h2>
+    <p class="sub">フローが名前で参照する API キー / パスワードを安全に保存（macOS は Keychain）。<b>値は二度と表示されません</b>（在否のみ）。</p>
+    <div id="credentials"></div>
+    <div class="two" style="margin-top:10px">
+      <input type="text" id="cr_id" placeholder="名前（例: rakuten-password）">
+      <input type="password" id="cr_val" placeholder="値（保存後は表示されません）">
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addCr">＋ 保存</button></div>
+  </div>
+
+  <!-- 通知 -->
+  <div class="card">
+    <h2>📬 通知（Webhook）</h2>
+    <p class="sub">フロー実行の完了 / キャンセル時に Slack・Discord・任意の Webhook へ push 通知します。</p>
+    <div id="notifiers"></div>
+    <div class="two" style="margin-top:10px">
+      <input type="text" id="nt_label" placeholder="ラベル（例: Slack 通知）">
+      <input type="text" id="nt_url" placeholder="Webhook URL">
+    </div>
+    <div class="two" style="margin-top:8px">
+      <select id="nt_format" style="padding:8px;border-radius:8px;background:var(--bg2,#1a1a2e);color:inherit;border:1px solid var(--bd,#333)">
+        <option value="json">json（汎用）</option>
+        <option value="slack">slack（Incoming Webhook）</option>
+      </select>
+      <input type="text" id="nt_token" placeholder="Bearer トークン（任意）">
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addNt">＋ 登録</button><button class="btn" id="testNt">🧪 テスト送信</button></div>
+  </div>
+
   <!-- 環境 / キー -->
   <div class="card">
     <h2>🔑 環境・API キー</h2>
@@ -280,5 +311,55 @@ async function loadAutorun(){ let s; try{ s=await api('/api/state'); }catch{ ret
   const on = s.autorun !== false; $('#autorun').checked = on;
   $('#autorunState').textContent = on ? 'ON — hub が代理実行' : 'OFF — worker 待ち（broker-only）'; }
 
-loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun();
+// --- クレデンシャル保管庫（値は持たない・在否のみ） ---
+async function loadCredentials(){
+  let ids=[]; try{ const r=await api('/api/credentials',{action:'list'}); ids=r.ids||[]; }catch{}
+  $('#credentials').innerHTML = ids.length ? ids.map(id=>`
+    <div class="ig">
+      <div class="nm"><b>${esc(id)}</b><span>保存済み（値は非表示）</span></div>
+      <button class="btn" data-delcr="${esc(id)}">削除</button>
+    </div>`).join('') : `<div class="note">保存されたクレデンシャルはありません。</div>`;
+  $('#credentials').querySelectorAll('[data-delcr]').forEach(el=>el.onclick=async()=>{
+    await api('/api/credentials',{action:'delete',id:el.dataset.delcr}); toast('削除しました'); loadCredentials();
+  });
+}
+$('#addCr').onclick = async ()=>{
+  const id=$('#cr_id').value.trim(), value=$('#cr_val').value;
+  if(!id) return toast('名前を入力してください'); if(!value) return toast('値を入力してください');
+  await api('/api/credentials',{action:'set',id,value});
+  $('#cr_id').value=$('#cr_val').value=''; toast('保存しました（値は表示されません）'); loadCredentials();
+};
+
+// --- 通知（kind:notify の integration として登録） ---
+async function loadNotifiers(){
+  let list=[]; try{ list=(await api('/api/integrations')).filter(i=>i.kind==='notify'); }catch{}
+  $('#notifiers').innerHTML = list.length ? list.map(n=>`
+    <div class="ig">
+      <div class="nm"><b>${esc(n.label||n.id)}</b><span>${esc(n.format||'json')} · ${esc(n.url||'')}</span></div>
+      <div class="row" style="gap:8px">
+        <label class="sw"><input type="checkbox" data-ntoggle="${esc(n.id)}" ${n.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
+        <button class="btn" data-delnt="${esc(n.id)}">削除</button>
+      </div>
+    </div>`).join('') : `<div class="note">通知先は登録されていません。</div>`;
+  $('#notifiers').querySelectorAll('[data-ntoggle]').forEach(el=>el.onchange=async()=>{
+    await api(`/api/integrations/${encodeURIComponent(el.dataset.ntoggle)}/toggle`,{on:el.checked});
+    toast(el.checked?'有効化しました':'無効化しました'); loadNotifiers();
+  });
+  $('#notifiers').querySelectorAll('[data-delnt]').forEach(el=>el.onclick=async()=>{
+    await api(`/api/integrations/${encodeURIComponent(el.dataset.delnt)}/delete`,{}); toast('削除しました'); loadNotifiers();
+  });
+}
+$('#addNt').onclick = async ()=>{
+  const label=$('#nt_label').value.trim(), url=$('#nt_url').value.trim();
+  if(!url) return toast('Webhook URL を入力してください');
+  const format=$('#nt_format').value, token=$('#nt_token').value.trim();
+  await api('/api/integrations',{ id: format==='slack'?'slack-notify':'webhook-notify', label:label||'Webhook通知', kind:'notify', url, format, token, enabled:true, tools:[] });
+  $('#nt_label').value=$('#nt_url').value=$('#nt_token').value=''; toast('通知先を登録しました'); loadNotifiers();
+};
+$('#testNt').onclick = async ()=>{
+  const r=await api('/api/notify/test',{}); const ok=(r.results||[]).filter(x=>x.ok).length;
+  toast(r.sent ? `テスト送信: ${ok}/${r.sent} 成功` : '有効な通知先がありません');
+};
+
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers();
 </script>

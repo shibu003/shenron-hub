@@ -1394,6 +1394,7 @@ const server = http.createServer((req, res) => {
       let m;
       if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
       if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
+      if ((m = p.match(/^\/api\/integrations\/([^/]+)\/delete$/))) { const id = decodeURIComponent(m[1]); const arr = readIntegrations().filter((x) => x.id !== id); writeIntegrations(arr); trail('integration-delete', { id }); return json(res, 200, { id, deleted: true }); }   // UI-Compat-1: 誤登録の通知先/サーバーを削除（settings UI から）
       if ((m = p.match(/^\/api\/automations\/([^/]+)\/toggle$/))) return json(res, 200, toggleAutomation(m[1], j.on));
       if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result|checkpoint)$/)))
         return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : m[2] === 'checkpoint' ? ref(checkpoint(m[1], j)) : ref(postResult(m[1], j)));
