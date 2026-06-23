@@ -269,6 +269,9 @@ async function callTool(name, args = {}) {
     case 'list_goals': return (await hub('/api/goals')).goals;
     case 'goal_checkin': return await hub(`/api/goals/${encodeURIComponent(args.id)}/checkin`, { value: args.value, note: args.note || '' });
     case 'delete_goal': return await hub(`/api/goals/${encodeURIComponent(args.id)}/delete`, {});
+    case 'list_suggestions':   return (await hub(`/api/suggestions?status=${encodeURIComponent(args.status || 'open')}`)).suggestions;   // Ambient-1
+    case 'dismiss_suggestion': return await hub(`/api/suggestions/${encodeURIComponent(args.id)}/dismiss`, {});   // Ambient-1
+    case 'apply_suggestion':   return await hub(`/api/suggestions/${encodeURIComponent(args.id)}/apply`, {});     // Ambient-1
     default:
       if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
       throw new Error(`unknown tool: ${name}`);

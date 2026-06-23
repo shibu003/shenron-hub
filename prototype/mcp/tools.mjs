@@ -136,6 +136,12 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, value: { type: 'number' }, note: { type: 'string' } }, required: ['id', 'value'] } },
   { name: 'delete_goal', description: 'ゴールを id 指定で削除。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'list_suggestions', description: '神龍が自分の run/audit から検出した提案一覧（kind:automate=定期化候補/fix=連続 fail 中のフロー・status:open のみ既定）。提案はユーザー操作なく自動生成（外部受信箱は読まない）。',
+    inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'dismissed', 'applied', 'all'], description: '省略で open のみ' } } } },
+  { name: 'dismiss_suggestion', description: '提案を非表示にする（status:dismissed）。次回 tick で再検出される同パターンは新しい提案として出直す。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'apply_suggestion', description: '提案を適用する（automate 提案→ add_automation 相当で定期化・fix 提案→ set_check 相当で成果検証設定）。status が applied になる。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   // --- remote-only: hub holds the workflow store + browser-control checkpoint state; stdio has no /api proxy for these.
   { name: 'save_workflow', surfaces: ['remote'], description: 'nodes/edges でフローを保存',
     inputSchema: { type: 'object', properties: { name: { type: 'string' }, nodes: { type: 'array' }, edges: { type: 'array' } }, required: ['name', 'nodes', 'edges'] } },

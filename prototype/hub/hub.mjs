@@ -763,6 +763,66 @@ function goalCheckin(id, value, note) {
 }
 function deleteGoal(id) { const arr = readGoals(); const i = arr.findIndex((g) => g.id === id); if (i < 0) throw new Error(`no goal "${id}"`); arr.splice(i, 1); writeGoals(arr); return { id, deleted: true }; }
 
+// Wave Ambient-1 — 観察→提案（自分データのみ・外部受信箱は読まない）。
+// suggestions.json に { id, kind, reason, evidence, workflowId?, status } を積む。
+const SUGG_FILE = sp('suggestions.json', path.join(HERE, '..', 'mcp', 'suggestions.json'));
+const readSuggestions = () => { try { return JSON.parse(fs.readFileSync(SUGG_FILE, 'utf8')); } catch { return []; } };
+const writeSuggestions = (arr) => fs.writeFileSync(SUGG_FILE, JSON.stringify(arr, null, 2));
+function dismissSuggestion(id) {
+  const arr = readSuggestions(); const s = arr.find((x) => x.id === id); if (!s) throw new Error(`no suggestion "${id}"`);
+  s.status = 'dismissed'; writeSuggestions(arr); return { id, status: 'dismissed' };
+}
+function applySuggestion(id) {
+  const arr = readSuggestions(); const s = arr.find((x) => x.id === id); if (!s) throw new Error(`no suggestion "${id}"`);
+  s.status = 'applied';
+  if (s.kind === 'automate' && s.workflowId) {
+    const cron = '0 9 * * *';   // ponytail: 既定 daily 9am — 使う前に edit できる
+    saveAutomation({ name: `定期化: ${s.reason.slice(0, 40)}`, trigger: { type: 'schedule', when: cron }, workflow: s.workflowId, input: '' });
+  }
+  writeSuggestions(arr); return { id, status: 'applied', applied: s };
+}
+
+// detectSuggestions — TODO(human): state.runs と state.audit を観察して提案を生成するロジック。
+// - kind:'automate': 同じ workflow を手動で REPEAT_THRESHOLD 回以上 fire している → 定期化を提案
+// - kind:'fix': 同じ flow が FAIL_THRESHOLD 回連続 fail している → 調査/set_check を提案
+// 提案は冪等（同じ workflowId/flowId の open 提案が既存なら追加しない）。cap=100。
+function detectSuggestions() {
+  const REPEAT_THRESHOLD = 3;   // 同 flow を手動でこれ以上 fire → 定期化提案
+  const FAIL_THRESHOLD   = 3;   // 同 automation の連続 fail がこれ以上 → fix 提案
+  const arr = readSuggestions();
+  const openKeys = new Set(arr.filter((s) => s.status === 'open').map((s) => s.workflowId || s.automationId));
+  let changed = false;
+
+  // automate: 同 flowId の手動完了 run が REPEAT_THRESHOLD 回以上
+  const runsByFlow = {};
+  for (const r of Object.values(state.runs)) {
+    if (r.status !== 'completed' || !r.flowId || r.fromAutomation) continue;   // 自動起動 run は除外
+    (runsByFlow[r.flowId] ||= []).push(r);
+  }
+  for (const [flowId, runs] of Object.entries(runsByFlow)) {
+    if (runs.length < REPEAT_THRESHOLD || openKeys.has(flowId)) continue;
+    const wf = readWorkflows().find((w) => w.id === flowId);
+    const name = wf ? (wf.name || flowId) : flowId;
+    arr.push({ id: randomUUID().slice(0, 8), kind: 'automate', reason: `「${name}」を手動で ${runs.length} 回実行しています。定期自動化しませんか？`, evidence: runs.slice(-5).map((r) => r.id), workflowId: flowId, status: 'open' });
+    openKeys.add(flowId); changed = true;
+  }
+
+  // fix: 同 automationId の checkResults が末尾 FAIL_THRESHOLD 件連続 fail
+  const results = state.checkResults || [];
+  const byAuto = {};
+  for (const r of results) if (r.automationId) (byAuto[r.automationId] ||= []).push(r);
+  for (const [autoId, recs] of Object.entries(byAuto)) {
+    const tail = recs.slice(-FAIL_THRESHOLD);
+    if (tail.length < FAIL_THRESHOLD || tail.some((r) => r.passed) || openKeys.has(autoId)) continue;
+    arr.push({ id: randomUUID().slice(0, 8), kind: 'fix', reason: `automation "${autoId}" の成果検証が ${FAIL_THRESHOLD} 回連続 fail しています。確認してください。`, evidence: tail.map((r) => r.runId), automationId: autoId, status: 'open' });
+    openKeys.add(autoId); changed = true;
+  }
+
+  if (!changed) return;
+  if (arr.length > 100) arr.splice(0, arr.length - 100);   // cap
+  writeSuggestions(arr);
+}
+
 const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
   const matched = matchingAutomations(event);
@@ -821,6 +881,7 @@ function tickScheduler() {
     catch (e) { trail('schedule-fire', { automation: m.id, error: e.message }); }
   }
   if (changed) writeSchedState(st);
+  detectSuggestions();   // Ambient-1: 自分 run/audit を観察して提案を生成（外部 IO なし）
 }
 
 // ---------- Ghost Writer (Wave L): NL → a validated, laid-out flow. Generation ≠ execution — the human
@@ -1053,6 +1114,9 @@ async function mcpDispatch(name, args) {
   if (name === 'list_goals')         return readGoals().map(goalView);
   if (name === 'goal_checkin')       return goalCheckin(args.id, args.value, args.note);
   if (name === 'delete_goal')        return deleteGoal(args.id);
+  if (name === 'list_suggestions')   { const all = readSuggestions(); const st = args.status || 'open'; return st === 'all' ? all : all.filter((s) => s.status === st); }   // Ambient-1
+  if (name === 'dismiss_suggestion') return dismissSuggestion(args.id);   // Ambient-1
+  if (name === 'apply_suggestion')   return applySuggestion(args.id);     // Ambient-1
   // Wave U-1: stdio-parity tools — list/get_handoff filter live state in-process; the rest loop back to /api.
   if (name === 'list_handoffs') { let hs = state.handoffs; if (args.agent) hs = hs.filter((h) => h.to === args.agent || h.from === args.agent); if (args.status) hs = hs.filter((h) => h.status === args.status); return hs.slice(-(args.limit || 20)).map(ref); }
   if (name === 'get_handoff')        return find(args.id);
@@ -1149,6 +1213,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
   if (req.method === 'GET' && p === '/api/permissions') return json(res, 200, readPermissions());   // Wave 11b: browser-control allow/ask/deny ruleset (worker fetches to classify)
   if (req.method === 'GET' && p === '/api/login-status') { const s = readLoginState(); const dom = u.searchParams.get('domain'); return json(res, 200, dom ? { domain: dom, ...(s[dom] || { needsLogin: false }) } : { logins: s }); }   // Wave Login-1: ログイン生存状態（domain 指定 or 全件）
+  if (req.method === 'GET' && p === '/api/suggestions') { const st = u.searchParams.get('status') || 'open'; const all = readSuggestions(); return json(res, 200, { suggestions: st === 'all' ? all : all.filter((s) => s.status === st) }); }   // Ambient-1
   if (req.method === 'GET' && p === '/api/goals') return json(res, 200, { goals: readGoals().map(goalView) });   // Wave Goals-1: ゴール一覧（進捗率付き）
   if (req.method === 'GET' && p.startsWith('/api/goals/')) { const id = decodeURIComponent(p.slice('/api/goals/'.length)); const g = readGoals().find((x) => x.id === id); return g ? json(res, 200, goalView(g)) : json(res, 404, { error: `no goal "${id}"` }); }
   if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
@@ -1285,6 +1350,8 @@ const server = http.createServer((req, res) => {
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
       if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
       if (p === '/api/login-detected') { const s = recordLogin(j.domain, !!j.resolved); trail('login-detected', { domain: j.domain || null, resolved: !!j.resolved }); return json(res, 200, { ok: true, state: j.domain ? s[j.domain] : null }); }   // Wave Login-1: worker → hub。ログイン要求の検出/解消を記録（audited・値は持たない）
+      if (p.startsWith('/api/suggestions/') && p.endsWith('/dismiss')) { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/dismiss'.length)); return json(res, 200, dismissSuggestion(id)); }   // Ambient-1
+      if (p.startsWith('/api/suggestions/') && p.endsWith('/apply'))   { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/apply'.length)); return json(res, 200, applySuggestion(id)); }   // Ambient-1
       if (p === '/api/goals') return json(res, 200, saveGoal(j || {}));                                     // Wave Goals-1: ゴール作成/更新
       if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
       if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }

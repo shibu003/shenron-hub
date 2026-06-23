@@ -469,4 +469,15 @@ assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backwa
   assert.ok(/REMOTE_DENY\.has\(name\)/.test(hubSrc), 'U-1: mcpDispatch must reject REMOTE_DENY tools at dispatch (not just hide them)');
   console.log(`U-1 surface guard OK — stdio ${TOOLS.filter(forStdio).length} / remote ${remoteNames.size} tools, all dispatchable (REMOTE_DENY: ${REMOTE_DENY.size})`);
 }
+// ---------- Wave Ambient-1: detectSuggestions ----------
+{
+  const { readFileSync } = await import('node:fs');
+  const hubSrc = readFileSync(new URL('./hub.mjs', import.meta.url), 'utf8');
+  assert.ok(/detectSuggestions\(\)/.test(hubSrc), 'Ambient-1: detectSuggestions is called from tickScheduler');
+  assert.ok(/kind.*automate/.test(hubSrc), 'Ambient-1: automate suggestion kind exists');
+  assert.ok(/kind.*fix/.test(hubSrc), 'Ambient-1: fix suggestion kind exists');
+  assert.ok(/REPEAT_THRESHOLD/.test(hubSrc), 'Ambient-1: REPEAT_THRESHOLD defined');
+  assert.ok(/FAIL_THRESHOLD/.test(hubSrc), 'Ambient-1: FAIL_THRESHOLD defined');
+  console.log('Ambient-1 detect guard OK');
+}
 console.log('test_shenron OK');
