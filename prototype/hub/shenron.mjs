@@ -382,3 +382,17 @@ export async function genComponent({ what, vendor = 'claude', maxIters = 3, run 
   }
   return { what, code, iters: maxIters, converged: false, error: err };
 }
+
+// Wave R-1 — 成果検証の判定中核（TODO(human)）。純粋関数（state 非依存）→ test_shenron が直接 import して検証可。
+// 契約: (expect:{kind:'assert'|'judge', rule:string}, actual:string, {run, vendor, model}) → Promise<{ok:boolean, reason:string}>
+//   ok=true ＝「run 出力(actual) が期待(rule) を満たした」。外れたら hub の checkOutcome が check_failed を通知する。
+//   assert: LLM 不使用の決定論。rule の文法を決めて actual を判定（例 'contains:done' → actual.includes('done')）。
+//   judge : cheap tier で yes/no。prompt 例『質問:${rule}\n出力:\n${actual}\nYES か NO のみで答えて』→ run(vendor||'stub', prompt, 'NO', {model})。
+//     ⚠️ judge は actual(=run 出力・secret/PII を含みうる) を vendor に送る *新しい未 firewall egress*。
+//        既存の redact()/fenceEdge は効かない → 送信前に redact(trust.mjs) するか最低限 audit する設計判断が要る。
+//        vendor 失敗 sentinel（r.startsWith('[') && r.includes('→ stub]')）は fail-closed（{ok:false}）に倒す。
+//   reason には生 output を入れない（短い判定理由のみ）— checkResults / list_check_results に保存され露出するため。
+export async function evalExpect(expect, actual, { run = runVendorAsync, vendor, model } = {}) {
+  // TODO(human): assert / judge の判定を実装。下は wiring/test が回るための暫定（常に pass）。
+  return { ok: true, reason: 'TODO(human): implement assert/judge in evalExpect' };
+}

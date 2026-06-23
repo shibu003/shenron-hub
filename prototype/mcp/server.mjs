@@ -248,6 +248,9 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, topN: { type: 'number' } } } },
   { name: 'forget', description: '記憶を id 指定で削除（recall の id）。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  // Wave R-1: 成果検証（automation の run 完了後に期待を突き合わせ、外れたら通知）
+  { name: 'set_check', description: 'automation に成果検証(expect)を付与/解除。expect:{kind:"assert"|"judge", rule, maxRetry}・null/省略で解除。run 完了時に flowResult を rule と突き合わせ、外れたら check_failed 通知。⚠️ judge は run 出力(PII 含みうる)を vendor LLM に送る＝新 egress。秘匿 flow は assert を使うこと。', inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
+  { name: 'list_check_results', description: '直近の成果検証結果（runId/automationId/kind/passed/reason/at）。', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
 ];
 
 async function callTool(name, args = {}) {
@@ -379,6 +382,9 @@ async function callTool(name, args = {}) {
     case 'remember': return await hub('/api/memory', { action: 'add', text: args.text, tags: args.tags || [] });
     case 'recall': return await hub('/api/memory', { action: 'recall', query: args.query || '', topN: args.topN });   // topN 未指定は hub 側 default に委譲（重複なし）
     case 'forget': return await hub('/api/memory', { action: 'delete', id: args.id });
+    // Wave R-1: 成果検証
+    case 'set_check': return await hub('/api/check', { automation: args.automation, expect: args.expect });
+    case 'list_check_results': return await hub('/api/check-results');
     default:
       if (name.startsWith('agent_')) return await hub(`/api/agents/${encodeURIComponent(name.slice(6))}/run`, { input: args.input });   // P-2: 動的露出した agent_<name> の実行
       throw new Error(`unknown tool: ${name}`);
