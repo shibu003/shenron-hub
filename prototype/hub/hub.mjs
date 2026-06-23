@@ -357,10 +357,35 @@ async function checkOutcome(run) {
     run.check = rec;
     (state.checkResults ||= []).push(rec);
     if (state.checkResults.length > 50) state.checkResults = state.checkResults.slice(-50);   // ring buffer（list_check_results 用）。run 毎の run.check は inbox.json に残る
-    if (!r.ok) emitRunNotify(run, 'check_failed');                        // 既存 notify 経路を再利用（notify integration 無ければ no-op）
+    if (!r.ok) {
+      emitRunNotify(run, 'check_failed');
+      if (expect.onFail === 'repair' && (run.repairCount || 0) < (expect.maxRetry ?? 1))
+        setImmediate(() => repairRun(run));                                // Wave R-2: 非同期修復（advanceFrom を止めない）
+    }
     trail('outcome-check', { runId: run.id, automation: auto.id, kind: expect.kind, passed: !!r.ok });   // trail は save() 込み＝run.check + checkResults もここで永続化（明示 save 不要）
   } catch (e) {
     trail('outcome-check', { runId: run.id, error: e.message }); console.error('[checkOutcome]', run.id, e.message);   // setImmediate は例外を握り潰す → 明示 trail + log
+  }
+}
+// Wave R-2: 壊れた run の generated component を再生成 → approved:false でペンディング化
+async function repairRun(run) {
+  const comps = readComponents();
+  const compId = run.nodes && run.nodes.map((n) => n.agent).filter(Boolean).find((id) => comps.some((c) => c.id === id));
+  if (!compId) { trail('repair-skip', { runId: run.id, reason: 'no generated component in run' }); return; }
+  const comp = comps.find((c) => c.id === compId);
+  try {
+    const r = await genComponent({ what: comp.what, vendor: EXEC_VENDOR || 'claude', maxIters: 3 });
+    if (!r.converged) { trail('repair-fail', { runId: run.id, componentId: compId }); return; }
+    const arr = readComponents(); const i = arr.findIndex((c) => c.id === compId);
+    const updated = { ...(i >= 0 ? arr[i] : {}), ...r, id: compId, approved: false };   // 再生成後は人が approve_component するまで無効化
+    if (i >= 0) arr[i] = updated; else arr.push(updated);
+    writeComponents(arr);
+    run.repairCount = (run.repairCount || 0) + 1;
+    trail('repair-pending', { runId: run.id, componentId: compId });
+    emitRunNotify(run, 'repair_pending');
+  } catch (e) {
+    trail('repair-error', { runId: run.id, componentId: compId, error: e.message });
+    console.error('[repairRun]', run.id, e.message);
   }
 }
 function fireNode(run, node, input) {
@@ -1112,6 +1137,10 @@ async function mcpDispatch(name, args) {
   if (name === 'forget')             return deleteMemory(args.id);
   if (name === 'set_check')          return setCheck(args.automation, args.expect);   // Wave R-1
   if (name === 'list_check_results') return (state.checkResults || []).slice(-(args.limit || 20));   // Wave R-1
+  if (name === 'repair_run') {                                                          // Wave R-2: 手動修復トリガー
+    const run = state.runs[args.runId]; if (!run) throw new Error(`no run "${args.runId}"`);
+    setImmediate(() => repairRun(run)); return { ok: true, runId: args.runId, status: 'repair_queued' };
+  }
   if (name === 'set_goal')           return saveGoal(args);                              // Wave Goals-1
   if (name === 'get_goal')           { const g = readGoals().find((x) => x.id === args.id); if (!g) throw new Error(`no goal "${args.id}"`); return goalView(g); }
   if (name === 'list_goals')         return readGoals().map(goalView);

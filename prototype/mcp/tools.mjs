@@ -134,6 +134,8 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
   { name: 'list_check_results', description: '直近の成果検証結果（runId/automationId/kind/passed/reason/at）。',
     inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
+  { name: 'repair_run', description: 'Wave R-2: 失敗 run の generated component を再生成キューに投入。収束したら approve_component 待ち（approved:false）になる。onFail:notify run にも手動で使える。',
+    inputSchema: { type: 'object', properties: { runId: { type: 'string', description: '修復対象の run id' } }, required: ['runId'] } },
   { name: 'login_status', description: 'browser-control の各ドメインのログイン生存状態。lastDetected=最後にログイン要求を検出した時刻 / lastOk=最後に通過した時刻 / needsLogin。無人 run でログインが切れていないか外から確認。domain 省略で全件。値（user/pass）は持たない（検出のみ）。',
     inputSchema: { type: 'object', properties: { domain: { type: 'string', description: '対象ドメイン（省略で全件）' } } } },
   { name: 'set_goal', description: '長期ゴールを記憶（神龍に預ける）。wish=願い（例「3ヶ月でフォロワー1000」）、metric=測る指標、target=目標値、current=現在値、unit=単位、deadline=期限(ISO)。id を渡すと更新（未指定フィールドは保持）。進捗 metric は自動計測せず goal_checkin で人が入れる。',
