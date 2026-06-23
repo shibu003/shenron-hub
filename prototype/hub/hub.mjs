@@ -25,7 +25,7 @@ import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
 import { setCredential, getCredential, listCredentials, deleteCredential } from './vault.mjs';
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
@@ -279,7 +279,7 @@ function saveWorkflow({ id, name, summary, tags, nodes, edges }) {
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return wf;
 }
-function runFlow({ id, nodes, edges, input, parent }) {
+function runFlow({ id, nodes, edges, input, parent, fromAutomation }) {
   if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
   const lf = nodes.find((n) => n.kind === 'langflow');   // 🔗 exotic component → not natively runnable; the whole flow must go to Langflow /v1/run
@@ -290,7 +290,7 @@ function runFlow({ id, nodes, edges, input, parent }) {
   if (trg.size) { nodes = nodes.filter((n) => !trg.has(n.id)); edges = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)); }
   edges.forEach((e, i) => { if (!e.id) e.id = 'e' + i; });   // Wave E2: dead-branch tracking keys on edge id
   const runId = randomUUID().slice(0, 8);
-  const run = (state.runs[runId] = { id: runId, flowId: id || null, parent: parent || null, depth, nodes, edges, input: input || '', outputs: {}, dead: [], skipped: [], routerPick: {}, status: 'running', createdAt: now() });
+  const run = (state.runs[runId] = { id: runId, flowId: id || null, parent: parent || null, depth, nodes, edges, input: input || '', outputs: {}, dead: [], skipped: [], routerPick: {}, status: 'running', createdAt: now(), fromAutomation: fromAutomation || null, check: null });   // Wave R-1: fromAutomation = which automation launched this (null = manual/sub-flow → outcome-check no-op); check = result of outcome-check
   const entries = nodes.filter((n) => n.kind !== 'trigger' && !edges.some((e) => e.target === n.id));
   if (!entries.length) throw new Error('flow has no entry node (every node has an incoming edge — cycle?)');
   save();
@@ -313,6 +313,26 @@ function flowResult(run) {
   const sink = run.nodes.find((n) => n.kind !== 'trigger' && (n.id in run.outputs) && !run.edges.some((e) => e.source === n.id));
   if (sink) return run.outputs[sink.id];
   const ks = Object.keys(run.outputs); return ks.length ? run.outputs[ks[ks.length - 1]] : '';
+}
+// Wave R-1 — 成果検証: run を起動した automation が expect を持てば、完了後に flowResult を突き合わせ、外れたら通知。
+// 呼び出しは完了ブロック(advanceFrom:585)から setImmediate で run 毎1回だけ（completedAt ガード済み）。判定は shenron.evalExpect（純粋・TODO(human)）。
+async function checkOutcome(run) {
+  try {
+    if (run.check) return;                                                // 冪等の二重防御: setImmediate が万一二重 queue されても / 将来 boot replay(R-3) を足しても run 毎1回だけ記録
+    const auto = run.fromAutomation ? readAutomations().find((a) => a.id === run.fromAutomation) : null;
+    const expect = auto && auto.expect;
+    if (!expect || !expect.kind) return;                                  // automation 無し / expect 無し ＝ no-op（後方互換）
+    const route = tierRoute('cheap');                                     // judge は従量0 の cheap tier（assert は LLM 不使用）
+    const r = await evalExpect(expect, flowResult(run), { vendor: route.vendor, model: route.model });
+    const rec = { runId: run.id, flowId: run.flowId || null, automationId: auto.id, kind: expect.kind, rule: expect.rule || '', passed: !!r.ok, reason: r.reason || '', at: new Date().toISOString() };
+    run.check = rec;
+    (state.checkResults ||= []).push(rec);
+    if (state.checkResults.length > 50) state.checkResults = state.checkResults.slice(-50);   // ring buffer（list_check_results 用）。run 毎の run.check は inbox.json に残る
+    if (!r.ok) emitRunNotify(run, 'check_failed');                        // 既存 notify 経路を再利用（notify integration 無ければ no-op）
+    trail('outcome-check', { runId: run.id, automation: auto.id, kind: expect.kind, passed: !!r.ok });   // trail は save() 込み＝run.check + checkResults もここで永続化（明示 save 不要）
+  } catch (e) {
+    trail('outcome-check', { runId: run.id, error: e.message }); console.error('[checkOutcome]', run.id, e.message);   // setImmediate は例外を握り潰す → 明示 trail + log
+  }
 }
 function fireNode(run, node, input) {
   const inc = run.edges.filter((e) => e.target === node.id);
@@ -581,8 +601,10 @@ function advanceFrom(run, nodeId) {
     if (pick !== undefined && (e.branch || 'then') !== pick) { markDead(run, e); continue; }   // router: prune the branch not taken
     tryFire(run, e.target);
   }
-  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id))) {
+  if (run.nodes.filter((n) => n.kind !== 'trigger').every((n) => (n.id in run.outputs) || run.skipped.includes(n.id)) && !run.completedAt) {
+    run.completedAt = now();   // Wave R-1: exactly-once ガード。585 は 'cancelled' しか見ず(577)、ネスト親の再入(587)で emit/touch が二重発火しうる既存バグ→1センチネルで完了 side-effect も成果検証も run 毎1回に。
     run.status = 'completed'; console.log(`✓ [hub] flow run ${run.id} completed`); if (run.flowId) touchWorkflowRun(run.flowId); emitRunNotify(run, 'completed');
+    setImmediate(() => checkOutcome(run));   // Wave R-1: 成果検証は同期 advanceFrom 再帰の外へ（judge は async）。冪等は上の completedAt が担保。
     if (run.parent) { const p = state.runs[run.parent.runId];                       // 📦 nested sub-flow done → hand its result up to the parent node, then advance the parent
       if (p && p.status === 'running' && !(run.parent.node in p.outputs)) { p.outputs[run.parent.node] = flowResult(run); advanceFrom(p, run.parent.node); } }
   }
@@ -659,20 +681,28 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   }
   if (!workflowId) throw new Error('workflow id (or nodes/edges) required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'auto-' + randomUUID().slice(0, 4);
-  const m = { id, name: name || id, summary: summary || '', tags: tags || [], trigger, workflow: workflowId, input: input || '', enabled: enabled !== false };
   const arr = readAutomations(); const i = arr.findIndex((a) => a.id === id);
+  const m = { id, name: name || id, summary: summary || '', tags: tags || [], trigger, workflow: workflowId, input: input || '', enabled: enabled !== false, ...(i >= 0 && arr[i].expect ? { expect: arr[i].expect } : {}) };   // Wave R-1: canvas 再保存で setCheck の expect を消さない（既存を持ち越し）
   if (i >= 0) arr[i] = m; else arr.push(m);
   fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
   return trigger.type === 'schedule' ? { ...m, note: schedulerNote() } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
 }
 // pause/resume a saved automation without deleting it — scheduler & fireEvent both honor enabled (read fresh, no restart). Mirrors toggleIntegration.
 function toggleAutomation(id, on) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2)); return { id: it.id, name: it.name, enabled: it.enabled }; }
+// Wave R-1: automation に成果検証(expect)を付与/解除。toggleAutomation と同型（read-modify-write・他フィールド保持）。
+function setCheck(id, expect) {
+  const arr = readAutomations(); const a = arr.find((x) => x.id === id); if (!a) throw new Error(`no automation "${id}"`);
+  if (expect == null) delete a.expect;
+  else { if (!['assert', 'judge'].includes(expect.kind)) throw new Error('expect.kind must be assert|judge'); a.expect = { kind: expect.kind, rule: expect.rule || '', onFail: 'notify', maxRetry: expect.maxRetry || 0 }; }   // R-1: onFail は notify 固定・maxRetry は R-2 用に保存のみ
+  fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
+  return { id: a.id, expect: a.expect || null };
+}
 const matchingAutomations = (event) => readAutomations().filter((m) => m.enabled !== false && triggerMatches(m.trigger, event));
 function fireEvent(event, input) {                          // build-state event → run every enabled automation whose trigger matches
   const matched = matchingAutomations(event);
   const fired = [];
   for (const m of matched) {
-    try { fired.push({ automation: m.id, ...runFlow({ id: m.workflow, input: input ?? m.input ?? '' }) }); }
+    try { fired.push({ automation: m.id, ...runFlow({ id: m.workflow, input: input ?? m.input ?? '', fromAutomation: m.id }) }); }   // Wave R-1: thread automation id → checkOutcome が expect を引ける
     catch (e) { fired.push({ automation: m.id, error: e.message }); }
   }
   return { event, matched: matched.map((m) => m.id), fired };
@@ -710,7 +740,7 @@ function tickScheduler() {
     if (st[m.id] >= due) continue;                                      // この due（以降）は処理済み → 重複/再発火しない
     st[m.id] = now.getTime(); changed = true;
     const catchUp = due < now.getTime() - 90000;                       // due が過去（>1.5分前）= downtime 後の追い発火
-    try { trail('schedule-fire', { automation: m.id, when: expr, due: new Date(due).toISOString(), catchUp }); runFlow({ id: m.workflow, input: m.input || '' }); }
+    try { trail('schedule-fire', { automation: m.id, when: expr, due: new Date(due).toISOString(), catchUp }); runFlow({ id: m.workflow, input: m.input || '', fromAutomation: m.id }); }   // Wave R-1: thread automation id → 定期 run も成果検証対象
     catch (e) { trail('schedule-fire', { automation: m.id, error: e.message }); }
   }
   if (changed) writeSchedState(st);
@@ -785,6 +815,8 @@ const MCP_TOOLS = [
   { name: 'gen_component',      description: '不足ツールを Python MCP サーバーとして生成', inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
   { name: 'get_checkpoint',     description: 'browser-control の承認待ちステップ取得', inputSchema: { type: 'object', properties: {} } },
   { name: 'resolve_checkpoint', description: 'browser ステップをモバイルから承認/拒否', inputSchema: { type: 'object', properties: { id: { type: 'string' }, allow: { type: 'boolean' } }, required: ['id', 'allow'] } },
+  { name: 'set_check',          description: '神龍 Wave R-1: automation に成果検証(expect)を付与/解除。expect:{kind:"assert"|"judge", rule, maxRetry} で付与（onFail は notify 固定）・null/省略で解除。run 完了時に flowResult を rule と突き合わせ外れたら check_failed 通知。⚠️ judge は run 出力(flowResult・PII 含みうる)を vendor LLM に送る＝新しい egress。秘匿データを扱う flow は assert を使うか入力に秘密を含めないこと。', inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
+  { name: 'list_check_results', description: '神龍 Wave R-1: 直近の成果検証結果（runId/automationId/kind/passed/reason/at）。', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
 ];
 // Wave B: 何が「使える」かの正直な要約。registered（agents/tools/workflows）＋組込（browser-control/prompt）。
 // 生成済み道具は integration.generated で印。⚠️ client が繋ぐ MCP（claude.ai の Gmail 等）は MCP 仕様上ここから見えない＝note で明示。
@@ -843,6 +875,8 @@ async function mcpDispatch(name, args) {
   }
   if (name === 'get_checkpoint')     return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : state.handoffs.filter((h) => h.checkpoint && h.checkpoint.decided === null).map((h) => ({ id: h.id, label: h.checkpoint.label, tool: h.checkpoint.tool, domain: h.checkpoint.domain }));
   if (name === 'resolve_checkpoint') return managedMode() ? { managed: true, note: 'browser-control は managed hub では利用できません。ローカル神龍または常駐箱を使用してください。' } : ref(args.allow ? approve(args.id) : decline(args.id));
+  if (name === 'set_check')          return setCheck(args.automation, args.expect);   // Wave R-1
+  if (name === 'list_check_results') return (state.checkResults || []).slice(-(args.limit || 20));   // Wave R-1
   throw new Error(`unknown tool "${name}"`);
 }
 
@@ -884,6 +918,8 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
+  if (req.method === 'GET' && p === '/api/check-results')   // Wave R-1: 直近の成果検証結果（list_check_results）
+    return json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
   if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
     return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
   if (req.method === 'GET') { const rm = p.match(/^\/api\/runs\/([^/]+)$/);   // M-2: full run by id
@@ -1047,6 +1083,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/langflow/run') { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // 🔗 delegate an exotic Langflow flow to /api/v1/run, fenced (audit appended → persist)
       if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
       if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
+      if (p === '/api/check') return json(res, 200, setCheck(j.automation, j.expect));   // Wave R-1: set_check（automation に expect 付与/解除）
       if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
       if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: schedulerOn() }); }
       if (p === '/api/notify/test') {   // M-3: ping all enabled notify integrations with a test payload

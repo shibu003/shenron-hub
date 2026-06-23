@@ -226,6 +226,9 @@ const TOOLS = [
   // Wave M-3: 通知テスト
   { name: 'test_notify', description: '有効な通知 integration (kind:notify) 全てにテスト payload を送信し、各 URL の成否を返す。',
     inputSchema: { type: 'object', properties: {} } },
+  // Wave R-1: 成果検証（automation の run 完了後に期待を突き合わせ、外れたら通知）
+  { name: 'set_check', description: 'automation に成果検証(expect)を付与/解除。expect:{kind:"assert"|"judge", rule, maxRetry}・null/省略で解除。run 完了時に flowResult を rule と突き合わせ、外れたら check_failed 通知。⚠️ judge は run 出力(PII 含みうる)を vendor LLM に送る＝新 egress。秘匿 flow は assert を使うこと。', inputSchema: { type: 'object', properties: { automation: { type: 'string', description: '対象 automation id' }, expect: { type: 'object', description: '{kind:"assert"|"judge", rule, maxRetry}; null で解除' } }, required: ['automation'] } },
+  { name: 'list_check_results', description: '直近の成果検証結果（runId/automationId/kind/passed/reason/at）。', inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
 ];
 
 async function callTool(name, args = {}) {
@@ -337,6 +340,9 @@ async function callTool(name, args = {}) {
     case 'get_run': return await hub(`/api/runs/${encodeURIComponent(args.id)}`);
     // Wave M-3: 通知テスト
     case 'test_notify': return await hub('/api/notify/test', {});
+    // Wave R-1: 成果検証
+    case 'set_check': return await hub('/api/check', { automation: args.automation, expect: args.expect });
+    case 'list_check_results': return await hub('/api/check-results');
     default: throw new Error(`unknown tool: ${name}`);
   }
 }

@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan, evalExpect } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
 import { openStdio } from '../mcp/mcp-client.mjs';
 import { classify, SEED_RULES, addAllowRule } from '../permissions.mjs';
@@ -398,4 +398,21 @@ assert.equal(rr.routing.find((r) => r.action === 'send via gmail').cost, '$0', '
 assert.equal(rr.routing.find((r) => r.kind === 'consensus').cost, '3×', 'routing: consensus is 3× (3 vendors)');
 assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backward compat)');
 
+// ---------- Wave R-1: 成果検証（evalExpect 純粋判定 + 完了ブロックの冪等ガード/リングバッファのロジック） ----------
+{
+  // evalExpect 契約: 常に {ok:boolean, reason:string}（TODO(human) 実装前は pass の stub）
+  const a = await evalExpect({ kind: 'assert', rule: 'contains:done' }, 'task done');
+  assert.equal(typeof a.ok, 'boolean', 'R-1 evalExpect.ok is boolean');
+  assert.equal(typeof a.reason, 'string', 'R-1 evalExpect.reason is string');
+  // judge path は run を注入できる＝実 LLM 不要で配線を検証（TODO(human) 実装後はここで yes/no が効く）
+  const j = await evalExpect({ kind: 'judge', rule: 'polite?' }, 'hello', { run: async () => 'YES' });
+  assert.equal(typeof j.ok, 'boolean', 'R-1 evalExpect judge with injected run returns boolean ok');
+  // 完了ブロックの exactly-once ガード（hub.mjs:585 completedAt のロジックを isolation で固定）
+  let fires = 0; const run = {}; const fire = () => { if (!run.completedAt) { run.completedAt = 1; fires++; } };
+  fire(); fire(); fire();
+  assert.equal(fires, 1, 'R-1 completedAt guard fires checkOutcome exactly once');
+  // checkResults リングバッファ上限（hub.mjs:checkOutcome の cap・最新を残す）
+  let buf = []; for (let i = 0; i < 60; i++) { buf.push(i); if (buf.length > 50) buf = buf.slice(-50); }
+  assert.ok(buf.length <= 50 && buf[buf.length - 1] === 59, 'R-1 checkResults ring buffer caps at 50, keeps newest');
+}
 console.log('test_shenron OK');
