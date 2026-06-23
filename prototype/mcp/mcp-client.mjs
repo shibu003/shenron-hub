@@ -8,7 +8,7 @@
 import { spawn } from 'node:child_process';
 
 const PROTOCOL = '2025-06-18';
-const CLIENT_INFO = { name: 'buildhud', version: '0.1' };
+const CLIENT_INFO = { name: 'shenron', version: '0.1' };
 
 // secret-env fence (load-bearing for Wave 9): generated/untrusted server code runs with credentials stripped so it
 // can't exfil keys. `allow` = BYO-credential names that ride through (their values stay in the operator's env, never the

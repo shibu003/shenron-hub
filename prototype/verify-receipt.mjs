@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// verify-receipt.mjs — verify a BuildHUD Trust Receipt with NO hub (Wave ③ Proof). Zero-dependency: reads the
+// verify-receipt.mjs — verify a Shenron Trust Receipt with NO hub (Wave ③ Proof). Zero-dependency: reads the
 // receipt JSON + (optionally) a pinned public-key PEM, recomputes the audit-entry hashes, and checks the ed25519
 // signature. Honest: this proves integrity + that the receipt was signed by the holder of the public key and is
 // unmodified — NOT who that holder is (pin the key out-of-band for real trust).

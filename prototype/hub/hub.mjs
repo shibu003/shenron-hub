@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hub.mjs — BuildHUD durable handoff hub (broker). Zero-dependency HTTP server.
+// hub.mjs — Shenron durable handoff hub (broker). Zero-dependency HTTP server.
 // The piece A2A does NOT give us: a store-and-forward inbox so a handoff survives the recipient being
 // OFFLINE, then is delivered when it next polls. (A2A has Task/states/pushNotificationConfig but no mailbox
 // — research confirmed. Production durability later rides Trigger.dev waitpoints; this is the minimal core.)
@@ -112,7 +112,7 @@ function loadOrCreateKeypair(pemPath) {
   return { privateKey, publicKeyPem: createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }) };
 }
 const HUB_KEY = loadOrCreateKeypair(sp('hub-key.pem', path.join(HERE, 'hub-key.pem')));
-const receiptFor = (runId) => { if (!runId || !state.runs[runId]) throw new Error(`no run "${runId}"`); return signReceipt(buildReceipt({ hub: { id: 'buildhud-hub', publicKey: HUB_KEY.publicKeyPem }, runId, run: state.runs[runId], audit: state.audit, handoffs: state.handoffs, issuedAt: now() }), HUB_KEY.privateKey); };
+const receiptFor = (runId) => { if (!runId || !state.runs[runId]) throw new Error(`no run "${runId}"`); return signReceipt(buildReceipt({ hub: { id: 'shenron-hub', publicKey: HUB_KEY.publicKeyPem }, runId, run: state.runs[runId], audit: state.audit, handoffs: state.handoffs, issuedAt: now() }), HUB_KEY.privateKey); };
 
 // ---------- helpers ----------
 const agent = (id) => { const a = (state.agents[id] ||= { id, policy: 'approval', autoFrom: [], lastSeen: 0 }); a.passport = normalizePassport(a.passport); return a; };   // Wave H/B: every agent carries a (structured, migrated) capability passport
@@ -143,7 +143,7 @@ save();
 // 二重起動防止: 自分が spawn したプロセスを保持 + 既に worker が poll 中（online）なら起こさない。worker は永続 profile を使う。
 let browserWorkerProc = null;
 function ensureBrowserWorker() {
-  if (process.env.BUILDHUD_NO_AUTOSPAWN) return;          // tests drive their own worker
+  if (process.env.SHENRON_NO_AUTOSPAWN) return;          // tests drive their own worker
   if (managedMode()) return;                              // managed hub: no login profile → browser-control unavailable
   if (browserWorkerProc) return;                          // already auto-spawned by us
   const a = state.agents['browser-control'];
@@ -430,7 +430,7 @@ async function runPrompt(h) {
 }
 // Wave I — consensus: fan the SAME task to N vendors in parallel, then pick the medoid (output most similar
 // to the others) and report an agreement score. A single vendor can't do this — it's the structural answer to
-// "why BuildHUD and not Claude-native?". Internal compute → no approval fence; handoff-backed for visibility.
+// "why Shenron and not Claude-native?". Internal compute → no approval fence; handoff-backed for visibility.
 const tokens = (s) => new Set(String(s || '').toLowerCase().match(/[a-z0-9]+/g) || []);
 function jaccard(a, b) { const A = tokens(a), B = tokens(b); if (!A.size && !B.size) return 1; let i = 0; for (const x of A) if (B.has(x)) i++; return i / ((A.size + B.size - i) || 1); }
 function consensusOf(results) {
@@ -1067,7 +1067,7 @@ const server = http.createServer((req, res) => {
   const p = u.pathname;
   if (req.method === 'GET' && p === '/') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI_FILE)); }
-    catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>BuildHUD hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
+    catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Shenron hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
   }
   if (req.method === 'GET' && p === '/ui2') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }
@@ -1159,8 +1159,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) });
   if (req.method === 'GET' && p === '/api/capvocab')             // Wave B: the capability-passport vocabulary (drives the passport editor)
     return json(res, 200, CAP_VOCAB);
-  if (req.method === 'GET' && p === '/api/mcp')                  // how to connect BuildHUD's MCP server (for "copy MCP call")
-    return json(res, 200, { name: 'buildhud-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
+  if (req.method === 'GET' && p === '/api/mcp')                  // how to connect Shenron's MCP server (for "copy MCP call")
+    return json(res, 200, { name: 'shenron-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
   if (req.method === 'GET' && p === '/api/config') return json(res, 200, configStatus());   // Wave: 全設定を1か所で読む（初期設定 hint 付き・secret は在否のみ）
   if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization' }); return res.end(); }
   // OAuth 2.1 discovery + auto-approve authorize
@@ -1411,6 +1411,6 @@ const server = http.createServer((req, res) => {
   });
 });
 server.on('error', (e) => { console.error(`[hub] cannot listen on ${PORT}: ${e.message} — pass --port <free>`); process.exit(1); });
-server.listen(PORT, () => console.log(`[hub] BuildHUD durable handoff hub on http://localhost:${PORT}  (state: ${path.relative(process.cwd(), STATE_FILE)})`));
+server.listen(PORT, () => console.log(`[hub] Shenron durable handoff hub on http://localhost:${PORT}  (state: ${path.relative(process.cwd(), STATE_FILE)})`));
 if (process.env.SHENRON_NO_SCHEDULER == null) { setTimeout(tickScheduler, 1500); setInterval(tickScheduler, 60000); console.log('⏰ [hub] scheduler armed — config.scheduler で live on/off・boot+60s tick で catch-up（SHENRON_NO_SCHEDULER=1 で hard 無効）'); }   // tick は schedulerOn() で live gate（config:false でも interval は回るが発火しない）
 else console.log('⏰ [hub] scheduler hard-OFF (SHENRON_NO_SCHEDULER)');

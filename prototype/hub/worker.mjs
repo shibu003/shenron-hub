@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// worker.mjs — an agent's PULL-mode poller for the BuildHUD hub. Polls for handoffs addressed to this
+// worker.mjs — an agent's PULL-mode poller for the Shenron hub. Polls for handoffs addressed to this
 // agent, runs the approved ones with its skill (vendor), posts the result back. Works even if this agent
 // was OFFLINE when the handoff was sent — the hub held it (durable inbox). PULL is the opposite of
 // reviewer-server's PUSH model, and is what makes offline-tolerant delivery possible.

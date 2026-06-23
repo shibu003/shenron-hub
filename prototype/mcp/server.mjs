@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// server.mjs — BuildHUD MCP server (MCP-first control plane, docs/10). Zero-dependency.
-// Lets an AI operate BuildHUD: discover/search/run agents + workflows + automations over MCP (stdio, JSON-RPC).
+// server.mjs — Shenron MCP server (MCP-first control plane, docs/10). Zero-dependency.
+// Lets an AI operate Shenron: discover/search/run agents + workflows + automations over MCP (stdio, JSON-RPC).
 //
 // clean-mcp token-light principle: search_* return SMALL refs; get_* load ONE full item on demand.
 // Never dump everything into context — search the index, expand one, act. Three indexes share one searcher.
@@ -22,12 +22,12 @@ import { TOOLS, forStdio } from './tools.mjs';   // Wave U-1: tool defs single-s
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const AGENTS_DIR = path.join(HERE, '..', 'agents');
 const TOKEN = process.env.A2A_SHARED_TOKEN || null;     // needed only for run_*/fire_event (act)
-const UNATTENDED = process.argv.includes('--unattended') || process.env.BUILDHUD_UNATTENDED === '1';
-const HUB = process.env.BUILDHUD_HUB || 'http://localhost:8795';     // durable handoff hub (prototype/hub)
-const log = (...a) => console.error('[buildhud-mcp]', ...a);
+const UNATTENDED = process.argv.includes('--unattended') || process.env.SHENRON_UNATTENDED === '1';
+const HUB = process.env.SHENRON_HUB || 'http://localhost:8795';     // durable handoff hub (prototype/hub)
+const log = (...a) => console.error('[shenron-mcp]', ...a);
 
 // 登録だけで動く: MCP server 起動時に local hub が居なければ自動起動（detached＝MCP セッションを跨いで常駐・既に居れば再利用）。
-// remote な BUILDHUD_HUB は触らない。initialize/tools-list は hub 不要なので即応答し、最初の tool 呼び出しが hubReady を待つ。
+// remote な SHENRON_HUB は触らない。initialize/tools-list は hub 不要なので即応答し、最初の tool 呼び出しが hubReady を待つ。
 const HUB_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(HUB);
 async function ensureHub() {
   if (!HUB_LOCAL) return;                                            // remote hub → not ours to manage
@@ -276,11 +276,11 @@ async function callTool(name, args = {}) {
 }
 
 const RESOURCES = [
-  { uri: 'buildhud://agents', name: 'Agent index', description: 'Agent refs (token-light)', mimeType: 'application/json' },
-  { uri: 'buildhud://workflows', name: 'Workflow index', description: 'Workflow refs', mimeType: 'application/json' },
-  { uri: 'buildhud://automations', name: 'Automation index', description: 'Automation refs (trigger-bound)', mimeType: 'application/json' },
-  { uri: 'buildhud://integrations', name: 'Integration index', description: 'Integration refs (MCP servers + tool counts)', mimeType: 'application/json' },
-  { uri: 'buildhud://state', name: 'Build state summary', description: 'Counts/summary', mimeType: 'application/json' },
+  { uri: 'shenron://agents', name: 'Agent index', description: 'Agent refs (token-light)', mimeType: 'application/json' },
+  { uri: 'shenron://workflows', name: 'Workflow index', description: 'Workflow refs', mimeType: 'application/json' },
+  { uri: 'shenron://automations', name: 'Automation index', description: 'Automation refs (trigger-bound)', mimeType: 'application/json' },
+  { uri: 'shenron://integrations', name: 'Integration index', description: 'Integration refs (MCP servers + tool counts)', mimeType: 'application/json' },
+  { uri: 'shenron://state', name: 'Build state summary', description: 'Counts/summary', mimeType: 'application/json' },
 ];
 
 // ---------- MCP stdio (newline-delimited JSON-RPC) ----------
@@ -309,7 +309,7 @@ rl.on('line', async (line) => {
     switch (method) {
       case 'initialize':
         return ok(id, { protocolVersion: params?.protocolVersion || '2025-06-18',
-          capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'buildhud-mcp', version: '0.1.0' } });
+          capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'shenron-mcp', version: '0.1.0' } });
       case 'notifications/initialized': return;            // notification, no reply
       case 'ping': return ok(id, {});
       case 'tools/list': return ok(id, { tools: [...STDIO_TOOLS, ...await agentTools()] });   // P-2: hub の live local agents を agent_<name> tool として append
@@ -320,11 +320,11 @@ rl.on('line', async (line) => {
       case 'resources/list': return ok(id, { resources: RESOURCES });
       case 'resources/read': {
         const uri = params?.uri;
-        const body = uri === 'buildhud://agents' ? searchAgents('', 999)
-          : uri === 'buildhud://workflows' ? searchWorkflows('', 999)
-          : uri === 'buildhud://automations' ? searchAutomations('', 999)
-          : uri === 'buildhud://integrations' ? searchIntegrations('', 999)
-          : uri === 'buildhud://state' ? await callTool('build_state')
+        const body = uri === 'shenron://agents' ? searchAgents('', 999)
+          : uri === 'shenron://workflows' ? searchWorkflows('', 999)
+          : uri === 'shenron://automations' ? searchAutomations('', 999)
+          : uri === 'shenron://integrations' ? searchIntegrations('', 999)
+          : uri === 'shenron://state' ? await callTool('build_state')
           : null;
         if (body == null) return err(id, -32602, `unknown resource: ${uri}`);
         return ok(id, { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(body, null, 2) }] });

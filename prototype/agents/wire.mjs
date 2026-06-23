@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// wire.mjs — connect TWO companies' agents into one workflow (the "handoff" BuildHUD sells).
+// wire.mjs — connect TWO companies' agents into one workflow (the "handoff" Shenron sells).
 //   A社 linkedin-sales-agent (find-prospects)  →  B社 marketing-outreach-agent (draft-outreach)
 //
 //   A2A_SHARED_TOKEN=... node prototype/agents/wire.mjs ["<target brief>"]

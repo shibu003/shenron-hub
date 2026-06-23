@@ -38,13 +38,13 @@ const runWorker = async (hid, vendor = 'stub', maxStep = 90) => {   // spawn wor
 
 const saved = {}; for (const f of ISOLATE) { if (fs.existsSync(f)) saved[f] = fs.readFileSync(f); fs.rmSync(f, { force: true }); }   // isolate shared stores
 if (fs.existsSync(PERMFILE)) fs.rmSync(PERMFILE);
-const hub = spawn('node', ['prototype/hub/hub.mjs', '--port', String(PORT), '--vendor', 'stub'], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, BUILDHUD_NO_AUTOSPAWN: '1' } });   // tests drive their own worker
+const hub = spawn('node', ['prototype/hub/hub.mjs', '--port', String(PORT), '--vendor', 'stub'], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, SHENRON_NO_AUTOSPAWN: '1' } });   // tests drive their own worker
 let madeSkillSlug = null;
 try {
   for (let i = 0; i < 40; i++) { try { await hubGet('/api/state'); break; } catch { await sleep(250); } }
 
   // ─── MCP control plane (server.mjs over stdio → hub) = 全て MCP で完結 ───
-  const mcp = openStdio('node prototype/mcp/server.mjs', { cwd: ROOT, env: { ...process.env, BUILDHUD_HUB: HUB }, timeoutMs: 20000 });
+  const mcp = openStdio('node prototype/mcp/server.mjs', { cwd: ROOT, env: { ...process.env, SHENRON_HUB: HUB }, timeoutMs: 20000 });
   const call = async (t, a = {}) => { const r = await mcp.call(t, a, { timeoutMs: 20000 }); const x = (r?.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n'); try { return JSON.parse(x); } catch { return x; } };
   const bs = await call('build_state'); ok('MCP build_state', bs && typeof bs.agents === 'number');
   const p0 = await call('get_permissions'); ok('MCP get_permissions seed (9 rules, click=ask)', Array.isArray(p0) && p0.length === 9 && p0.find((r) => r.tool === 'browser_click')?.effect === 'ask');

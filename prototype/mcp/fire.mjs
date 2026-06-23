@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// fire.mjs — one-shot: fire ONE BuildHUD automation by id, THROUGH the MCP server (MCP-first).
-// The external scheduler (Trigger.dev, prototype/mcp/trigger/) owns the cron; BuildHUD just exposes
+// fire.mjs — one-shot: fire ONE Shenron automation by id, THROUGH the MCP server (MCP-first).
+// The external scheduler (Trigger.dev, prototype/mcp/trigger/) owns the cron; Shenron just exposes
 // "fire this automation". Spawns server.mjs, calls run_automation(confirm:true), prints the result/trace.
 //
 //   A2A_SHARED_TOKEN=... node prototype/mcp/fire.mjs <automationId> [input]

@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>BuildHUD — cockpit</title>
+<title>Shenron — cockpit</title>
 <!-- Langflow-style visual flow-builder for the durable handoff hub. Left palette · top toolbar ·
      canvas · right inspector. Click a node to configure it. Drag the body to move, drag a port to
      wire (typed). Save/Run a flow, or turn a trigger→chain into an automation. JA/EN toggle (🌐).
@@ -317,7 +317,7 @@
 </style>
 
 <header id="topbar">
-  <div class="brand">BuildHUD <span>· cockpit</span></div>
+  <div class="brand">Shenron <span>· cockpit</span></div>
   <input id="flowName">
   <span id="savedTs" style="font-size:11px;color:var(--dim)"></span>
   <button class="tb" id="btnFlows" onclick="showFlows()" title="open saved flow">🗂</button>
@@ -1426,8 +1426,8 @@ let mcpTool = 'send_handoff';
 function openMcpModal(id){
   const a=ag(id), skill=a?.skill||'task', tool=mcpTool;
   const nl = LANG==='ja'
-    ? `BuildHUD の MCP server で、agent「${id}」に skill「${skill}」を ${tool==='run_handoff'?'run_handoff（同期実行）':'send_handoff（durable inbox に投入）'}して。input は: …`
-    : `Using BuildHUD's MCP server, ${tool==='run_handoff'?'run (run_handoff)':'send a handoff (send_handoff) to'} agent "${id}" with skill "${skill}". Input: …`;
+    ? `Shenron の MCP server で、agent「${id}」に skill「${skill}」を ${tool==='run_handoff'?'run_handoff（同期実行）':'send_handoff（durable inbox に投入）'}して。input は: …`
+    : `Using Shenron's MCP server, ${tool==='run_handoff'?'run (run_handoff)':'send a handoff (send_handoff) to'} agent "${id}" with skill "${skill}". Input: …`;
   const call = tool==='run_handoff'
     ? JSON.stringify({ tool:'run_handoff', args:{ toAgentId:id, skill, input:'…', confirm:true } }, null, 2)
     : JSON.stringify({ tool:'send_handoff', args:{ to:id, skill, input:'…' } }, null, 2);
