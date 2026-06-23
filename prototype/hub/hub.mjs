@@ -57,6 +57,7 @@ function configStatus() {   // 1か所の設定 + 初期設定 hint（secret は
   needs.push('OpenClaw から繋ぐ: `~/.openclaw/openclaw.json` の mcp.servers に shenron を追加（stdio: `node prototype/mcp/server.mjs` / remote: `/mcp` を transport:"streamable-http"+auth:oauth）。skill は `clawhub skill install shenron`。');
   return { config: cfg, schedulerOn: schedulerOn(), keysPresent: { anthropic: !!env.ANTHROPIC_API_KEY, openai: !!env.OPENAI_API_KEY }, managed: managedMode(), needs };
 }
+const HUB_VERSION = '0.1.0';
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i > -1 ? Number(process.argv[i + 1]) : Number(process.env.PORT) || 8795; })();
 const EXEC_VENDOR = (() => { const i = process.argv.indexOf('--vendor'); return i > -1 ? process.argv[i + 1] : null; })(); // force local-exec vendor (e.g. stub); null = each agent's own
 let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may the hub run LOCAL agents in-process (autorun)?
@@ -1068,6 +1069,7 @@ async function mcpDispatch(name, args) {
   if (name === 'plan_flow')          return planFlow({ goal: args.goal, save: args.save !== false, gap: args.gap, context: args.context, cost: args.cost });   // Wave B③: 在庫返しでなく実 plan（have/missing/図）に統一
   if (name === 'add_integration')    return saveIntegration({ id: args.id, label: args.label, kind: args.kind || 'mcp', command: args.command || '', url: args.url || '', enabled: args.enabled, tools: args.tools || [] });
   if (name === 'add_automation')     return saveAutomation({ name: args.name, trigger: args.trigger, workflow: args.workflow, input: args.input || '' });   // Wave: schedule/build-state 起点で workflow 自動実行（schedule は in-hub scheduler が hub 起動中に発火）
+  if (name === 'hub_health')         return { ok: true, uptime: Math.round(process.uptime()), scheduler: schedulerOn(), version: HUB_VERSION };
   if (name === 'get_config')         return configStatus();
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
@@ -1168,6 +1170,9 @@ const server = http.createServer((req, res) => {
     if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
     return json(res, 200, listUsers());
   }
+  // Wave O-3: health check — no auth (external cron / watchdog can call this)
+  if (req.method === 'GET' && p === '/api/health')
+    return json(res, 200, { ok: true, uptime: Math.round(process.uptime()), scheduler: schedulerOn(), version: HUB_VERSION });
   // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
   if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')

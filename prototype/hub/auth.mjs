@@ -10,6 +10,7 @@ import path from 'node:path';
 const DIR   = path.join(os.homedir(), '.shenron');
 const USERS = path.join(DIR, 'users.json');
 const SKEY  = path.join(DIR, 'session-secret.key');
+const SESSIONS_FILE = path.join(DIR, 'sessions.json');
 
 // Session secret: stable across restarts (generated once)
 function loadSecret() {
@@ -21,8 +22,20 @@ function loadSecret() {
 }
 const SECRET = loadSecret();
 
-// ponytail: in-memory sessions; persist to file if multi-user matters later
 const sessions = new Map(); // token → { userId, email, expiresAt }
+function saveSessions() {
+  fs.mkdirSync(DIR, { recursive: true });
+  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(Object.fromEntries(sessions), null, 2), { mode: 0o600 });
+}
+// load persisted sessions on startup; purge expired entries
+;(function loadSessions() {
+  try {
+    const now = Date.now();
+    for (const [token, s] of Object.entries(JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')))) {
+      if (s.expiresAt > now) sessions.set(token, s);
+    }
+  } catch {}
+})();
 
 const readUsers = () => { try { return JSON.parse(fs.readFileSync(USERS, 'utf8')); } catch { return []; } };
 const saveUsers = (u) => { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(USERS, JSON.stringify(u, null, 2), { mode: 0o600 }); };
@@ -71,6 +84,7 @@ export function login(email, password) {
   const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
   const token = makeToken(user.id, expiresAt);
   sessions.set(token, { userId: user.id, email: user.email, expiresAt });
+  saveSessions();
   return { token, email: user.email, userId: user.id, expiresAt };
 }
 
@@ -83,7 +97,7 @@ export function checkSession(token) {
   // ponytail: no cold-start HMAC fallback — sessions clear on hub restart (self-hosted, acceptable)
 }
 
-export function logout(token) { sessions.delete(token); return { ok: true }; }
+export function logout(token) { sessions.delete(token); saveSessions(); return { ok: true }; }
 
 export function listUsers() {
   return readUsers().map(({ id, email, verified, createdAt }) => ({ id, email, verified, createdAt }));

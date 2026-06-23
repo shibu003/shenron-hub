@@ -153,6 +153,7 @@ async function callTool(name, args = {}) {
       const a = AUTOMATIONS.find((x) => x.id === args.id); if (a) a.enabled = args.on !== false;   // keep the in-memory search index in sync (hub file is the source of truth for firing)
       return r;
     }
+    case 'hub_health': return await hub('/api/health');          // Wave O-3: 認証不要の死活確認
     case 'get_config': return await hub('/api/config');         // Wave: 全設定を1か所で読む（NL 設定変更の前後確認）
     case 'set_config': return await hub('/api/config', args || {});   // Wave: 設定を1か所で更新（自然文→構造化して渡す・即反映）
     case 'build_state': return { agents: Object.keys(AGENTS).length, workflows: WORKFLOWS.length, automations: AUTOMATIONS.length, integrations: INTEGRATIONS.length, unattended: UNATTENDED,
