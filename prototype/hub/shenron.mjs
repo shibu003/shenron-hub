@@ -240,7 +240,7 @@ name: ${slug}
 description: ${yamlSafe(`${desc}. Use when the user wants to run "${title}" or asks to: ${desc}`)}
 ---
 
-Runs the saved BuildHUD flow **${title}** end-to-end via the connected BuildHUD MCP server.
+Runs the saved 神龍 (Shenron) flow **${title}** end-to-end via the connected 神龍 MCP server.
 
 When this skill fires, call the \`run_workflow\` MCP tool with:
 - \`id\`: "${wf.id}"
@@ -249,7 +249,7 @@ When this skill fires, call the \`run_workflow\` MCP tool with:
 
 Flow: ${chain}
 
-The hub runs the DAG (same executor as the cockpit ▶ Run), firewalls the input, and audits the call (hash-chain), then returns the flow's output. Prerequisite: the BuildHUD MCP server must be connected so \`run_workflow\` is available.
+The hub runs the DAG (same executor as the cockpit ▶ Run), firewalls the input, and audits the call (hash-chain), then returns the flow's output. Prerequisite: the 神龍 MCP server must be connected so \`run_workflow\` is available.
 `;
   return { slug, content };
 }

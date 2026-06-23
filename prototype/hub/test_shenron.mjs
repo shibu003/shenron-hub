@@ -225,6 +225,9 @@ assert.ok(/`run_workflow`/.test(sk.content), 'body tells the agent to call run_w
 assert.ok(/`id`: "wf_abc123"/.test(sk.content), 'body passes the real flow id');
 assert.ok(/`confirm`: true/.test(sk.content), 'body sets confirm:true (else dry-run only)');
 assert.throws(() => flowSkill({ name: 'no id' }), /id.*required/, 'guard: workflow id required');
+// OC-3 — flowSkill は旧名 "BuildHUD" でなく "Shenron" を名乗る（ClawHub 公開 skill に旧ブランドが漏れないよう固定）。
+assert.ok(!/BuildHUD/.test(sk.content), 'skill body drops the legacy "BuildHUD" brand');
+assert.ok(/Shenron/.test(sk.content), 'skill body names the Shenron brand');
 
 // Wave 8/9 — 生成部品の cache 照合（gen-component の重複生成を承認ゲートで回避）。componentKey 正規化 + matchComponent は
 // approved 済みのみ拾う。これが崩れると未承認の無審査コードを再利用 or 毎回再生成する。

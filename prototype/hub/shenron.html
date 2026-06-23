@@ -464,6 +464,17 @@
               </div>
             </div>
 
+            <!-- OpenClaw 連携 -->
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-2">
+              <p class="font-semibold text-slate-700 text-sm">🦞 OpenClaw に繋ぐ</p>
+              <p class="text-xs text-slate-400 leading-relaxed">OpenClaw / Claude Code / claude.ai から神龍を呼べます。<code class="text-slate-600">~/.openclaw/openclaw.json</code> の <code class="text-slate-600">mcp.servers</code> に追加:</p>
+              <pre class="text-[11px] bg-slate-50 border border-slate-100 rounded-lg p-3 overflow-x-auto text-slate-600">{ "mcp": { "servers": {
+  "giogio": { "command": "node",
+    "args": ["prototype/mcp/server.mjs"],
+    "transport": "stdio" } } } }</pre>
+              <p class="text-xs text-slate-400">remote(常駐箱/managed)は <code class="text-slate-600">/mcp</code> を <code class="text-slate-600">transport:"streamable-http"</code>+<code class="text-slate-600">auth:"oauth"</code>。skill は <code class="text-slate-600">clawhub skill install shenron</code>。</p>
+            </div>
+
             <!-- Needs -->
             <template x-if="config.needs && config.needs.length">
               <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-1">
