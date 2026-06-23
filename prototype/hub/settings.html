@@ -179,6 +179,13 @@
     <div id="checkResults" style="margin-top:12px"></div>
   </div>
 
+  <!-- R-3 ドリフト検出 -->
+  <div class="card">
+    <h2>🚨 ドリフト検出</h2>
+    <p class="sub">成果検証より上位の警告。同じオートメーションが3連続で失敗、または出力構造が急変したときに記録します（自動検出・読み取り専用）。</p>
+    <div id="driftAlerts"></div>
+  </div>
+
   <!-- Ambient-1 提案 -->
   <div class="card">
     <h2>💡 神龍の提案</h2>
@@ -451,6 +458,16 @@ $('#addCheck').onclick = async ()=>{
   $('#ck_rule').value=''; toast('期待を設定しました'); loadChecks();
 };
 
+// --- R-3 ドリフト検出（連続失敗・構造急変・自動検出・読み取り専用） ---
+const DRIFT_KIND={consecutive_fail:'連続失敗',structure_shift:'出力構造の急変'};
+async function loadDrift(){
+  let list=[]; try{ const r=await api('/api/drift-alerts'); list=Array.isArray(r)?r:[]; }catch{}
+  if(list.length){
+    $('#driftAlerts').innerHTML = list.slice(-5).reverse().map(a=>`
+      <div class="ig"><div class="nm"><b>⚠️ ${esc(a.automationId||'')}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
+  } else $('#driftAlerts').innerHTML='<p class="sub">ドリフトは検出されていません。</p>';
+}
+
 // --- Ambient-1 提案（list_suggestions / dismiss_suggestion / apply_suggestion） ---
 const KIND_LABEL = { automate:'⚡ 定期化を提案', fix:'🔧 修正を提案' };
 async function loadSuggestions(){
@@ -527,5 +544,5 @@ $('#testNt').onclick = async ()=>{
   toast(r.sent ? `テスト送信: ${ok}/${r.sent} 成功` : '有効な通知先がありません');
 };
 
-loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadTemplates(); loadUsers(); loadSuggestions();
+loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadDrift(); loadTemplates(); loadUsers(); loadSuggestions();
 </script>
