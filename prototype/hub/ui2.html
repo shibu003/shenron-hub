@@ -195,6 +195,7 @@
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
       </div>
     </div>
+    <button class="tb" onclick="openArtifact()" title="成果物 UI をレンダリング（Wave UI S1）">🎨 成果物</button>
     <a class="tb" href="/settings" title="設定" style="text-decoration:none">⚙ 設定</a>
   </div>
   <span id="conn"></span>
@@ -237,6 +238,24 @@
   </main>
   <div id="resizer" hidden title="ドラッグで幅を調整"></div>
   <aside id="panel" hidden></aside>
+</div>
+
+<!-- Wave UI S1: 成果物 UI ビューア — sandbox iframe + fetch-shim → /api/artifact-llm proxy -->
+<div id="artifactPanel" style="display:none;position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.72)">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(800px,95vw);max-height:92vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px -12px #000">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);flex:none">
+      <b>🎨 成果物 UI</b>
+      <span style="color:var(--dim);font-size:11px">JSX を貼り付けて sandbox でレンダリング（fetch: api.anthropic.com → hub proxy）</span>
+      <span style="margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px" onclick="closeArtifact()">✕</span>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;flex:none">
+      <textarea id="artifactCode" style="flex:1;min-height:72px;max-height:140px;background:#0d1117;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:7px 9px;font:11px/1.4 ui-monospace,Menlo,monospace;resize:vertical" placeholder="export default function App() { return <h1>Hello 🐉</h1>; }"></textarea>
+      <button class="tb go" onclick="renderArtifact()" style="align-self:flex-end;white-space:nowrap">▶ レンダリング</button>
+    </div>
+    <div id="artifactFrameWrap" style="flex:1;min-height:240px;position:relative">
+      <iframe id="artifactFrame" sandbox="allow-scripts" style="width:100%;height:100%;min-height:280px;border:none;background:#fff;display:block"></iframe>
+    </div>
+  </div>
 </div>
 
 <dialog id="modal"></dialog>
@@ -1217,4 +1236,45 @@ document.addEventListener('click', e=>{ if(!e.target.closest('#ctxMenu')) closeC
 // collapse all visible nodes on first session load (fresh default)
 if(!sessionStorage.getItem('bh_init')){ sessionStorage.setItem('bh_init','1'); setTimeout(()=>{ state.agents.forEach(a=>{ if(!HIDDEN.has(a.id)) COLLAPSED.add(a.id); }); localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED])); render(); }, 600); }
 setInterval(refresh, 1500); window.addEventListener('resize', ()=>drawLinks());
+
+// ---------- Wave UI S1: 成果物 UI ビューア ----------
+function openArtifact(code) {
+  document.getElementById('artifactPanel').style.display = 'block';
+  if (code) document.getElementById('artifactCode').value = code;
+}
+function closeArtifact() { document.getElementById('artifactPanel').style.display = 'none'; }
+
+// fetch shim を srcdoc に埋め込む（null-origin iframe は相対 fetch 不可 → postMessage ブリッジ）
+const ARTIFACT_SHIM = `<script>(function(){var _f=window.fetch,_p={},_i=0;window.addEventListener('message',function(e){var d=e.data;if(d&&d.type==='art-res'&&_p[d.id]){_p[d.id](d);delete _p[d.id];}});window.fetch=function(u,o){var s=typeof u==='string'?u:(u&&u.href)||'';if(s.indexOf('api.anthropic.com')>=0){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(new Response(JSON.stringify(d.data),{status:d.status||200,headers:{'content-type':'application/json'}}));};window.parent.postMessage({type:'art-req',id:id,body:o&&o.body},'*');});}return _f.call(this,u,o);};})();<\/script>`;
+
+function renderArtifact() {
+  const raw = document.getElementById('artifactCode').value.trim(); if (!raw) return;
+  const code = raw
+    .replace(/^import\s.+?['"].+?['"];?\s*$/gm, '')   // strip import statements
+    .replace(/^export\s+default\s+/gm, '')              // strip export default
+    .replace(/^export\s+/gm, '');                       // strip bare export
+  const src = `<!doctype html><html><head><meta charset="utf-8">${ARTIFACT_SHIM}
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script>
+<style>body{margin:10px;font-family:system-ui,sans-serif}*{box-sizing:border-box}</style>
+</head><body><div id="root"></div><script type="text/babel">
+${code}
+;(function(){try{const R=ReactDOM.createRoot(document.getElementById('root'));R.render(React.createElement(typeof App!=='undefined'?App:()=>React.createElement('p',null,'⚠ App が見つかりません')));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red">'+e.message+'<\\/pre>';}})();
+<\/script></body></html>`;
+  document.getElementById('artifactFrame').srcdoc = src;
+}
+
+// postMessage ブリッジ: iframe → /api/artifact-llm → iframe（ROADMAP Wave UI S1 fetch-shim）
+window.addEventListener('message', async function(e) {
+  const frame = document.getElementById('artifactFrame');
+  if (!frame || e.source !== frame.contentWindow) return;   // source 検証（ホワイトリスト）
+  const d = e.data; if (!d || d.type !== 'art-req') return;
+  try {
+    const r = await fetch('/api/artifact-llm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: d.body });
+    frame.contentWindow.postMessage({ type: 'art-res', id: d.id, status: r.status, data: await r.json() }, '*');
+  } catch(err) { frame.contentWindow.postMessage({ type: 'art-res', id: d.id, error: err.message }, '*'); }
+});
+// Escape で閉じる
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('artifactPanel').style.display!=='none') closeArtifact(); }, true);
 </script>

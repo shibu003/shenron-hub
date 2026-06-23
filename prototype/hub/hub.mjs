@@ -1350,6 +1350,14 @@ const server = http.createServer((req, res) => {
       if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
       if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
       if (p === '/api/login-detected') { const s = recordLogin(j.domain, !!j.resolved); trail('login-detected', { domain: j.domain || null, resolved: !!j.resolved }); return json(res, 200, { ok: true, state: j.domain ? s[j.domain] : null }); }   // Wave Login-1: worker → hub。ログイン要求の検出/解消を記録（audited・値は持たない）
+      if (p === '/api/artifact-llm') {                                              // Wave UI S1: artifact が api.anthropic.com に fetch → hub が server-side proxy（鍵は箱に残る）
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) return json(res, 400, { error: 'ANTHROPIC_API_KEY not set — artifact LLM proxy unavailable' });
+        fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(j) })
+          .then((r) => r.json().then((d) => json(res, r.status, d)))
+          .catch((e) => json(res, 502, { error: e.message }));
+        return;
+      }
       if (p.startsWith('/api/suggestions/') && p.endsWith('/dismiss')) { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/dismiss'.length)); return json(res, 200, dismissSuggestion(id)); }   // Ambient-1
       if (p.startsWith('/api/suggestions/') && p.endsWith('/apply'))   { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/apply'.length)); return json(res, 200, applySuggestion(id)); }   // Ambient-1
       if (p === '/api/goals') return json(res, 200, saveGoal(j || {}));                                     // Wave Goals-1: ゴール作成/更新
