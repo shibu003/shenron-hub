@@ -42,7 +42,8 @@ DISCOVER FIRST (Wave: mandatory). Before planning, RESEARCH the goal (use web se
 If the goal is AMBIGUOUS (several services/platforms could satisfy it — e.g. "start a social media" → X vs Instagram vs Facebook), or multiple mechanisms are genuinely viable, or you found a blocker the user must weigh — DO NOT invent steps. Output ONLY:
 {"clarify":[{"question":"<ask the user>","options":["<opt>","<opt>"],"why":"<why it matters>"}],"blockers":["<blocker + the reason, e.g. ToS/license/no-API>"]}
 Only when it is unambiguous (or the answers above resolve it), output the plan ONLY:
-{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"steps":[{"action":"<short>","kind":"mcp|agent|prompt|parser|structured|router|consensus","tool":"<inventory id or null>","tier":"cheap|strong","fields":"<structured only: comma-sep field names>","condition":"<router only: contains:<word> | clean | always>","branch":"<then|else — ONLY on a step that is a router branch>"}]}
+{"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"ui_hint":"none|generate","steps":[{"action":"<short>","kind":"mcp|agent|prompt|parser|structured|router|consensus","tool":"<inventory id or null>","tier":"cheap|strong","fields":"<structured only: comma-sep field names>","condition":"<router only: contains:<word> | clean | always>","branch":"<then|else — ONLY on a step that is a router branch>"}]}
+ui_hint = "generate" ONLY when the flow's artifact genuinely requires human interaction beyond a simple approval — e.g. choosing from a list, filling a form, editing output, a dashboard to review before deciding, a visualization to interpret. ui_hint = "none" when notification/webhook/approval channels (Slack, email, message) are sufficient for the output — the user reads but does not need to operate a custom UI.
 Per step: use the exact inventory id ONLY if it GENUINELY covers the need (a generic tool does NOT cover a specific need → null). Prefer an mcp tool/API; fall back to agent:browser-control only when UI-only (no API).
 Per step also set "tier" to route the model by content & cost: "cheap" for mechanical work (summarize, classify, extract, format, route, simple rewrite) and "strong" for hard judgment (reasoning, decisions, code generation, planning, anything error-sensitive). The runtime maps cheap→a small/cheap model and strong→a frontier model per the user's budget — so default to "cheap" unless the step genuinely needs frontier judgment (saves the user money).
 DESIGN THE WHOLE FLOW — pick the RIGHT node type per step (not just a prompt chain) and CONNECT them into the actual shape of the work:
@@ -106,7 +107,7 @@ export function buildPlanIR(goal, parsed, source = 'llm', gap = 'ask') {
     else { const srcs = branchTails.length ? branchTails : [prev]; for (const s of srcs) edges.push({ id: `e${eid++}`, source: s, target: n.id }); branchTails = []; prev = n.id; }   // plain step joins prior branches (or the previous node)
     if (n.kind === 'router') splitter = n.id;   // the steps right after a router fan out from it
   }
-  return { goal, plain_summary: parsed.plain_summary || goal, steps, tools_needed, missing, nodes, edges, source };
+  return { goal, plain_summary: parsed.plain_summary || goal, ui_hint: parsed.ui_hint === 'generate' ? 'generate' : 'none', steps, tools_needed, missing, nodes, edges, source };
 }
 
 // Wave A: plan IR → 人間可読（Mermaid + ASCII 図 + plain 要約）。CLI/Claude がそのまま描画＝cockpit 不要で「これで実行？」と確認できる。pure。
@@ -166,6 +167,7 @@ export function renderPlan(ir, ctx = null) {
     lines.push(`  ${s.n}. ${s.action}` + (s.have ? `  → ✅ ${s.tool || s.kind}` : `  → ⚠️ needs a tool${s.kind === 'agent' ? ' (or browser-control)' : ''}`) + (rt ? `  · ${rt.label}` : '')); }
   if ((ir.missing || []).length) { lines.push('', 'Missing — build with gen_component → approve_component:'); for (const m of ir.missing) lines.push(`  - ${m.what} (${m.kind})`); }
   if ((ir.blockers || []).length) { lines.push('', '⚠️ 注意/地雷:'); for (const b of ir.blockers) lines.push(`  - ${b}`); }
+  if (ir.ui_hint === 'generate') lines.push('', '🎨 成果物 UI 要 → gen_artifact_ui を呼んで操作+可視化 UI を生成してください（承認だけなら不要です）。');
   if (ctx) lines.push('', `🧭 Routing 提案 (お財布適応・COST=${ctx.cost || 'free'}): cheap→${vendorName(ctx.cheap && ctx.cheap.vendor)} / strong→${vendorName(ctx.strong && ctx.strong.vendor)} / consensus→${ctx.consensusVendors || '—'}（各 step の宛先は上の "·" 以降）。${ctx.autoEscalate ? 'cheap が失敗した時だけ strong に自動昇格。' : ''}`);
   lines.push('', 'Flow:', diagram_ascii, '', 'Run it with run_workflow (or re-plan to adjust).');
   return { diagram_mermaid, diagram_ascii, summary_text: lines.join('\n'), ...(ctx ? { routing } : {}) };
