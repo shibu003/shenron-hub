@@ -364,18 +364,50 @@ function flowResult(run) {
 }
 // Wave R-1 — 成果検証: run を起動した automation が expect を持てば、完了後に flowResult を突き合わせ、外れたら通知。
 // 呼び出しは完了ブロック(advanceFrom:585)から setImmediate で run 毎1回だけ（completedAt ガード済み）。判定は shenron.evalExpect（純粋・実装済）。
+
+// Wave R-3: 出力の構造シグネチャ（JSON object → ソート済みキー列 / array → 'arr' / scalar → 'scalar' / string → 'str'）
+function structureSig(result) {
+  try {
+    const o = typeof result === 'string' ? JSON.parse(result) : result;
+    if (o && typeof o === 'object' && !Array.isArray(o)) return 'obj:' + Object.keys(o).sort().join(',');
+    if (Array.isArray(o)) return 'arr';
+    return 'scalar';
+  } catch { return 'str'; }
+}
+
+// Wave R-3: drift 検出 — 連続 fail / 出力構造の急変を run 完了即時に通知（tick 遅延なし）
+function checkDrift(run, autoId, currentSig, currentPassed) {
+  if (run.driftAlert) return;                                             // 冪等ガード（R-2 の run.check パターンと同型）
+  const DRIFT_N = 3;
+  const tail = (state.checkResults || []).filter((r) => r.automationId === autoId).slice(-DRIFT_N);
+  const consecutiveFail = tail.length >= DRIFT_N && tail.every((r) => !r.passed);
+  const prevSigs = tail.slice(0, -1).map((r) => r.sig).filter(Boolean);
+  const structShift = prevSigs.length >= 2 && prevSigs.every((s) => s === prevSigs[0]) && currentSig && currentSig !== prevSigs[0];
+  if (!consecutiveFail && !structShift) return;
+  run.driftAlert = true;
+  const kind = consecutiveFail ? 'consecutive_fail' : 'structure_shift';
+  const alert = { id: randomUUID().slice(0, 8), automationId: autoId, runId: run.id, kind, at: new Date().toISOString() };
+  (state.driftAlerts ||= []).push(alert);
+  if (state.driftAlerts.length > 50) state.driftAlerts = state.driftAlerts.slice(-50);
+  emitRunNotify(run, 'drift_detected');
+  trail('drift-detected', { automationId: autoId, runId: run.id, kind });
+}
+
 async function checkOutcome(run) {
   try {
-    if (run.check) return;                                                // 冪等の二重防御: setImmediate が万一二重 queue されても / 将来 boot replay(R-3) を足しても run 毎1回だけ記録
+    if (run.check) return;                                                // 冪等の二重防御: setImmediate が万一二重 queue されても / 将来 boot replay を足しても run 毎1回だけ記録
     const auto = run.fromAutomation ? readAutomations().find((a) => a.id === run.fromAutomation) : null;
     const expect = auto && auto.expect;
     if (!expect || !expect.kind) return;                                  // automation 無し / expect 無し ＝ no-op（後方互換）
     const route = tierRoute('cheap');                                     // judge は従量0 の cheap tier（assert は LLM 不使用）
-    const r = await evalExpect(expect, flowResult(run), { vendor: route.vendor, model: route.model });
-    const rec = { runId: run.id, flowId: run.flowId || null, automationId: auto.id, kind: expect.kind, rule: expect.rule || '', passed: !!r.ok, reason: r.reason || '', at: new Date().toISOString() };
+    const result = flowResult(run);                                       // R-3: structureSig でも使うためキャッシュ
+    const r = await evalExpect(expect, result, { vendor: route.vendor, model: route.model });
+    const sig = structureSig(result);
+    const rec = { runId: run.id, flowId: run.flowId || null, automationId: auto.id, kind: expect.kind, rule: expect.rule || '', passed: !!r.ok, reason: r.reason || '', sig, at: new Date().toISOString() };
     run.check = rec;
     (state.checkResults ||= []).push(rec);
     if (state.checkResults.length > 50) state.checkResults = state.checkResults.slice(-50);   // ring buffer（list_check_results 用）。run 毎の run.check は inbox.json に残る
+    checkDrift(run, auto.id, sig, !!r.ok);                               // Wave R-3: 連続 fail / 構造急変を即時検出
     if (!r.ok) {
       emitRunNotify(run, 'check_failed');
       if (expect.onFail === 'repair' && (run.repairCount || 0) < (expect.maxRetry ?? 1))
@@ -1164,6 +1196,7 @@ async function mcpDispatch(name, args) {
   if (name === 'forget')             return deleteMemory(args.id);
   if (name === 'set_check')          return setCheck(args.automation, args.expect);   // Wave R-1
   if (name === 'list_check_results') return (state.checkResults || []).slice(-(args.limit || 20));   // Wave R-1
+  if (name === 'list_drift_alerts')  return (state.driftAlerts  || []).slice(-(args.limit || 20));   // Wave R-3
   if (name === 'repair_run') {                                                          // Wave R-2: 手動修復トリガー
     const run = state.runs[args.runId]; if (!run) throw new Error(`no run "${args.runId}"`);
     setImmediate(() => repairRun(run)); return { ok: true, runId: args.runId, status: 'repair_queued' };
@@ -1239,6 +1272,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
   if (req.method === 'GET' && p === '/api/check-results')   // Wave R-1: 直近の成果検証結果（list_check_results）
     return json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
+  if (req.method === 'GET' && p === '/api/drift-alerts')    // Wave R-3: drift 検出アラート（list_drift_alerts）
+    return json(res, 200, (state.driftAlerts || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
   if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
     return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
   if (req.method === 'GET') { const sm = p.match(/^\/api\/runs\/([^/]+)\/stream$/);   // O1: SSE live run stream (inherits the bearerOk gate above)

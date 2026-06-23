@@ -269,6 +269,7 @@ async function callTool(name, args = {}) {
     // Wave R-1: 成果検証
     case 'set_check': return await hub('/api/check', { automation: args.automation, expect: args.expect });
     case 'list_check_results': return await hub('/api/check-results');
+    case 'list_drift_alerts':  return await hub('/api/drift-alerts');    // Wave R-3
     case 'repair_run': return await hub('/mcp', { name: 'repair_run', args });         // Wave R-2: 手動修復トリガー
     case 'login_status': return await hub(args.domain ? `/api/login-status?domain=${encodeURIComponent(args.domain)}` : '/api/login-status');   // Wave Login-1: ログイン生存状態（GET）
     case 'set_goal': return await hub('/api/goals', args || {});                                    // Wave Goals-1: ゴール作成/更新
