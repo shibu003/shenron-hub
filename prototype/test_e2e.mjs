@@ -14,7 +14,7 @@ const ROOT = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));   /
 const PORT = 8907, HUB = `http://localhost:${PORT}`;
 const PERMFILE = path.join(ROOT, 'prototype/mcp/permissions.json');
 // shared-store files the test mutates → saved aside before, restored after (so the real ones are never polluted)
-const ISOLATE = ['prototype/hub/inbox.json', 'prototype/mcp/workflows.json', 'prototype/mcp/components.json', 'prototype/mcp/integrations.json', 'prototype/mcp/goals.json', 'prototype/mcp/automations.json'].map((p) => path.join(ROOT, p));
+const ISOLATE = ['prototype/hub/inbox.json', 'prototype/mcp/workflows.json', 'prototype/mcp/components.json', 'prototype/mcp/integrations.json', 'prototype/mcp/goals.json', 'prototype/mcp/automations.json', 'prototype/mcp/suggestions.json'].map((p) => path.join(ROOT, p));
 const results = []; const ok = (n, c) => { results.push(!!c); console.log((c ? '✅' : '❌') + ' ' + n); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hubGet = async (p) => (await fetch(HUB + p)).json();
@@ -73,6 +73,14 @@ try {
   await hubPost('/api/fire', { event: { event: 'goal_e2e' } });   // build_state event → bound automation を fromAutomation 付きで run
   let gp = ga; for (let i = 0; i < 20 && gp.current < 1; i++) { await sleep(300); gp = await call('get_goal', { id: ga.id }); }   // 完了→setImmediate(goalAutoProgress) を待つ
   ok('Goals-2: bound automation の run 完了 → current +1 + auto checkin が付く', gp.current === 1 && (gp.checkins || []).some((c) => c.auto && /^auto: /.test(c.note)));
+
+  // ─── Wave Goals-3: 停滞ゴールの「次の手」を planFlow で提案（stub vendor・従量0）＋ suggestions に kind:goal を冪等 push ───
+  const gs1 = await call('goal_suggest', { id: ga.id });
+  ok('MCP goal_suggest → plan を返す（goalId + nodes/summary）', gs1 && gs1.goalId === ga.id && (Array.isArray(gs1.nodes) || gs1.mode === 'clarify'));
+  await call('goal_suggest', { id: ga.id });   // 2回目: 同 goal の open 提案は重複しない（冪等）
+  const sug = await call('list_suggestions', { status: 'open' });
+  const goalSugs = (Array.isArray(sug) ? sug : []).filter((s) => s.kind === 'goal' && s.goalId === ga.id);
+  ok('Goals-3: suggestions に kind:goal が 1 件だけ push される（冪等）', goalSugs.length === 1);
   mcp.close();
 
   // ─── 3-stage browser permission gate (real browser, pre-baked steps, deterministic) ───

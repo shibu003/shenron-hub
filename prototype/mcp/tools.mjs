@@ -152,6 +152,8 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, value: { type: 'number' }, note: { type: 'string' } }, required: ['id', 'value'] } },
   { name: 'delete_goal', description: 'ゴールを id 指定で削除。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'goal_suggest', description: 'Wave Goals-3: 停滞ゴールの「次の一手」を planFlow で提案（save しない＝従量0・本人サブスク）。提案は suggestions.json に kind:goal で冪等 push される（受信箱に先回りで出る）。tick が停滞(14日無活動)を検出した時も自動で呼ばれる。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: '対象 goal id' } }, required: ['id'] } },
   { name: 'list_suggestions', description: '神龍が自分の run/audit から検出した提案一覧（kind:automate=定期化候補/fix=連続 fail 中のフロー・status:open のみ既定）。提案はユーザー操作なく自動生成（外部受信箱は読まない）。',
     inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'dismissed', 'applied', 'all'], description: '省略で open のみ' } } } },
   { name: 'dismiss_suggestion', description: '提案を非表示にする（status:dismissed）。次回 tick で再検出される同パターンは新しい提案として出直す。',

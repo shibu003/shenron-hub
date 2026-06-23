@@ -408,6 +408,7 @@ async function loadGoals(){
       <div class="row" style="gap:8px;margin-top:8px">
         <input type="number" data-ckval="${esc(g.id)}" placeholder="現在値を入力" style="flex:1">
         <button class="btn" data-checkin="${esc(g.id)}">記録</button>
+        <button class="btn go" data-suggest="${esc(g.id)}" title="神龍に次の一手を提案させる">💡 次の手</button>
         <button class="btn" data-delgoal="${esc(g.id)}">削除</button>
       </div>
     </div>`;
@@ -416,6 +417,12 @@ async function loadGoals(){
     const inp=$(`[data-ckval="${el.dataset.checkin}"]`); const v=inp.value.trim();
     if(v==='') return toast('現在値を入力してください');
     await api(`/api/goals/${encodeURIComponent(el.dataset.checkin)}/checkin`,{value:Number(v)}); toast('進捗を記録しました'); loadGoals();
+  });
+  $('#goals').querySelectorAll('[data-suggest]').forEach(el=>el.onclick=async()=>{   // Wave Goals-3: 次の手提案（planFlow・提案は 💡 神龍の提案 にも push）
+    el.disabled=true; el.textContent='考え中…';
+    try{ const r=await api(`/api/goals/${encodeURIComponent(el.dataset.suggest)}/suggest`,{}); toast('次の一手: '+((r&&(r.plain_summary||r.summary_text||r.goal))||'提案を生成しました').slice(0,80)); loadSuggestions(); }
+    catch{ toast('提案の生成に失敗しました'); }
+    finally{ el.disabled=false; el.textContent='💡 次の手'; }
   });
   $('#goals').querySelectorAll('[data-delgoal]').forEach(el=>el.onclick=async()=>{
     await api(`/api/goals/${encodeURIComponent(el.dataset.delgoal)}/delete`,{}); toast('削除しました'); loadGoals();
@@ -469,7 +476,7 @@ async function loadDrift(){
 }
 
 // --- Ambient-1 提案（list_suggestions / dismiss_suggestion / apply_suggestion） ---
-const KIND_LABEL = { automate:'⚡ 定期化を提案', fix:'🔧 修正を提案' };
+const KIND_LABEL = { automate:'⚡ 定期化を提案', fix:'🔧 修正を提案', goal:'🎯 ゴールの次の手' };
 async function loadSuggestions(){
   let list=[]; try{ const r=await api('/api/suggestions?status=open'); list=r.suggestions||[]; }catch{}
   $('#suggestions').innerHTML = list.length ? list.map(s=>`

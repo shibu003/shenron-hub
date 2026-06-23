@@ -277,6 +277,7 @@ async function callTool(name, args = {}) {
     case 'list_goals': return (await hub('/api/goals')).goals;
     case 'goal_checkin': return await hub(`/api/goals/${encodeURIComponent(args.id)}/checkin`, { value: args.value, note: args.note || '' });
     case 'delete_goal': return await hub(`/api/goals/${encodeURIComponent(args.id)}/delete`, {});
+    case 'goal_suggest': return await hub(`/api/goals/${encodeURIComponent(args.id)}/suggest`, {});   // Wave Goals-3: 停滞ゴールの次の一手提案
     case 'list_suggestions':   return (await hub(`/api/suggestions?status=${encodeURIComponent(args.status || 'open')}`)).suggestions;   // Ambient-1
     case 'dismiss_suggestion': return await hub(`/api/suggestions/${encodeURIComponent(args.id)}/dismiss`, {});   // Ambient-1
     case 'apply_suggestion':   return await hub(`/api/suggestions/${encodeURIComponent(args.id)}/apply`, {});     // Ambient-1
