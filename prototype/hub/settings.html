@@ -559,3 +559,59 @@ $('#testNt').onclick = async ()=>{
 
 loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadDrift(); loadTemplates(); loadUsers(); loadSuggestions();
 </script>
+<!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
+<div id="cmdk" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(4,8,13,.62)">
+  <div style="max-width:520px;margin:12vh auto 0;background:#0c1822;border:1px solid #213e56;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px -24px #000">
+    <input id="cmdk-q" placeholder="ページへ移動…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
+      style="width:100%;box-sizing:border-box;background:#0a121b;border:0;border-bottom:1px solid #213e56;color:#cfe0ee;font:13px ui-monospace,Menlo,monospace;padding:14px 16px;outline:none">
+    <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px"></div>
+  </div>
+</div>
+<button id="cmdk-open" title="ページ移動 (⌘K)"
+  style="position:fixed;right:14px;bottom:14px;z-index:99998;display:flex;align-items:center;gap:7px;background:#0c1822;border:1px solid #213e56;color:#7e9bb0;border-radius:8px;padding:7px 11px;font:11px ui-monospace,Menlo,monospace;cursor:pointer">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+  移動 <span style="opacity:.55">⌘K</span>
+</button>
+<script>(function(){
+  var DEST=[
+    {label:'玄関',      desc:'ランチャー',           path:'/'},
+    {label:'神龍',      desc:'会話でフローを叶える',  path:'/shenron'},
+    {label:'キャンバス', desc:'ビジュアルエディタ',    path:'/ui2'},
+    {label:'設定',      desc:'経路・連携・保管庫・通知', path:'/settings'}
+  ];
+  var here=(location.pathname.replace(/\/+$/,'')||'/');
+  var box=document.getElementById('cmdk'),q=document.getElementById('cmdk-q'),list=document.getElementById('cmdk-list'),sel=0,items=DEST.slice();
+  function render(){
+    var s=(q.value||'').toLowerCase();
+    items=DEST.filter(function(d){return !s||d.label.toLowerCase().indexOf(s)>=0||d.desc.toLowerCase().indexOf(s)>=0||d.path.indexOf(s)>=0;});
+    if(sel>=items.length)sel=Math.max(0,items.length-1);
+    list.innerHTML=items.map(function(d,i){
+      var cur=((d.path.replace(/\/+$/,'')||'/')===here);
+      return '<div data-i="'+i+'" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;cursor:pointer;font-family:ui-monospace,Menlo,monospace;background:'+(i===sel?'#15324a':'transparent')+'">'
+        +'<span style="color:#cfe0ee;font-size:13px;min-width:88px">'+d.label+'</span>'
+        +'<span style="color:#6d8aa0;font-size:11px;flex:1">'+d.desc+'</span>'
+        +(cur?'<span style="color:#5b9bd1;font-size:10px">現在</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
+        +'</div>';
+    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">該当なし</div>';
+    [].forEach.call(list.children,function(el){
+      if(!el.dataset)return;
+      el.onclick=function(){go(items[+el.dataset.i]);};
+      el.onmouseenter=function(){sel=+el.dataset.i;paint();};
+    });
+  }
+  function paint(){[].forEach.call(list.children,function(el,i){if(el.style)el.style.background=(i===sel?'#15324a':'transparent');});}
+  function go(d){if(d)location.href=d.path;}
+  function open(){box.style.display='block';q.value='';sel=0;render();setTimeout(function(){q.focus();},0);}
+  function close(){box.style.display='none';}
+  document.getElementById('cmdk-open').onclick=open;
+  box.onclick=function(e){if(e.target===box)close();};
+  q.oninput=render;
+  document.addEventListener('keydown',function(e){
+    if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();box.style.display==='block'?close():open();return;}
+    if(box.style.display!=='block')return;
+    if(e.key==='Escape'){e.preventDefault();close();}
+    else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(items.length-1,sel+1);paint();}
+    else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(0,sel-1);paint();}
+    else if(e.key==='Enter'){e.preventDefault();go(items[sel]);}
+  });
+})();</script>
