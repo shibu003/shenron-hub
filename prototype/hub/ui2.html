@@ -508,21 +508,32 @@ let WORKFLOWS = [];                                  // saved workflows (for the
 let NOTES = [], noidc = 0;                           // (b) Langflow-style annotation cards (markdown + color, not executable)
 const NOTE_COLORS = { amber:{bg:'#241b07',border:'#5c4a16'}, blue:{bg:'#10233a',border:'#274b73'}, green:{bg:'#0c1f12',border:'#1f5130'}, grey:{bg:'#161b22',border:'#30363d'} };
 const mdLite = (s) => esc(s).replace(/^### (.*)$/gm,'<b style="font-size:13px">$1</b>').replace(/^## (.*)$/gm,'<b style="font-size:14px">$1</b>').replace(/^# (.*)$/gm,'<b style="font-size:15px">$1</b>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^[-*] (.*)$/gm,'• $1').replace(/\n/g,'<br>');   // tiny safe markdown (escape first)
+// ノードアイコン: card は innerHTML で SVG 描画可 / <option>・inspHead はテキストのみ → svg と label を分離
+const NI=(p,w=15)=>`<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px">${p}</svg>`;
+const NIC={
+  agent:'<circle cx="12" cy="8" r="3.4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/>',
+  trigger:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  mcp:'<path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
+  note:'<path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4"/><path d="M8 12h7M8 16h5"/>',
+  wire:'<path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/>',
+  skill:'<path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  del:'<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/>'
+};
 const COMP = {                                       // minimal component library (per-field typed template). `desc` = JP one-liner shown on the card + in the kind picker.
-  input:  { label:'Chat Input',  icon:'💬', desc:'フローの入力テキスト', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(空 → Run の入力を使う)' }] },
-  prompt: { label:'Prompt',      icon:'📝', desc:'テンプレートで文面を組む（{input}=前段の出力）', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
-  consensus: { label:'Consensus', icon:'⚖️', desc:'複数 vendor の合意を取る', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
-  output: { label:'Chat Output', icon:'📤', desc:'最終結果を表示', accepts:['*'], emits:[],           fields:[] },
-  languagemodel: { label:'Language Model', icon:'🧠', desc:'LLM 呼び出し（system + 入力）', accepts:['*'], emits:['text','*'], fields:[   // Langflow LM: system + input → vendor (in-process)
+  input:  { label:'Chat Input',  svg:NI('<path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7.5 8.8l2.2 2.2-2.2 2.2"/><path d="M12.2 13.2h4.6"/>'), desc:'フローの入力テキスト', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(空 → Run の入力を使う)' }] },
+  prompt: { label:'Prompt',      svg:NI('<path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4"/><path d="M8 12h7M8 16h5"/>'), desc:'テンプレートで文面を組む（{input}=前段の出力）', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
+  consensus: { label:'Consensus', svg:NI('<path d="M3 12l4 4 7-9"/><path d="M11 14l3 3 7-9"/>'), desc:'複数 vendor の合意を取る', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
+  output: { label:'Chat Output', svg:NI('<path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7 9.3h10"/><path d="M7 12.4h6"/>'), desc:'最終結果を表示', accepts:['*'], emits:[],           fields:[] },
+  languagemodel: { label:'Language Model', svg:NI('<rect x="8" y="8" width="8" height="8" rx="1.2"/><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M10 3.5V1M14 3.5V1M10 23v-2.5M14 23v-2.5M3.5 10H1M3.5 14H1M23 10h-2.5M23 14h-2.5"/>'), desc:'LLM 呼び出し（system + 入力）', accepts:['*'], emits:['text','*'], fields:[   // Langflow LM: system + input → vendor (in-process)
     { key:'model', label:'model', type:'select', options:['claude','codex','gemini','stub'], value:'claude' }, { key:'system', label:'system message', type:'textarea' } ] },
-  structured: { label:'Structured Output', icon:'🧷', desc:'LLM に JSON 構造で出させる', accepts:['*'], emits:['json','*'], fields:[   // Langflow structured-output: ask the LLM for JSON
+  structured: { label:'Structured Output', svg:NI('<path d="M8 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3"/><path d="M16 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3"/>'), desc:'LLM に JSON 構造で出させる', accepts:['*'], emits:['json','*'], fields:[   // Langflow structured-output: ask the LLM for JSON
     { key:'schema', label:'fields (comma-sep)', value:'' }, { key:'instructions', label:'instructions', type:'textarea' } ] },
-  parser: { label:'Parser', icon:'🔧', desc:'文字列整形（LLM 不使用）', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM)
-  router: { label:'Router', icon:'🔀', desc:'条件で then/else に分岐', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
+  parser: { label:'Parser', svg:NI('<path d="M4 7h11M4 12h7M4 17h11"/><path d="M18 9l2.5 3-2.5 3"/>'), desc:'文字列整形（LLM 不使用）', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM)
+  router: { label:'Router', svg:NI('<path d="M7 4v5a3 3 0 0 0 3 3h7"/><path d="M14 9l3 3-3 3"/><path d="M7 14v6"/><circle cx="7" cy="4" r="1.4"/>'), desc:'条件で then/else に分岐', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
-  workflow: { label:'Sub-flow', icon:'📦', desc:'保存済みフローを1ノードとして実行', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
-  langflow: { label:'Langflow', icon:'🔗', desc:'Langflow 由来コンポーネント', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
+  workflow: { label:'Sub-flow', svg:NI('<path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>'), desc:'保存済みフローを1ノードとして実行', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
+  langflow: { label:'Langflow', svg:NI('<path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/>'), desc:'Langflow 由来コンポーネント', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
 };
 const UNDO_STACK = [], REDO_STACK = [];
 let lastSaved = 0, CTX_TARGET = null, SEARCH_Q = '';
@@ -677,7 +688,7 @@ function renderNodes(){
     n.classList.toggle('collapsed',COLLAPSED.has(a.id));
     if(n.contains(document.activeElement)) continue;   // don't rebuild the card while a field inside it is focused
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
-    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>👤 ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${NI(NIC.agent,14)} ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`;
   }
   for(const tr of TRIGGERS){   // ui2: card = title + summary only; the event/status editor lives in the right panel
@@ -686,7 +697,7 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=tr.id; canvas.appendChild(n); attachNode(n,tr.id); }
     if(!POS[tr.id]) POS[tr.id]={x:tr.x||30,y:tr.y||30};
     n.style.left=POS[tr.id].x+'px'; n.style.top=POS[tr.id].y+'px'; n.classList.toggle('selected',selected===tr.id);
-    n.innerHTML=`<div class="name">⚡ トリガー</div><div class="co">${esc(triggerSummary(tr.match))}</div>`;
+    n.innerHTML=`<div class="name">${NI(NIC.trigger,14)} トリガー</div><div class="co">${esc(triggerSummary(tr.match))}</div>`;
   }
   for(const mn of MCP_NODES){
     const nid='n_'+cssid(mn.id); seen.add(nid);
@@ -699,7 +710,7 @@ function renderNodes(){
     const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy);
     const mset=!!(mn.server&&mn.tool);
-    n.innerHTML=`<div class="name">🔌 ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+    n.innerHTML=`<div class="name">${NI(NIC.mcp,14)} ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(mn.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`;
   }
   for(const c of COMPONENTS){
@@ -711,7 +722,7 @@ function renderNodes(){
     const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
     const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));
     const tierBadge=c.tier?`<span class="tier-badge ${c.tier}">${c.tier}</span>`:'';
-    n.innerHTML=`<div class="name">${meta.icon||'▦'} ${esc(cname)}${tierBadge}</div>`
+    n.innerHTML=`<div class="name">${meta.svg||''} ${esc(cname)}${tierBadge}</div>`
       +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||c.kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`;
   }
   for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
@@ -854,7 +865,7 @@ function renderInspector(){
   if(!selected){ panel.innerHTML=''; return; }
   panel.innerHTML = inspNode(selected);
 }
-const inspHead=(title)=>`<div class="ins-h">${esc(title)} <span class="back" onclick="deselect()">${t('close')}</span></div>`;
+const inspHead=(title,svg='')=>`<div class="ins-h">${svg?`<span style="display:inline-flex;color:var(--blue);margin-right:7px">${svg}</span>`:''}${esc(title)} <span class="back" onclick="deselect()">${t('close')}</span></div>`;
 function inspNode(id){
   const a=ag(id);
   if(a) return inspHead(a.id)
@@ -868,38 +879,38 @@ function inspNode(id){
     const tHasStatus=!!(tdef&&(tdef.fields||[]).includes('status'));
     const evSel=`<select class="nf nkind" data-trig="${esc(tr.id)}" data-trigfield="event"><option value="" ${tr.match&&tr.match.event?'':'selected'}>${esc(t('trig_custom'))}</option>${(BUILDSTATE.events||[]).map(e=>`<option value="${esc(e.event)}" ${tr.match&&tr.match.event===e.event?'selected':''}>${esc(evLabel(e.event))}</option>`).join('')}</select>`;
     const stSel=tHasStatus?`<div class="nfrow"><label class="nflabel">${t('fire_result')}</label><select class="nf" data-trig="${esc(tr.id)}" data-trigfield="status"><option value="">—</option>${['green','red','changes_requested'].map(s=>`<option value="${s}" ${tr.match&&tr.match.status===s?'selected':''}>${esc(resultLabel(s))}</option>`).join('')}</select></div>`:'';
-    return inspHead('⚡ トリガー')+`<div class="nfrow"><label class="nflabel">${t('fire_what')}</label>${evSel}</div>${stSel}`
+    return inspHead('トリガー', NI(NIC.trigger))+`<div class="nfrow"><label class="nflabel">${t('fire_what')}</label>${evSel}</div>${stSel}`
       +`<button class="ibtn danger" onclick="deleteSelected()">${t('btn_del_trig')}</button>`;
   }
   const mn=mcpn(id);
   if(mn){
     const mset=!!(mn.server&&mn.tool);
     const extra=mset?`<label class="nfbool"><input type="checkbox" class="nf" data-mcpnf="${esc(mn.id)}" data-mcpauto="1" ${mn.auto?'checked':''}> ${mn.auto?t('mcp_auto_on'):t('mcp_auto_off')}</label><div class="nfrow"><label class="nflabel">${t('f_args')}</label><textarea class="nf" data-mcpnf="${esc(mn.id)}" data-mcpargs="1" rows="3">${esc(JSON.stringify(mn.config||{}))}</textarea><div class="mini">${t('mcp_args_note')}</div></div>`:'';
-    return inspHead('🔌 '+(mset?mn.tool:t('comp_unset')))+mcpCascade(mn,'nf')+extra
+    return inspHead((mset?mn.tool:t('comp_unset')), NI(NIC.mcp))+mcpCascade(mn,'nf')+extra
       +`<button class="ibtn danger" onclick="deleteSelected()">${t('btn_del_mcp')}</button>`;
   }
   const c=comp(id);
   if(c){
     const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
-    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.icon+' '+m.label+(m.desc?' — '+m.desc:''))}</option>`).join('')}</select>`;
+    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.label+(m.desc?' — '+m.desc:''))}</option>`).join('')}</select>`;
     const nameDesc=inlineField(c,{key:'name',label:t('comp_name'),ph:t('comp_name_ph')})+inlineField(c,{key:'desc',label:t('comp_desc'),type:'textarea',ph:t('comp_desc_ph')});
     const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
-    return inspHead((meta.icon||'▦')+' '+(meta.label||c.kind))
+    return inspHead(meta.label||c.kind, meta.svg||'')
       +`<div class="nfrow"><label class="nflabel">${t('comp_kind')}</label>${kindSel}${isSet&&meta.desc?`<div class="mini">${esc(meta.desc)}</div>`:''}</div>`+nameDesc+fieldsHtml
       +(res!=null?`<div class="nfres">${esc(String(res)).slice(0,400)}</div>`:'')
       +`<button class="ibtn danger" onclick="deleteSelected()">${t('btn_del_node')}</button>`;
   }
   const nt=noteOf(id);
-  if(nt) return inspHead('📝 '+t('note'))
+  if(nt) return inspHead(t('note'), NI(NIC.note))
     +`<textarea class="nf" data-noteid="${esc(nt.id)}" data-notefield="text" rows="5" placeholder="${esc(t('note_text'))}">${esc(nt.text||'')}</textarea>`
     +`<div class="nfrow"><label class="nflabel">${t('note_color')}</label><select class="nf" data-noteid="${esc(nt.id)}" data-notefield="color">${Object.keys(NOTE_COLORS).map(cc=>`<option value="${cc}" ${nt.color===cc?'selected':''}>${cc}</option>`).join('')}</select></div>`
-    +`<button class="ibtn danger" onclick="deleteSelected()">🗑 削除</button>`;
+    +`<button class="ibtn danger" onclick="deleteSelected()">${NI(NIC.del,14)} 削除</button>`;
   return inspHead(id)+`<button class="ibtn danger" onclick="deleteSelected()">🗑 削除</button>`;
 }
 const listClean = (xs) => [...new Set((xs||[]).map(x=>String(x||'').trim()).filter(Boolean))];
 function inspEdge(e){   // ui2: trust-free wire editor — connection + (router) branch + delete
   const srcRouter=comp(e.source)?.kind==='router';   // edges out of a router carry a then/else branch label
-  return inspHead('🔗 配線')
+  return inspHead('配線', NI(NIC.wire))
     +`<div class="field"><label>接続</label><div class="v">${esc(e.source)} <b>→</b> ${esc(e.target)}</div></div>`
     +(srcRouter?`<div class="field"><label>ルーター分岐</label><select class="cin" id="edBranch">
       <option value="then" ${(e.branch||'then')==='then'?'selected':''}>then（条件が真）</option>
@@ -946,7 +957,7 @@ async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integratio
 async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the 📦 Sub-flow picker
 async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');                                // 🗂 overview: all saved flows; click → loadFlow onto canvas
   const cards = WORKFLOWS.length
-    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">📜</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
+    ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">${NI(NIC.skill,13)}</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
     : `<div class="minfo">${t('flows_none')}</div>`;
   dlg.innerHTML=`<div class="dh">${t('flows_title')}（${WORKFLOWS.length}）</div><div class="db flowgrid">${cards}</div><div class="df"><button class="act" id="flowsClose">${t('cancel')}</button></div>`;
   if(!dlg.open) dlg.showModal();
@@ -1021,7 +1032,7 @@ function applyPlan(r){                                // plan/refine 共通: can
 function openAgentPicker(){
   const dlg=$('#modal'); const ags=state.agents||[];
   const rows = ags.length ? ags.map(a=>{ const on=!HIDDEN.has(a.id);
-    return `<button class="flowcard act" data-aid="${esc(a.id)}"><div class="fc-name">👤 ${esc(a.id)}${on?' <span class="kindchip ag">配置済み</span>':''}</div><div class="mini">${esc(a.company||'—')}${a.skill?' · '+esc(a.skill):''}${a.online?'':' · オフライン'}</div></button>`;
+    return `<button class="flowcard act" data-aid="${esc(a.id)}"><div class="fc-name">${NI(NIC.agent,13)} ${esc(a.id)}${on?' <span class="kindchip ag">配置済み</span>':''}</div><div class="mini">${esc(a.company||'—')}${a.skill?' · '+esc(a.skill):''}${a.online?'':' · オフライン'}</div></button>`;
   }).join('') : `<div class="minfo">エージェントがありません（hub を agents/*.json 付きで起動してください）。</div>`;
   dlg.innerHTML=`<div class="dh">👤 エージェントを配置（${ags.length}）</div><div class="db flowgrid">${rows}</div><div class="df"><button class="act" id="agpClose">${t('cancel')}</button></div>`;
   if(!dlg.open) dlg.showModal();
@@ -1271,7 +1282,37 @@ function renderArtifact() {
 </head><body><div id="root"></div><script type="text/babel">
 ${code}
 ;(function(){try{const R=ReactDOM.createRoot(document.getElementById('root'));R.render(React.createElement(typeof App!=='undefined'?App:()=>React.createElement('p',null,'⚠ App が見つかりません')));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red">'+e.message+'<\\/pre>';}})();
-<\/script><!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
+<\/script>
+
+</body></html>`;
+  document.getElementById('artifactFrame').srcdoc = src;
+}
+
+// postMessage ブリッジ: iframe → hub（source 検証済みホワイトリスト）
+// S1: art-req → /api/artifact-llm    S2: art-approve/decline/advance → /api/handoffs/:id/*
+window.addEventListener('message', async function(e) {
+  const frame = document.getElementById('artifactFrame');
+  if (!frame || e.source !== frame.contentWindow) return;   // source 検証（ホワイトリスト）
+  const d = e.data; if (!d) return;
+  if (d.type === 'art-req') {
+    try {
+      const r = await fetch('/api/artifact-llm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: d.body });
+      frame.contentWindow.postMessage({ type: 'art-res', id: d.id, status: r.status, data: await r.json() }, '*');
+    } catch(err) { frame.contentWindow.postMessage({ type: 'art-res', id: d.id, error: err.message }, '*'); }
+  } else if (d.type === 'art-approve' || d.type === 'art-decline' || d.type === 'art-advance') {
+    if (!_artHandoffId) { frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, error: 'no handoff linked' }, '*'); return; }
+    const action = d.type === 'art-advance' ? 'result' : d.type === 'art-approve' ? 'approve' : 'decline';
+    const body = d.type === 'art-advance' ? JSON.stringify({ result: d.data }) : '{}';
+    try {
+      const r = await fetch(`/api/handoffs/${_artHandoffId}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, data: await r.json() }, '*');
+    } catch(err) { frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, error: err.message }, '*'); }
+  }
+});
+// Escape で閉じる
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('artifactPanel').style.display!=='none') closeArtifact(); }, true);
+</script>
+<!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
 <div id="cmdk" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(4,8,13,.62)">
   <div style="max-width:520px;margin:12vh auto 0;background:#0c1822;border:1px solid #213e56;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px -24px #000">
     <input id="cmdk-q" placeholder="ページへ移動…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
@@ -1327,32 +1368,3 @@ ${code}
     else if(e.key==='Enter'){e.preventDefault();go(items[sel]);}
   });
 })();</script>
-
-</body></html>`;
-  document.getElementById('artifactFrame').srcdoc = src;
-}
-
-// postMessage ブリッジ: iframe → hub（source 検証済みホワイトリスト）
-// S1: art-req → /api/artifact-llm    S2: art-approve/decline/advance → /api/handoffs/:id/*
-window.addEventListener('message', async function(e) {
-  const frame = document.getElementById('artifactFrame');
-  if (!frame || e.source !== frame.contentWindow) return;   // source 検証（ホワイトリスト）
-  const d = e.data; if (!d) return;
-  if (d.type === 'art-req') {
-    try {
-      const r = await fetch('/api/artifact-llm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: d.body });
-      frame.contentWindow.postMessage({ type: 'art-res', id: d.id, status: r.status, data: await r.json() }, '*');
-    } catch(err) { frame.contentWindow.postMessage({ type: 'art-res', id: d.id, error: err.message }, '*'); }
-  } else if (d.type === 'art-approve' || d.type === 'art-decline' || d.type === 'art-advance') {
-    if (!_artHandoffId) { frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, error: 'no handoff linked' }, '*'); return; }
-    const action = d.type === 'art-advance' ? 'result' : d.type === 'art-approve' ? 'approve' : 'decline';
-    const body = d.type === 'art-advance' ? JSON.stringify({ result: d.data }) : '{}';
-    try {
-      const r = await fetch(`/api/handoffs/${_artHandoffId}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
-      frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, data: await r.json() }, '*');
-    } catch(err) { frame.contentWindow.postMessage({ type: 'art-flow-res', id: d.id, error: err.message }, '*'); }
-  }
-});
-// Escape で閉じる
-document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('artifactPanel').style.display!=='none') closeArtifact(); }, true);
-</script>
