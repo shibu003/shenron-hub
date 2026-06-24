@@ -6,16 +6,16 @@
      Drag a node body to move; drag from a node's rim to wire (typed). Add nodes from the ＋ menu.
      Trust / run-history / settings live elsewhere. Zero-dep; the hub re-reads this file per GET. -->
 <style>
-  :root { --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#30363d; --txt:#e6edf3; --dim:#8b949e;
-          --green:#3fb950; --amber:#d29922; --blue:#58a6ff; --red:#f85149; --grey:#6e7681; }
+  :root { --bg:#0a0c10; --panel:#0c1822; --panel2:#0f1f2c; --line:#213e56; --txt:#c2d6e6; --dim:#6d8aa0;
+          --green:#3fae7a; --amber:#c79338; --blue:#5b9bd1; --red:#c2554f; --grey:#5e84a0; }
   * { box-sizing:border-box; }
   body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); overflow:hidden; }
   button { font:inherit; }
   #topbar { display:flex; align-items:center; gap:12px; height:48px; padding:0 14px; border-bottom:1px solid var(--line); background:var(--panel); }
   .brand { font-weight:600; font-size:14px; white-space:nowrap; } .brand span { color:var(--dim); font-weight:400; }
-  #flowName { background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 10px; font:inherit; width:200px; }
+  #flowName { background:#0a121b; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 10px; font:inherit; width:200px; }
   .tb-actions { display:flex; align-items:center; gap:8px; }
-  .tb { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:7px 13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .tb { border:1px solid var(--line); background:#0a121b; color:var(--txt); border-radius:7px; padding:7px 13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
   .tb:hover { border-color:var(--blue); }
   .tb.primary { border-color:var(--blue); color:var(--blue); } .tb.go { border-color:var(--green); color:var(--green); }
   .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
@@ -29,7 +29,7 @@
   .menu-pop { position:absolute; top:38px; right:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:230px; z-index:30; box-shadow:0 12px 34px -12px #000; display:none; }
   .menu-pop.open { display:block; }
   .menu-pop button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--txt); padding:8px 10px; border-radius:6px; cursor:pointer; }
-  .menu-pop button:hover { background:#0d1117; } .menu-pop .mh { color:var(--dim); font-size:11px; padding:6px 10px 2px; }
+  .menu-pop button:hover { background:#0a121b; } .menu-pop .mh { color:var(--dim); font-size:11px; padding:6px 10px 2px; }
   #conn { margin-left:auto; font-size:12px; color:var(--dim); min-width:70px; text-align:right; }
   /* ui2 layout: canvas grows · 6px drag-resizer · one right panel at a CSS-var width (Zed-style) */
   #main-wrap { display:flex; height:calc(100vh - 49px); overflow:hidden; }
@@ -38,14 +38,14 @@
   #resizer::after { content:''; position:absolute; inset:0 2px; background:var(--line); transition:background .12s; }
   #resizer:hover::after, #resizer.drag::after { background:var(--blue); }
   #panel { width:var(--panelw,320px); flex:none; background:var(--panel); border-left:1px solid var(--line); overflow:auto; padding:14px; }
-  #canvas { position:relative; overflow:hidden; background-color:#08090c; cursor:grab; }
+  #canvas { position:relative; overflow:hidden; background-color:#06090d; cursor:grab; }
   #canvas.panning { cursor:grabbing; }
   #world { position:absolute; top:0; left:0; width:6000px; height:4200px; transform-origin:0 0; will-change:transform;
-           background-image:radial-gradient(circle at 1px 1px, #2b313a 1px, transparent 0); background-size:24px 24px; }
+           background-image:radial-gradient(circle at 1px 1px, #1a3550 1px, transparent 0); background-size:24px 24px; }
   svg.links { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #zoomctl { position:absolute; right:12px; bottom:14px; z-index:25; display:flex; gap:4px; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:3px; box-shadow:0 8px 24px -10px #000; }
   #zoomctl button { min-width:30px; height:26px; background:none; border:0; color:var(--txt); border-radius:6px; cursor:pointer; font:inherit; }
-  #zoomctl button:hover { background:#0d1117; } #zoomctl #zoomPct { min-width:46px; color:var(--dim); font-size:11px; }
+  #zoomctl button:hover { background:#0a121b; } #zoomctl #zoomPct { min-width:46px; color:var(--dim); font-size:11px; }
   svg .flow { stroke-dasharray:7 6; animation:dash .7s linear infinite; } @keyframes dash { to { stroke-dashoffset:-13; } }
   svg .hit { pointer-events:stroke; stroke:transparent; stroke-width:15; fill:none; cursor:pointer; }
   svg .tw { stroke-dasharray:6 5; opacity:.95; }
@@ -55,13 +55,13 @@
   #hint .ec-h { font-size:18px; font-weight:700; }
   #hint .ec-b { color:var(--dim); font-size:13px; line-height:1.6; }
   #hint .ec-act { display:flex; gap:10px; margin-top:4px; }
-  #wireTip { position:absolute; z-index:20; display:none; max-width:320px; pointer-events:none; background:#0d1117; border:1px solid var(--blue); border-radius:9px; color:var(--txt); padding:8px 10px; font-size:12px; box-shadow:0 12px 28px -18px #000; }
+  #wireTip { position:absolute; z-index:20; display:none; max-width:320px; pointer-events:none; background:#0a121b; border:1px solid var(--blue); border-radius:9px; color:var(--txt); padding:8px 10px; font-size:12px; box-shadow:0 12px 28px -18px #000; }
   #wireTip.ok { border-color:var(--green); color:#bdf6c9; }
   #wireTip.bad { border-color:var(--red); color:#ffc2be; }
   /* per-node dynamic sizing — width fits content within [min,max]; height grows with the in-card settings */
   .node { position:absolute; width:fit-content; min-width:200px; max-width:340px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
           padding:0 0 9px; cursor:grab; user-select:none; box-shadow:0 2px 10px -3px rgba(0,0,0,.55); transition:border-color .12s, box-shadow .12s, transform .12s; }
-  .node:hover { border-color:#48515c; box-shadow:0 12px 30px -12px rgba(0,0,0,.8); transform:translateY(-1px); z-index:7; }   /* overlap: raise the hovered node */
+  .node:hover { border-color:#2a5575; box-shadow:0 12px 30px -12px rgba(0,0,0,.8); transform:translateY(-1px); z-index:7; }   /* overlap: raise the hovered node */
   .node.selected { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 8px 22px -10px var(--blue); z-index:8; }
   /* C1 floating wiring — drag from a node's rim to connect (any side); drop target highlights */
   body:not(.wiring) .node:hover { outline:1px dashed rgba(88,166,255,.45); outline-offset:3px; }   /* hint: the rim is draggable to connect */
@@ -80,7 +80,7 @@
   .kindchip.ag { border-color:#3a4250; color:#aab8c6; }
   .kindchip.mcp { border-color:#2ea043; color:#3fb950; }
   .kindchip.comp { border-color:#6f42c1; color:#a371f7; }
-  .node .badge { margin-left:auto; background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
+  .node .badge { margin-left:auto; background:#0a121b; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; padding:0 12px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { min-width:204px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
   .node.mcp { min-width:240px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
@@ -91,27 +91,27 @@
   .node.collapsed .nbody { display:none; }
   .node.collapsed.mcp .name, .node.collapsed.comp .name, .node.collapsed.agent .name { border-bottom:none; border-radius:13px; }
   /* agent card holds the capability passport editor (B2) — fixed width (it's a form; only height is dynamic) */
-  .node.agent { width:248px; } .node.agent .name { color:#cdd9e5; background:rgba(255,255,255,.03); }
+  .node.agent { width:248px; } .node.agent .name { color:#c2d6e6; background:rgba(255,255,255,.03); }
   .node.agent .co { white-space:normal; }
   .node.agent .nbody .presetrow { display:flex; gap:5px; flex-wrap:wrap; }
-  .node.agent .nbody .presetrow button { flex:1; min-width:62px; font-size:10px; padding:4px 5px; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); cursor:pointer; }
+  .node.agent .nbody .presetrow button { flex:1; min-width:62px; font-size:10px; padding:4px 5px; background:#0a121b; border:1px solid var(--line); border-radius:6px; color:var(--txt); cursor:pointer; }
   .node.agent .nbody .presetrow button:hover { border-color:var(--blue); }
   .node.agent .nbody .ibtn { width:100%; box-sizing:border-box; }
   /* in-node settings — edit a component's fields directly on the card (Langflow-style) */
   .nbody { padding:8px 11px 2px; display:grid; gap:7px; }
   .nfrow { display:grid; gap:2px; }
   .nflabel { font-size:9px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
-  .nf { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--txt); padding:4px 7px; font:11px/1.35 ui-monospace,Menlo,monospace; }
+  .nf { width:100%; box-sizing:border-box; background:#0a121b; border:1px solid var(--line); border-radius:6px; color:var(--txt); padding:4px 7px; font:11px/1.35 ui-monospace,Menlo,monospace; }
   .nf:focus { border-color:var(--blue); outline:none; box-shadow:0 0 0 2px rgba(88,166,255,.25); }
   textarea.nf { resize:vertical; min-height:36px; }
   select.nf.nkind { font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:600; }
   .nfbool { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--txt); cursor:pointer; } .nfbool input { width:auto; }
   .nfres { font-size:11px; color:var(--green); white-space:pre-wrap; max-height:96px; overflow:auto; border-top:1px solid var(--line); padding-top:5px; }
-  .node.note { min-width:230px; max-width:300px; cursor:grab; } .node.note .notebody { padding:11px 13px; font-size:12px; line-height:1.55; color:#cdd9e5; white-space:normal; max-height:280px; overflow:auto; }
+  .node.note { min-width:230px; max-width:300px; cursor:grab; } .node.note .notebody { padding:11px 13px; font-size:12px; line-height:1.55; color:#c2d6e6; white-space:normal; max-height:280px; overflow:auto; }
   .node.note .notebody b { color:#fff; }
-  .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0d1117; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
+  .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0a121b; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
   .port.in { left:-11px; } .port.out { right:-11px; } .port:hover { transform:translateY(-50%) scale(1.2); box-shadow:0 0 0 4px rgba(230,237,243,.24); }
-  .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#b8c7d8; font-size:9px; line-height:1; letter-spacing:.06em; background:#0d1117; border:1px solid #2f3d4c; border-radius:999px; padding:2px 5px; pointer-events:none; z-index:4; }
+  .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#9cbdd6; font-size:9px; line-height:1; letter-spacing:.06em; background:#0a121b; border:1px solid #213e56; border-radius:999px; padding:2px 5px; pointer-events:none; z-index:4; }
   .portlabel.in { right:calc(100% + 7px); left:auto; } .portlabel.out { left:calc(100% + 7px); right:auto; }
   .node.trigger .port.out { border-color:var(--amber); }
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
@@ -127,12 +127,12 @@
   .ins-h .back { margin-left:auto; cursor:pointer; color:var(--blue); text-transform:none; letter-spacing:0; }
   .field { margin-bottom:11px; } .field label { display:block; font-size:11px; color:var(--dim); margin-bottom:3px; }
   .field .v { font-size:13px; } .chips { display:flex; flex-wrap:wrap; gap:5px; }
-  .chip { background:#0d1117; border:1px solid var(--line); border-radius:999px; padding:1px 9px; font-size:11px; color:var(--txt); }
-  .ibtn { width:100%; text-align:left; border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:8px 11px; cursor:pointer; margin-bottom:7px; display:flex; align-items:center; gap:8px; }
+  .chip { background:#0a121b; border:1px solid var(--line); border-radius:999px; padding:1px 9px; font-size:11px; color:var(--txt); }
+  .ibtn { width:100%; text-align:left; border:1px solid var(--line); background:#0a121b; color:var(--txt); border-radius:7px; padding:8px 11px; cursor:pointer; margin-bottom:7px; display:flex; align-items:center; gap:8px; }
   .ibtn:hover { border-color:var(--blue); } .ibtn.danger:hover { border-color:var(--red); color:var(--red); }
   .ibtn.toggle.auto { border-color:var(--amber); color:var(--amber); } .ibtn.toggle.approval { border-color:var(--blue); color:var(--blue); }
-  textarea.match { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
-  input.cin, select.cin { width:100%; box-sizing:border-box; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  textarea.match { width:100%; background:#0a121b; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; min-height:64px; resize:vertical; }
+  input.cin, select.cin { width:100%; box-sizing:border-box; background:#0a121b; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:7px 9px; font:12px/1.4 ui-monospace,Menlo,monospace; }
   .node.skipped { opacity:.32; filter:grayscale(1); }
   .h { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:7px; background:var(--panel2); cursor:pointer; }
   .h .top { display:flex; align-items:center; gap:7px; font-size:12px; }
@@ -143,7 +143,7 @@
   .st.failed,.st.rejected{color:var(--red);border-color:var(--red)}
   .h .body { font-size:12px; color:var(--dim); margin-top:6px; white-space:pre-wrap; max-height:120px; overflow:auto; }
   .h.open .body { max-height:none; } .h .acts { display:flex; gap:6px; margin-top:7px; }
-  button.act { font-size:12px; border-radius:6px; border:1px solid var(--line); padding:4px 11px; cursor:pointer; background:#0d1117; color:var(--txt); }
+  button.act { font-size:12px; border-radius:6px; border:1px solid var(--line); padding:4px 11px; cursor:pointer; background:#0a121b; color:var(--txt); }
   button.ok { border-color:var(--green); color:var(--green); } button.no { border-color:var(--red); color:var(--red); }
   .ckpt { margin-top:8px; } .ckpt-label { font-size:12px; color:var(--amber); margin-bottom:6px; word-break:break-all; }
   .ckpt-img { max-width:100%; border:1px solid var(--line); border-radius:6px; display:block; }
@@ -153,7 +153,7 @@
   dialog .dh { padding:13px 16px; border-bottom:1px solid var(--line); font-weight:600; }
   dialog .db { padding:14px 16px; display:grid; gap:9px; } dialog label { font-size:12px; color:var(--dim); }
   dialog .minfo { font-size:12px; color:var(--dim); }
-  dialog input, dialog textarea { width:100%; background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:8px 10px; font:inherit; }
+  dialog input, dialog textarea { width:100%; background:#0a121b; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:8px 10px; font:inherit; }
   dialog textarea { min-height:88px; resize:vertical; font:12px/1.4 ui-monospace,Menlo,monospace; }
   dialog textarea[readonly] { min-height:62px; }
   dialog .df { display:flex; gap:8px; justify-content:flex-end; padding:0 16px 14px; }
@@ -163,19 +163,19 @@
   .search-hl { box-shadow:0 0 0 2px var(--amber),0 8px 22px -10px rgba(210,153,34,.4) !important; }
   #ctxMenu { position:fixed; z-index:40; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:5px; min-width:150px; box-shadow:0 12px 34px -12px #000; display:none; }
   #ctxMenu button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--txt); padding:8px 10px; border-radius:6px; cursor:pointer; font:inherit; }
-  #ctxMenu button:hover { background:#0d1117; } #ctxMenu .ctx-del { color:var(--red); }
+  #ctxMenu button:hover { background:#0a121b; } #ctxMenu .ctx-del { color:var(--red); }
   #nodeSearch { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:30; background:var(--panel); border:1px solid var(--blue); border-radius:9px; padding:6px 10px; display:none; gap:6px; align-items:center; box-shadow:0 8px 24px -10px #000; }
   #nodeSearch input { background:none; border:none; color:var(--txt); outline:none; font:inherit; width:160px; }
 </style>
 
 <header id="topbar">
-  <div class="brand">🐉 神龍</div>
+  <div class="brand" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;display:inline-flex;align-items:center;gap:8px"><span style="color:var(--blue)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></span>神龍</div>
   <input id="flowName" placeholder="無題のフロー">
   <span id="savedTs" style="font-size:11px;color:var(--dim)"></span>
-  <button class="tb" id="btnFlows" onclick="showFlows()" title="保存済みフローを開く">🗂</button>
+  <button class="tb" id="btnFlows" onclick="showFlows()" title="保存済みフローを開く"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
   <a class="tb" href="/shenron" title="会話で flow を作るのは神龍。ここ（キャンバス）は視覚編集に専念" style="text-decoration:none">神龍で作る</a>
   <div class="tb-actions">
-    <button class="tb primary" id="btnSave" onclick="saveFlow()">💾 保存</button>
+    <button class="tb primary" id="btnSave" onclick="saveFlow()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 14h8v6H8z"/></svg> 保存</button>
     <button class="tb go" id="btnRun" onclick="runFlow()">▶ 実行</button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none">■ 停止</button>
     <button id="ckptBadge" onclick="openApprovals()"></button>
@@ -185,19 +185,19 @@
       <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ 追加</button>
       <div class="menu-pop" id="addMenu">
         <div class="mh">ノードを追加</div>
-        <button onclick="openAgentPicker();closeMenu()">👤 エージェント… — 一覧から配置</button>
-        <button onclick="addTrigger();closeMenu()">⚡ トリガー — 自動実行の起点</button>
-        <button onclick="addMcpNode();closeMenu()">🔌 MCP ツール — 外部アクション</button>
-        <button onclick="addComp('');closeMenu()">📦 コンポーネント — 処理ブロック</button>
-        <button onclick="addNote();closeMenu()">📝 メモ</button>
+        <button onclick="openAgentPicker();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="8" r="3.4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg> エージェント… — 一覧から配置</button>
+        <button onclick="addTrigger();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg> トリガー — 自動実行の起点</button>
+        <button onclick="addMcpNode();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg> MCP ツール — 外部アクション</button>
+        <button onclick="addComp('');closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/></svg> コンポーネント — 処理ブロック</button>
+        <button onclick="addNote();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4"/><path d="M8 12h7M8 16h5"/></svg> メモ</button>
         <div class="mh">入出力</div>
-        <button onclick="document.getElementById('importFile').click();closeMenu()">📂 JSON を取り込む</button>
+        <button onclick="document.getElementById('importFile').click();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/></svg> JSON を取り込む</button>
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
       </div>
     </div>
-    <button class="tb" onclick="openArtifact()" title="成果物 UI をレンダリング（Wave UI S1）">🎨 成果物</button>
-    <a class="tb" href="/settings" title="設定" style="text-decoration:none">⚙ 設定</a>
-    <a class="tb" href="/" title="玄関" style="text-decoration:none">🚪 玄関</a>
+    <button class="tb" onclick="openArtifact()" title="成果物 UI をレンダリング（Wave UI S1）"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.1"/><circle cx="12" cy="8" r="1.1"/><circle cx="15.5" cy="10.5" r="1.1"/><path d="M12 21a2.5 2.5 0 0 0 0-5c-1.2 0-1.6-1.2-.8-2"/></svg> 成果物</button>
+    <a class="tb" href="/settings" title="設定" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M4 4v4M4 12v8M12 4v8M12 16v4M20 4v10M20 18v2"/><circle cx="4" cy="10" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="20" cy="16" r="2"/></svg> 設定</a>
+    <a class="tb" href="/" title="玄関" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 21V8l7-5 7 5v13"/><path d="M5 21h14"/><path d="M10 21v-6h4v6"/></svg> 玄関</a>
   </div>
   <span id="conn"></span>
 </header>
@@ -250,7 +250,7 @@
       <span style="margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px" onclick="closeArtifact()">✕</span>
     </div>
     <div style="padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;flex:none">
-      <textarea id="artifactCode" style="flex:1;min-height:72px;max-height:140px;background:#0d1117;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:7px 9px;font:11px/1.4 ui-monospace,Menlo,monospace;resize:vertical" placeholder="export default function App() { return <h1>Hello 🐉</h1>; }"></textarea>
+      <textarea id="artifactCode" style="flex:1;min-height:72px;max-height:140px;background:#0a121b;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:7px 9px;font:11px/1.4 ui-monospace,Menlo,monospace;resize:vertical" placeholder="export default function App() { return <h1>Hello 🐉</h1>; }"></textarea>
       <button class="tb go" onclick="renderArtifact()" style="align-self:flex-end;white-space:nowrap">▶ レンダリング</button>
     </div>
     <div id="artifactFrameWrap" style="flex:1;min-height:240px;position:relative">
@@ -832,8 +832,8 @@ function drawLinks(){
     const lbl=(br?(br+': '):'')+(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
-      +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0d1117" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4" fill="${col}"/>`
-      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0d1117" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
+      +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0a121b" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4" fill="${col}"/>`
+      +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0a121b" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
     const c=STC[h.status]||'var(--grey)'; const mx=(a.x+b.x)/2; const flow=FLOW.has(h.status);
