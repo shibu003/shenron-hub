@@ -56,7 +56,8 @@ export function register(email, password) {
   if (users.find((u) => u.email === email)) throw new Error('email already registered');
   const salt       = randomBytes(16).toString('hex');
   const verifyToken = randomBytes(24).toString('hex');
-  const user = { id: randomBytes(8).toString('hex'), email, passwordHash: hashPw(password, salt), salt, verified: false, verifyToken, createdAt: new Date().toISOString() };
+  const role       = users.length === 0 ? 'admin' : 'member';   // B1: 最初の登録者だけ admin（残りは member）。
+  const user = { id: randomBytes(8).toString('hex'), email, passwordHash: hashPw(password, salt), salt, role, verified: false, verifyToken, createdAt: new Date().toISOString() };
   users.push(user);
   saveUsers(users);
   return { userId: user.id, email, verifyToken }; // caller prints the link
@@ -100,10 +101,26 @@ export function checkSession(token) {
 export function logout(token) { sessions.delete(token); saveSessions(); return { ok: true }; }
 
 export function listUsers() {
-  return readUsers().map(({ id, email, verified, createdAt }) => ({ id, email, verified, createdAt }));
+  return readUsers().map(({ id, email, verified, createdAt, role }) => ({ id, email, verified, createdAt, role: role || 'member' }));
 }
 
 export function userCount() { return readUsers().length; }
+
+// B1: role lookup — isAdmin gate が毎回 live 読取（session に role を載せないので set_role 後も stale にならない）。
+export function getRole(userId) { return readUsers().find((u) => u.id === userId)?.role || 'member'; }
+
+// B1: admin/member の付替え。最後の admin は降格不可（lockout 防止）。
+export function setRole(userId, role) {
+  if (role !== 'admin' && role !== 'member') throw new Error('role must be admin or member');
+  const users = readUsers();
+  const user = users.find((u) => u.id === userId);
+  if (!user) throw new Error('user not found');
+  if (user.role === 'admin' && role === 'member' && users.filter((u) => u.role === 'admin').length <= 1)
+    throw new Error('cannot demote the last admin');
+  user.role = role;
+  saveUsers(users);
+  return { userId, role };
+}
 
 export function resetRequest(email) {
   const users = readUsers();

@@ -395,7 +395,7 @@ async function loadUsers(){
   let users=[]; try{ const r=await api('/api/auth/users'); users=Array.isArray(r)?r:(r.users||[]); }catch{ return; }
   if(!users.length){ $('#users').innerHTML=''; return; }
   $('#users').innerHTML = `<div class="sub" style="margin-bottom:6px">登録ユーザー（${users.length}）</div>`+users.map(u=>`
-    <div class="ig"><div class="nm"><b>${esc(u.email||u.id)}</b><span>${u.verified?'✓ 認証済み':'未認証'}</span></div></div>`).join('');
+    <div class="ig"><div class="nm"><b>${esc(u.email||u.id)}</b><span>${u.role==='admin'?'⬡ admin':'member'} · ${u.verified?'✓ 認証済み':'未認証'}</span></div></div>`).join('');
 }
 
 // --- ゴール（CRUD + 手動 checkin） ---
