@@ -28,6 +28,7 @@ import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wa
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { runDoctor } from './doctor.mjs';   // Wave N-3
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword, getRole, setRole } from './auth.mjs';
+import { writeJsonAtomic, createStore } from './state.mjs';   // Cliff-1: 永続 JSON store（atomic write で torn-write 撲滅）
 import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus, visibleTo } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
@@ -42,7 +43,7 @@ const sp = (name, fallback) => _SD ? path.join(_SD, name) : fallback;  // ponyta
 // （cost / routing / scheduler）は liveCfg() で都度ファイルを読む → set_config(MCP/NL) で再起動なしに即反映。env は ops 上書き。
 const CFG_PATH = sp('shenron.config.json', path.join(HERE, 'shenron.config.json'));
 const liveCfg = () => { try { return JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')); } catch { return {}; } };
-const writeCfg = (obj) => fs.writeFileSync(CFG_PATH, JSON.stringify(obj, null, 2));
+const writeCfg = (obj) => writeJsonAtomic(CFG_PATH, obj);
 (function applyProvidersToEnv(c) {                                     // runner-side のみ env へ（変更は restart で反映）。env 優先。
   const set = (k, v) => { if (v != null && process.env[k] == null) process.env[k] = String(v); };
   const p = c.providers || {};
@@ -100,12 +101,10 @@ function templateGaps(t) {
   for (const n of (t.nodes || [])) if (n.kind === 'mcp' && n.server) { const it = integs.find((x) => x.id === n.server); if (!it) warnings.push(`integration "${n.server}" が未登録 — install はできますが run 時に gap になります（⚙ 設定で接続）`); else if (it.enabled === false) warnings.push(`integration "${n.server}" が無効 — ⚙ 設定で有効化するまで run 時に gap になります`); }
   return warnings;
 }
-let state = load();
+const { state, save } = createStore(STATE_FILE);   // Cliff-1: load+atomic save を state.mjs へ抽出（state は 1プロセス 1 共有 object）
 state.runs ||= {};                          // runId -> { nodes, edges, outputs, status } for in-flight DAG runs
 state.audit ||= [];                         // Wave H: hash-chained, tamper-evident trust trail
 const trail = (type, detail) => { const e = auditAppend(state.audit, { type, ts: now(), ...detail }); save(); return e; };
-function load() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { handoffs: [], agents: {} }; } }
-function save() { try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch (e) { console.error('[hub] save failed', e.message); } }
 // Wave ③ — the hub's ed25519 signing key for Trust Receipts. Generated on first boot, persisted to a gitignored
 // PEM (*.pem). The public key is exported (safe); the private key NEVER leaves the box and is never committed.
 function loadOrCreateKeypair(pemPath) {
@@ -275,7 +274,7 @@ const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, '
 // Wave 8 — 生成部品の登録庫（§H: 生成→収束→人が一度承認→cache・再利用）。workflows.json と同じ shared store パターン。
 const COMP_FILE = sp('components.json', path.join(HERE, '..', 'mcp', 'components.json'));
 const readComponents = () => { try { return JSON.parse(fs.readFileSync(COMP_FILE, 'utf8')); } catch { return []; } };
-const writeComponents = (arr) => fs.writeFileSync(COMP_FILE, JSON.stringify(arr, null, 2));
+const writeComponents = (arr) => writeJsonAtomic(COMP_FILE, arr);
 function saveComponent({ what, code, output, iters, credentials }) {    // 収束した部品を pending(approved:false) で登録。人が承認するまで再利用しない（§I）
   const arr = readComponents();
   const slug = componentKey(what).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32);
@@ -298,7 +297,7 @@ function toposort(nodes, edges) {                          // Kahn's; returns be
 }
 function touchWorkflowRun(flowId) {
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === flowId);
-  if (i < 0) return; arr[i].lastRun = now(); fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+  if (i < 0) return; arr[i].lastRun = now(); writeJsonAtomic(WF_FILE, arr);
 }
 function saveWorkflow({ id, name, summary, tags, nodes, edges, ui, owner, visibility }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
@@ -308,14 +307,14 @@ function saveWorkflow({ id, name, summary, tags, nodes, edges, ui, owner, visibi
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
   if (i >= 0) { arr[i] = { ...arr[i], ...wf }; }                                                // T-0 update: 既存 owner/visibility を保持（...wf に含めないので上書きされない）
   else { wf.owner = owner ?? null; wf.visibility = visibility || 'private'; arr.push(wf); }     // T-0 create 時のみ owner/visibility を刻む（owner=null=MCP/ハブ共有）
-  fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+  writeJsonAtomic(WF_FILE, arr);
   return wf;
 }
 function setVisibility(id, visibility) {   // T-0: share/unshare = visibility flip のみ（owner は不変）。レコード未存在は throw。
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
   if (i < 0) throw new Error(`no workflow "${id}"`);
   arr[i].visibility = visibility;
-  fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+  writeJsonAtomic(WF_FILE, arr);
   return { id, visibility };
 }
 // Wave A1 — 共有エージェント庫: visibility==='shared' のフロー + 承認済み部品を集約し、信頼を「実数字」で見せる
@@ -782,7 +781,7 @@ const schedulerNote = () => schedulerOn()
 // ---------- integrations (Wave F.2): connected MCP servers, on/off. Only enabled servers' tools reach palette/executor ----------
 const INTEG_FILE = sp('integrations.json', path.join(HERE, '..', 'mcp', 'integrations.json'));
 const readIntegrations = () => { try { return JSON.parse(fs.readFileSync(INTEG_FILE, 'utf8')); } catch { return []; } };
-const writeIntegrations = (arr) => fs.writeFileSync(INTEG_FILE, JSON.stringify(arr, null, 2));
+const writeIntegrations = (arr) => writeJsonAtomic(INTEG_FILE, arr);
 // clean-mcp token-light index for integrations (mirrors server.mjs search_integrations): keyword score → SMALL refs.
 // The cockpit/AI search the index and get_integration ONE for its full tool list (vs the old /api/integrations dump).
 const searchIntegrationsRefs = (q = '', limit = 999) => {
@@ -849,17 +848,17 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   const arr = readAutomations(); const i = arr.findIndex((a) => a.id === id);
   const m = { id, name: name || id, summary: summary || '', tags: tags || [], trigger, workflow: workflowId, input: input || '', enabled: enabled !== false, ...(i >= 0 && arr[i].expect ? { expect: arr[i].expect } : {}) };   // Wave R-1: canvas 再保存で setCheck の expect を消さない（既存を持ち越し）
   if (i >= 0) arr[i] = m; else arr.push(m);
-  fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
+  writeJsonAtomic(AUTO_FILE, arr);
   return trigger.type === 'schedule' ? { ...m, note: schedulerNote() } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
 }
 // pause/resume a saved automation without deleting it — scheduler & fireEvent both honor enabled (read fresh, no restart). Mirrors toggleIntegration.
-function toggleAutomation(id, on) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2)); return { id: it.id, name: it.name, enabled: it.enabled }; }
+function toggleAutomation(id, on) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; writeJsonAtomic(AUTO_FILE, arr); return { id: it.id, name: it.name, enabled: it.enabled }; }
 // Wave R-1: automation に成果検証(expect)を付与/解除。toggleAutomation と同型（read-modify-write・他フィールド保持）。
 function setCheck(id, expect) {
   const arr = readAutomations(); const a = arr.find((x) => x.id === id); if (!a) throw new Error(`no automation "${id}"`);
   if (expect == null) delete a.expect;
   else { if (!['assert', 'judge'].includes(expect.kind)) throw new Error('expect.kind must be assert|judge'); a.expect = { kind: expect.kind, rule: expect.rule || '', onFail: 'notify', maxRetry: expect.maxRetry || 0 }; }   // R-1: onFail は notify 固定・maxRetry は R-2 用に保存のみ
-  fs.writeFileSync(AUTO_FILE, JSON.stringify(arr, null, 2));
+  writeJsonAtomic(AUTO_FILE, arr);
   return { id: a.id, expect: a.expect || null };
 }
 // Wave Goals-1 — 長期ゴール記憶（automations.json 同型の自己完結 store）。最小＝CRUD + 手動 checkin で進捗表示。
@@ -867,7 +866,7 @@ function setCheck(id, expect) {
 // tick 相乗りの停滞/締切通知(Goals-2)・停滞時の次の手提案(Goals-3)は肉付け。
 const GOALS_FILE = sp('goals.json', path.join(HERE, '..', 'mcp', 'goals.json'));
 const readGoals = () => { try { return JSON.parse(fs.readFileSync(GOALS_FILE, 'utf8')); } catch { return []; } };
-const writeGoals = (arr) => fs.writeFileSync(GOALS_FILE, JSON.stringify(arr, null, 2));
+const writeGoals = (arr) => writeJsonAtomic(GOALS_FILE, arr);
 const goalPct = (g) => { const t = Number(g.target), c = Number(g.current); return Number.isFinite(t) && t !== 0 && Number.isFinite(c) ? Math.round((c / t) * 100) : null; };   // pure: 進捗率（target 無し/0 は null）
 const goalView = (g) => ({ ...g, pct: goalPct(g) });
 function saveGoal({ id, wish, metric, target, current, unit, deadline, automationIds, status }) {
@@ -930,7 +929,7 @@ function checkGoals() {
 // suggestions.json に { id, kind, reason, evidence, workflowId?, status } を積む。
 const SUGG_FILE = sp('suggestions.json', path.join(HERE, '..', 'mcp', 'suggestions.json'));
 const readSuggestions = () => { try { return JSON.parse(fs.readFileSync(SUGG_FILE, 'utf8')); } catch { return []; } };
-const writeSuggestions = (arr) => fs.writeFileSync(SUGG_FILE, JSON.stringify(arr, null, 2));
+const writeSuggestions = (arr) => writeJsonAtomic(SUGG_FILE, arr);
 function dismissSuggestion(id) {
   const arr = readSuggestions(); const s = arr.find((x) => x.id === id); if (!s) throw new Error(`no suggestion "${id}"`);
   s.status = 'dismissed'; writeSuggestions(arr); return { id, status: 'dismissed' };
@@ -1040,12 +1039,12 @@ function firePreview(event) {                               // read-only: same m
 // Wave: persisted schedule state（automation id → 最後に発火した epoch ms）。STATE_DIR に置く＝再起動/volume を跨いで catch-up が効く。
 const SCHED_FILE = sp('schedule-state.json', path.join(HERE, 'schedule-state.json'));
 const readSchedState = () => { try { return JSON.parse(fs.readFileSync(SCHED_FILE, 'utf8')); } catch { return {}; } };
-const writeSchedState = (s) => { try { fs.writeFileSync(SCHED_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };
+const writeSchedState = (s) => { try { fs.writeFileSync(SCHED_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };   // ponytail: transient cache（torn 時も boot 時 catch-up で再計算）＝atomic 不要・writeJsonAtomic は durable store 専用
 // Wave Login-1 — クレデンシャル生命管理: browser-control がログイン要求を検出した/通過した状態を domain ごとに永続。
 // login_status MCP tool が読む＝無人 run でログインが切れていないか外から確認できる。値（user/pass）は一切持たない（検出のみ）。
 const LOGIN_FILE = sp('login-state.json', path.join(HERE, 'login-state.json'));
 const readLoginState = () => { try { return JSON.parse(fs.readFileSync(LOGIN_FILE, 'utf8')); } catch { return {}; } };
-const writeLoginState = (s) => { try { fs.writeFileSync(LOGIN_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };
+const writeLoginState = (s) => { try { fs.writeFileSync(LOGIN_FILE, JSON.stringify(s)); } catch { /* best-effort */ } };   // ponytail: transient cache（検出のみ・torn は次 run の検出で復元）＝atomic 不要
 function recordLogin(domain, resolved) {
   if (!domain) return readLoginState();
   const s = readLoginState(); const e = s[domain] || {};
@@ -1605,7 +1604,7 @@ const server = http.createServer((req, res) => {
       if (p.startsWith('/api/goals/') && p.endsWith('/suggest')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/suggest'.length)); goalSuggest(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Wave Goals-3: 次の手提案（planFlow async）
       if (p === '/api/workflows') return json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) }));     // save wired DAG (nodes/edges + derived steps[])・T-0: 作成者=seat owner
       { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
-        if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2)); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
+        if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; writeJsonAtomic(WF_FILE, arr); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
       { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy
         if (cm) { try { return json(res, 200, cloneWorkflow(decodeURIComponent(cm[1]), j.name)); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
       { const sm = p.match(/^\/api\/workflows\/([^/]+)\/(share|unshare)$/);   // T-0: 庫への共有/非共有トグル（visibility flip・owner 不変）。MCP の share_workflow と同じ setVisibility を cockpit にも露出
