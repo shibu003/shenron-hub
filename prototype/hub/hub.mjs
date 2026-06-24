@@ -27,7 +27,7 @@ import { setCredential, getCredential, listCredentials, deleteCredential } from 
 import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wave U-1: tool defs single-sourced (shared with stdio server.mjs)
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { runDoctor } from './doctor.mjs';   // Wave N-3
-import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
+import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword, getRole, setRole } from './auth.mjs';
 import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus, visibleTo } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
@@ -1200,6 +1200,14 @@ const bearerOk = (req) => {
   if (checkSession(cookieSession(req))) return true;        // Web UI session cookie
   return openDev && !oauthTokens.size;                     // open only when no token-based auth is configured
 };
+// B1: admin gate。openDev(個人/開放ハブ)と MCP 運用者(SHARED_TOKEN/oauth)は admin＝後方互換。閉じた multi-seat の Web UI member だけが弾かれる。
+const isAdmin = (req) => {
+  if (openDev) return true;
+  const t = (req.headers['authorization'] || '').replace(/^Bearer /i, '').trim();
+  if ((SHARED_TOKEN && t === SHARED_TOKEN) || oauthTokens.has(t)) return true;
+  const s = checkSession(cookieSession(req));
+  return s ? getRole(s.userId) === 'admin' : false;
+};
 
 // ---------- Remote MCP (HTTP/SSE transport — Claude.ai mobile connects here, no API key needed) ----------
 const mcpSessions = new Map(); // sessionId → SSE res
@@ -1533,6 +1541,12 @@ const server = http.createServer((req, res) => {
       }
       if (p === '/api/auth/reset') {
         try { return json(res, 200, resetPassword(j.token, j.password)); }
+        catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      // Wave B1: role 付替え（admin 専用）。set_role MCP(stdio) と settings.html admin が同ルートを叩く。
+      if (p === '/api/auth/role') {
+        if (!isAdmin(req)) return json(res, 403, { error: 'admin only' });
+        try { return json(res, 200, setRole(j.userId, j.role)); }
         catch (e) { return json(res, 400, { error: e.message }); }
       }
       // OAuth POST endpoints

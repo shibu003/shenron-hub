@@ -106,8 +106,10 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Component id from list_components' } }, required: ['id'] } },
   { name: 'import_skill', description: 'Import a skill JSON blob (from export_skill or community). Saves as a pending component — approve with approve_component to activate. Provide code+what directly or a blob object.',
     inputSchema: { type: 'object', properties: { what: { type: 'string' }, code: { type: 'string' }, blob: { type: 'object', description: 'Pass the full export_skill blob here instead of what+code' } } } },
-  { name: 'list_users', description: '登録済みユーザー一覧（id/email/verified/createdAt）。パスワードは返らない。',
+  { name: 'list_users', description: '登録済みユーザー一覧（id/email/verified/createdAt/role）。パスワードは返らない。',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'set_role', description: 'Wave B1: ユーザーの role を admin/member に設定（admin 専用・stdio ローカルのみ）。最後の admin は降格不可。userId は list_users で取得。',
+    inputSchema: { type: 'object', properties: { userId: { type: 'string' }, role: { type: 'string', description: 'admin | member' } }, required: ['userId', 'role'] } },
   { name: 'reset_password', description: 'パスワードリセット。email だけ渡すと hub ターミナルにリセットリンクを出力（reset-request）。token + password を渡すとリセット実行（reset）。両方公開エンドポイント（認証不要）。',
     inputSchema: { type: 'object', properties: { email: { type: 'string', description: 'reset-request: メールアドレス' }, token: { type: 'string', description: 'reset: リセットリンクのトークン' }, password: { type: 'string', description: 'reset: 新しいパスワード' } } } },
   { name: 'list_runs', description: '直近 20 件のフロー実行履歴（id/flowId/status/done/total/outputs）。',
@@ -224,6 +226,7 @@ export const REMOTE_DENY = new Set([
   'set_permission',   // browser-control の allow ルールを黙って広げ承認フェンスを緩める。閲覧(get_permissions)は remote 可。
   'reset_password',   // 認証操作はローカルで（リセットリンクは hub ターミナルに出る）。
   'list_users',       // アカウント列挙を remote から不可に。
+  'set_role',         // 権限昇格を claude.ai 経由で不可（set_permission と同方針）。role 変更はローカル stdio で。
 ]);
 
 export const forStdio  = (t) => !t.surfaces || t.surfaces.includes('stdio');

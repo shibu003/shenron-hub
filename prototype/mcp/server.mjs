@@ -239,6 +239,8 @@ async function callTool(name, args = {}) {
     case 'import_skill': { const b = args.blob || {}; return await hub('/api/components/import', { what: args.what || b.what, code: args.code || b.code, iters: b.iters }); }
     // Wave L: Auth
     case 'list_users': return await hub('/api/auth/users');
+    // Wave B1: role 付替え（admin 専用・stdio のみ）
+    case 'set_role': return await hub('/api/auth/role', { userId: args.userId, role: args.role });
     // Wave M-1: reset
     case 'reset_password':
       if (args.token) return await hub('/api/auth/reset', { token: args.token, password: args.password });
