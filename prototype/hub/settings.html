@@ -2,20 +2,24 @@
 <meta charset="utf-8">
 <title>神龍 — 設定</title>
 <!-- 神龍の全設定を1ページで。GET/POST /api/config（cost・scheduler・routing・providers）+ /api/autorun + /api/integrations。
-     canvas (ui2) のトップバー ⚙ から開く。同テーマ・ビルド不要・vanilla。MCP の get_config/set_config と同じ設定面の薄い view。 -->
+     canvas (ui2) のトップバー設定から開く。同テーマ・ビルド不要・vanilla。MCP の get_config/set_config と同じ設定面の薄い view。 -->
 <style>
-  :root { --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#30363d; --txt:#e6edf3; --dim:#8b949e;
-          --green:#3fb950; --amber:#d29922; --blue:#58a6ff; --red:#f85149; --grey:#6e7681; }
+  /* Netdive Blue（フラット）— docs/THEME.md */
+  :root { --bg:#0a0c10; --panel:#0c1822; --panel2:#0f1f2c; --line:#213e56; --txt:#c2d6e6; --dim:#6d8aa0;
+          --green:#3fae7a; --amber:#c79338; --blue:#5b9bd1; --red:#c2554f; --grey:#5e84a0;
+          --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
   * { box-sizing:border-box; }
   body { margin:0; font:13px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
   a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
   button, input, select { font:inherit; }
   #topbar { display:flex; align-items:center; gap:14px; height:48px; padding:0 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
-  .brand { font-weight:700; font-size:15px; }
+  .brand { font-weight:700; font-size:15px; font-family:var(--mono); letter-spacing:.06em; color:var(--accent-brand,#aacbe4); display:flex; align-items:center; gap:9px; }
+  .brand .reticle { width:18px; height:18px; color:var(--blue); }
   #conn { margin-left:auto; font-size:12px; color:var(--dim); }
   main { max-width:760px; margin:0 auto; padding:22px 18px 80px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:16px; }
-  .card h2 { font-size:13px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px 18px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 4px; display:flex; align-items:center; gap:8px; font-family:var(--mono); letter-spacing:.03em; }
+  .card h2 svg { width:15px; height:15px; color:var(--blue); flex:none; }
   .card .sub { color:var(--dim); font-size:12px; margin:0 0 14px; line-height:1.5; }
   .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
   .row:last-child { margin-bottom:0; }
@@ -54,7 +58,7 @@
 </style>
 
 <header id="topbar">
-  <div class="brand">🐉 神龍 · 設定</div>
+  <div class="brand"><svg class="reticle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>神龍 · 設定</div>
   <a href="/ui2">← キャンバスに戻る</a>
   <span id="conn"></span>
 </header>
@@ -62,17 +66,17 @@
 <main>
   <!-- 実行コスト -->
   <div class="card">
-    <h2>💰 実行コスト</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><circle cx="16.5" cy="14.5" r="1.1"/></svg>実行コスト</h2>
     <p class="sub">既定の財布。<b>free</b>＝従量0のツールのみ（本人サブスク・ローカル実行）。<b>paid_ok</b>＝有料の frontier モデル/ツールも許可（コストは都度開示）。プラン生成のモデル経路もこれに連動します。</p>
     <div class="seg" id="cost">
-      <button data-cost="free">🆓 free</button>
-      <button data-cost="paid_ok">💳 paid_ok</button>
+      <button data-cost="free">free</button>
+      <button data-cost="paid_ok">paid_ok</button>
     </div>
   </div>
 
   <!-- スケジューラ -->
   <div class="card">
-    <h2>⏰ スケジューラ</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>スケジューラ</h2>
     <p class="sub">cron / build-state イベントで自動化を発火します。</p>
     <div class="swrow">
       <label class="sw"><input type="checkbox" id="sched"><span class="track"><span class="knob"></span></span></label>
@@ -83,7 +87,7 @@
 
   <!-- ローカル実行 -->
   <div class="card">
-    <h2>⚡ ローカル実行（autorun）</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>ローカル実行（autorun）</h2>
     <p class="sub">hub がローカル agent を自プロセスで代理実行するか。OFF にすると専用 worker 起動時のみ実行（broker-only）。</p>
     <div class="swrow">
       <label class="sw"><input type="checkbox" id="autorun"><span class="track"><span class="knob"></span></span></label>
@@ -93,7 +97,7 @@
 
   <!-- モデル経路 -->
   <div class="card">
-    <h2>🧭 モデル経路（routing）</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v5a3 3 0 0 0 3 3h7"/><path d="M14 9l3 3-3 3"/><path d="M7 14v6"/><circle cx="7" cy="4" r="1.4"/></svg>モデル経路（routing）</h2>
     <p class="sub">プランの各ステップの宛先。<b>cheap</b>＝軽い処理（無料サブスク/ローカル）、<b>strong</b>＝重要処理（本人 Claude 等）。空欄＝既定。</p>
     <div class="two">
       <div><label class="field">cheap · vendor</label><input type="text" id="r_cheap_v" placeholder="claude / ollama / codex …"></div>
@@ -121,7 +125,7 @@
 
   <!-- 連携 MCP サーバー -->
   <div class="card">
-    <h2>🔌 連携（MCP サーバー）</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg>連携（MCP サーバー）</h2>
     <p class="sub">プランから使える外部ツール群。ON のサーバーのツールだけが解決対象になります。</p>
     <div id="integrations"></div>
     <div class="two" style="margin-top:10px">
@@ -134,21 +138,21 @@
 
   <!-- オートメーション -->
   <div class="card">
-    <h2>⏱ オートメーション</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v5h-5"/></svg>オートメーション</h2>
     <p class="sub">保存済みフローの自動実行（スケジュール / build-state）。OFF で発火を即停止（削除はしません）。</p>
     <div id="automations"></div>
   </div>
 
   <!-- テンプレート -->
   <div class="card">
-    <h2>📦 テンプレート</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/></svg>テンプレート</h2>
     <p class="sub">同梱の定番フローをワンクリックで導入。導入後は編集可能なワークフローとして複製されます。</p>
     <div id="templates"></div>
   </div>
 
   <!-- ゴール -->
   <div class="card">
-    <h2>🎯 ゴール</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>ゴール</h2>
     <p class="sub">長期の願い（例「3ヶ月でフォロワー1000」）を神龍に預け、手動チェックインで進捗を追います。</p>
     <div id="goals"></div>
     <div class="two" style="margin-top:10px">
@@ -164,7 +168,7 @@
 
   <!-- 成果検証 -->
   <div class="card">
-    <h2>✅ 成果検証（自動チェック）</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12l2.5 2.5 5-5"/></svg>成果検証（自動チェック）</h2>
     <p class="sub">オートメーションの実行結果が期待どおりか自動判定し、外れたら通知します。assert=決定論（$0）・judge=AI が yes/no。</p>
     <div id="checks"></div>
     <div class="two" style="margin-top:10px">
@@ -181,14 +185,14 @@
 
   <!-- R-3 ドリフト検出 -->
   <div class="card">
-    <h2>🚨 ドリフト検出</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9 16H3z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.4" r=".7" fill="currentColor" stroke="none"/></svg>ドリフト検出</h2>
     <p class="sub">成果検証より上位の警告。同じオートメーションが3連続で失敗、または出力構造が急変したときに記録します（自動検出・読み取り専用）。</p>
     <div id="driftAlerts"></div>
   </div>
 
   <!-- Ambient-1 提案 -->
   <div class="card">
-    <h2>💡 神龍の提案</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 18h5"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.6.5 1.3 1.4 1.3 2.4h5c0-1 .7-1.9 1.3-2.4A6 6 0 0 0 12 3z"/></svg>神龍の提案</h2>
     <p class="sub">神龍が自分の実行履歴を観察して「定期化できそう」「連続 fail 中」などを自動で提案します。外部受信箱は読みません。</p>
     <div id="suggestions"></div>
     <div class="row" style="margin-top:8px"><button class="btn" onclick="loadSuggestions()">↺ 更新</button></div>
@@ -196,7 +200,7 @@
 
   <!-- クレデンシャル保管庫 -->
   <div class="card">
-    <h2>🔐 クレデンシャル保管庫</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>クレデンシャル保管庫</h2>
     <p class="sub">フローが名前で参照する API キー / パスワードを安全に保存（macOS は Keychain）。<b>値は二度と表示されません</b>（在否のみ）。</p>
     <div id="credentials"></div>
     <div class="two" style="margin-top:10px">
@@ -208,7 +212,7 @@
 
   <!-- 通知 -->
   <div class="card">
-    <h2>📬 通知（Webhook）</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>通知（Webhook）</h2>
     <p class="sub">フロー実行の完了 / キャンセル時に Slack・Discord・任意の Webhook へ push 通知します。</p>
     <div id="notifiers"></div>
     <div class="two" style="margin-top:10px">
@@ -222,12 +226,12 @@
       </select>
       <input type="text" id="nt_token" placeholder="Bearer トークン（任意）">
     </div>
-    <div class="row" style="margin-top:10px"><button class="btn go" id="addNt">＋ 登録</button><button class="btn" id="testNt">🧪 テスト送信</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addNt">＋ 登録</button><button class="btn" id="testNt">テスト送信</button></div>
   </div>
 
   <!-- 環境 / キー -->
   <div class="card">
-    <h2>🔑 環境・API キー</h2>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="4.5"/><path d="M11.7 11.7L20 20"/><path d="M16.5 16.5l2-2"/></svg>環境・API キー</h2>
     <p class="sub">キーの<b>在否</b>のみ表示（値は出ません）。LLM はローカル <code>claude -p</code>（従量0）でも動きます。</p>
     <div class="row" id="keys"></div>
     <div class="row" id="modeRow"></div>
@@ -260,8 +264,8 @@ async function loadConfig(){
   $('#sched').checked = s.schedulerOn;
   $('#schedState').textContent = s.schedulerOn ? 'ON — hub 起動中に発火' : 'OFF — 予定は発火しません';
   $('#schedNote').textContent = s.schedulerOn
-    ? '⏰ 発火するのは「この hub プロセスが起きている間」だけ（あなたの Mac が ON、または 24/7 のクラウド常駐）。スマホのみで常駐 hub が無いと発火しません→外部スケジューラ（Apps Script 等）を併用。'
-    : '⚠️ in-hub スケジューラは OFF。予定された自動化は発火しません。ON にするか外部スケジューラを使ってください。';
+    ? '発火するのは「この hub プロセスが起きている間」だけ（あなたの Mac が ON、または 24/7 のクラウド常駐）。スマホのみで常駐 hub が無いと発火しません→外部スケジューラ（Apps Script 等）を併用。'
+    : 'in-hub スケジューラは OFF。予定された自動化は発火しません。ON にするか外部スケジューラを使ってください。';
   // routing
   const rt=c.routing||{};
   $('#r_cheap_v').value = rt.cheap?.vendor||''; $('#r_cheap_m').value = rt.cheap?.model||'';
@@ -276,8 +280,8 @@ async function loadConfig(){
     .map(([n,on])=>`<span class="badge ${on?'ok':'no'}">${on?'✓':'—'} ${n}</span>`).join('');
   // mode
   $('#modeRow').innerHTML = s.managed
-    ? `<span class="badge warn">☁ managed hub</span><span class="sub" style="margin:0">ブラウザ操作（browser-control）は本人マシンの神龍が必要です。</span>`
-    : `<span class="badge ok">🖥 self-host</span><span class="sub" style="margin:0">ローカル常駐：全機能（ブラウザ操作含む）が使えます。</span>`;
+    ? `<span class="badge warn">managed hub</span><span class="sub" style="margin:0">ブラウザ操作（browser-control）は本人マシンの神龍が必要です。</span>`
+    : `<span class="badge ok">self-host</span><span class="sub" style="margin:0">ローカル常駐：全機能（ブラウザ操作含む）が使えます。</span>`;
   // needs hints
   $('#needs').innerHTML = (s.needs||[]).map(n=>`<li>${esc(n)}</li>`).join('');
 }
@@ -372,7 +376,7 @@ async function loadTemplates(){
   let list=[]; try{ list=await api('/api/templates'); }catch{}
   list=Array.isArray(list)?list:(list.templates||[]);
   $('#templates').innerHTML = list.length ? list.map(t=>{
-    const warn=(t.warnings&&t.warnings.length)?`<div class="note warn" style="margin-top:6px">⚠️ ${t.warnings.map(esc).join(' / ')}</div>`:'';
+    const warn=(t.warnings&&t.warnings.length)?`<div class="note warn" style="margin-top:6px">${t.warnings.map(esc).join(' / ')}</div>`:'';
     return `<div class="ig" style="display:block">
       <div class="nm" style="display:flex;justify-content:space-between;align-items:center">
         <b>${esc(t.name||t.id)}</b><button class="btn go" data-install="${esc(t.id)}">導入</button>
@@ -390,7 +394,7 @@ async function loadTemplates(){
 async function loadUsers(){
   let users=[]; try{ const r=await api('/api/auth/users'); users=Array.isArray(r)?r:(r.users||[]); }catch{ return; }
   if(!users.length){ $('#users').innerHTML=''; return; }
-  $('#users').innerHTML = `<div class="sub" style="margin-bottom:6px">👥 登録ユーザー（${users.length}）</div>`+users.map(u=>`
+  $('#users').innerHTML = `<div class="sub" style="margin-bottom:6px">登録ユーザー（${users.length}）</div>`+users.map(u=>`
     <div class="ig"><div class="nm"><b>${esc(u.email||u.id)}</b><span>${u.verified?'✓ 認証済み':'未認証'}</span></div></div>`).join('');
 }
 
@@ -408,7 +412,7 @@ async function loadGoals(){
       <div class="row" style="gap:8px;margin-top:8px">
         <input type="number" data-ckval="${esc(g.id)}" placeholder="現在値を入力" style="flex:1">
         <button class="btn" data-checkin="${esc(g.id)}">記録</button>
-        <button class="btn go" data-suggest="${esc(g.id)}" title="神龍に次の一手を提案させる">💡 次の手</button>
+        <button class="btn go" data-suggest="${esc(g.id)}" title="神龍に次の一手を提案させる">次の手</button>
         <button class="btn" data-delgoal="${esc(g.id)}">削除</button>
       </div>
     </div>`;
@@ -418,11 +422,11 @@ async function loadGoals(){
     if(v==='') return toast('現在値を入力してください');
     await api(`/api/goals/${encodeURIComponent(el.dataset.checkin)}/checkin`,{value:Number(v)}); toast('進捗を記録しました'); loadGoals();
   });
-  $('#goals').querySelectorAll('[data-suggest]').forEach(el=>el.onclick=async()=>{   // Wave Goals-3: 次の手提案（planFlow・提案は 💡 神龍の提案 にも push）
+  $('#goals').querySelectorAll('[data-suggest]').forEach(el=>el.onclick=async()=>{   // Wave Goals-3: 次の手提案（planFlow・提案は「神龍の提案」にも push）
     el.disabled=true; el.textContent='考え中…';
     try{ const r=await api(`/api/goals/${encodeURIComponent(el.dataset.suggest)}/suggest`,{}); toast('次の一手: '+((r&&(r.plain_summary||r.summary_text||r.goal))||'提案を生成しました').slice(0,80)); loadSuggestions(); }
     catch{ toast('提案の生成に失敗しました'); }
-    finally{ el.disabled=false; el.textContent='💡 次の手'; }
+    finally{ el.disabled=false; el.textContent='次の手'; }
   });
   $('#goals').querySelectorAll('[data-delgoal]').forEach(el=>el.onclick=async()=>{
     await api(`/api/goals/${encodeURIComponent(el.dataset.delgoal)}/delete`,{}); toast('削除しました'); loadGoals();
@@ -455,7 +459,7 @@ async function loadChecks(){
   let results=[]; try{ const r=await api('/api/check-results'); results=Array.isArray(r)?r:[]; }catch{}
   if(results.length){
     $('#checkResults').innerHTML = `<div class="sub" style="margin-bottom:6px">直近の検証結果</div>`+results.slice(-5).reverse().map(r=>`
-      <div class="ig"><div class="nm"><b>${r.passed?'✅':'❌'} ${esc(r.automationId||'')}</b><span>${esc(r.reason||'')}</span></div></div>`).join('');
+      <div class="ig"><div class="nm"><b>${r.passed?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--red)">✕</span>'} ${esc(r.automationId||'')}</b><span>${esc(r.reason||'')}</span></div></div>`).join('');
   } else $('#checkResults').innerHTML='';
 }
 $('#addCheck').onclick = async ()=>{
@@ -471,12 +475,12 @@ async function loadDrift(){
   let list=[]; try{ const r=await api('/api/drift-alerts'); list=Array.isArray(r)?r:[]; }catch{}
   if(list.length){
     $('#driftAlerts').innerHTML = list.slice(-5).reverse().map(a=>`
-      <div class="ig"><div class="nm"><b>⚠️ ${esc(a.automationId||'')}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
+      <div class="ig"><div class="nm"><b><span style="color:var(--amber)">●</span> ${esc(a.automationId||'')}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
   } else $('#driftAlerts').innerHTML='<p class="sub">ドリフトは検出されていません。</p>';
 }
 
 // --- Ambient-1 提案（list_suggestions / dismiss_suggestion / apply_suggestion） ---
-const KIND_LABEL = { automate:'⚡ 定期化を提案', fix:'🔧 修正を提案', goal:'🎯 ゴールの次の手' };
+const KIND_LABEL = { automate:'定期化を提案', fix:'修正を提案', goal:'ゴールの次の手' };
 async function loadSuggestions(){
   let list=[]; try{ const r=await api('/api/suggestions?status=open'); list=r.suggestions||[]; }catch{}
   $('#suggestions').innerHTML = list.length ? list.map(s=>`
@@ -487,7 +491,7 @@ async function loadSuggestions(){
       </div>
       <div style="color:var(--txt);font-size:12px;margin:6px 0">${esc(s.reason)}</div>
       <div class="row" style="gap:8px;margin:0">
-        <button class="btn go" data-apply="${esc(s.id)}" data-kind="${esc(s.kind)}">✅ 適用</button>
+        <button class="btn go" data-apply="${esc(s.id)}" data-kind="${esc(s.kind)}">✓ 適用</button>
         <button class="btn" data-dismiss="${esc(s.id)}">✕ 非表示</button>
       </div>
     </div>`).join('') : `<div class="note">提案はありません（hub が稼働中に自動で生成されます）。</div>`;
@@ -497,7 +501,7 @@ async function loadSuggestions(){
   $('#suggestions').querySelectorAll('[data-apply]').forEach(el=>el.onclick=async()=>{
     const r=await api(`/api/suggestions/${encodeURIComponent(el.dataset.apply)}/apply`,{});
     const msg = el.dataset.kind==='automate' ? '定期自動化を設定しました（毎日 9:00）'
-              : (el.dataset.kind==='goal' && r&&r.applied&&r.applied.workflowId) ? `次の手フローを作成しました（🗂 Flows: ${r.applied.workflowId}）`   // Goals-3.1: 提案を実体化
+              : (el.dataset.kind==='goal' && r&&r.applied&&r.applied.workflowId) ? `次の手フローを作成しました（Flows: ${r.applied.workflowId}）`   // Goals-3.1: 提案を実体化
               : '適用しました';
     toast(msg); loadSuggestions();
   });
