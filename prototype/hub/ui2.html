@@ -202,6 +202,9 @@
   <span id="conn"></span>
 </header>
 
+<!-- ponytail: dead — 役割分離(d329c33)で「神龍で作る」はリンク化、この内蔵ダイアログは到達不能。
+     applyPlan/loadFlow/LAST_PLAN が shSummary/shResult と結合しており剥がすと回帰リスク。
+     除去するなら applyPlan を shPanel 非依存に分離してから（別 pass）。今は到達不能で無害。 -->
 <div id="shPanel" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);width:460px;max-width:92vw;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 34px #000a;padding:14px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
     <b id="shTitle"></b><span style="cursor:pointer;color:var(--dim);font-size:16px" onclick="closeShenron()">✕</span>
@@ -221,11 +224,11 @@
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
     <div id="hint">
-      <div class="ec-h">🐉 フローを作る</div>
+      <div class="ec-h" style="display:flex;align-items:center;justify-content:center;gap:9px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="var(--blue)" stroke="none"/></svg>フローを作る</div>
       <div class="ec-b">右上の <b>＋ 追加</b> でノードを置き、ノードの縁から次のノードへドラッグして配線します。</div>
       <div class="ec-act">
         <button class="tb primary" onclick="openAddMenu()">＋ ノードを追加</button>
-        <button class="tb" onclick="showFlows()">🗂 保存済みを開く</button>
+        <button class="tb" onclick="showFlows()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> 保存済みを開く</button>
       </div>
     </div><div id="wireTip"></div>
     <div id="nodeSearch"><input id="nodeSearchInput" placeholder="ノード検索…" oninput="nodeSearch(this.value)" onkeydown="if(event.key==='Escape')closeNodeSearch()"><span style="color:var(--dim);cursor:pointer;padding-left:4px" onclick="closeNodeSearch()">✕</span></div>
