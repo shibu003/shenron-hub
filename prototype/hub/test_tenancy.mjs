@@ -35,9 +35,18 @@ try {
   const sh = await post('/api/workflows/' + saved.id + '/share', {});
   assert.equal(sh.visibility, 'shared', 'share route -> shared');
   assert.equal((await get('/api/workflows')).find((w) => w.id === saved.id).visibility, 'shared', 'list reflects shared');
+  // A1: 共有フローが庫（/api/shared）に enrichment 付きで出現
+  const card = (await get('/api/shared')).find((x) => x.kind === 'workflow' && x.id === saved.id);
+  assert.ok(card, 'shared flow appears in 庫 (GET /api/shared)');
+  assert.equal(card.maker, null, 'owner=null → maker null（個人ハブ/MCP作成）');
+  assert.equal(card.adoptedBy, 0, 'no refs/automations → adoptedBy 0');
+  assert.equal(card.reliability, null, 'no check history → reliability null（庫で「—」表示）');
+  assert.equal(card.drift, null, 'no check history → drift null');
+  assert.ok((await get('/api/shared?kind=component')).every((x) => x.kind === 'component'), 'kind=component フィルタ');
   const un = await post('/api/workflows/' + saved.id + '/unshare', {});
   assert.equal(un.visibility, 'private', 'unshare route -> private');
-  console.log('OK HTTP smoke owner/visibility + share/unshare route');
+  assert.equal((await get('/api/shared')).some((x) => x.id === saved.id), false, 'unshared flow leaves 庫');
+  console.log('OK HTTP smoke owner/visibility + share/unshare + 庫(list_shared)');
 } catch (e) { bad = true; console.error('FAIL', e.message); }
 finally { hub.kill(); }
 process.exit(bad ? 1 : 0);

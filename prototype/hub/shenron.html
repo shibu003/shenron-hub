@@ -257,6 +257,44 @@
         </div>
       </div>
 
+      <!-- ====== 📚 庫（共有エージェント庫・A1）====== -->
+      <div x-show="tab === 'garage'" class="p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-slate-800">📚 共有エージェント庫</h2>
+            <p class="text-xs text-slate-400 mt-1">チームで共有されたフロー・部品の棚。信頼は「何人が使い・drift ゼロか」の実績数字で示す。</p>
+          </div>
+          <button @click="loadShared()" class="text-sm text-indigo-600 hover:underline">↻ 更新</button>
+        </div>
+        <p x-show="shared.length === 0" class="text-sm text-slate-400 py-12 text-center">まだ共有された資産はありません（Flows の 🔗 を 🌐 にすると庫に載ります）</p>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <template x-for="it in shared" :key="it.kind + ':' + it.id">
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3 hover:shadow-md transition-shadow flex flex-col">
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs px-1.5 py-0.5 rounded shrink-0" :class="it.kind === 'workflow' ? 'bg-indigo-50 text-indigo-500' : 'bg-amber-50 text-amber-600'" x-text="it.kind === 'workflow' ? 'フロー' : '部品'"></span>
+                  <p class="font-semibold text-slate-800 text-sm" x-text="it.name"></p>
+                </div>
+                <p x-show="it.summary" class="text-xs text-slate-400 mt-1 line-clamp-2" x-text="it.summary"></p>
+                <p class="text-xs text-slate-400 mt-2" x-text="'maker: ' + (it.maker || '—')"></p>
+              </div>
+              <div class="flex items-center gap-3 text-xs pt-2 border-t border-gray-50">
+                <span class="text-slate-500" x-text="'🔁 ' + it.adoptedBy + ' 採用'"></span>
+                <span :class="it.reliability ? 'text-emerald-600' : 'text-slate-300'"
+                  :title="it.reliability ? (it.reliability.passed + '/' + it.reliability.total + ' 検証pass') : '検証履歴なし'"
+                  x-text="it.reliability ? ('✓ ' + it.reliability.rate + '%') : '✓ —'"></span>
+                <span :class="it.drift === null ? 'text-slate-300' : (it.drift > 0 ? 'text-rose-500' : 'text-slate-400')"
+                  x-text="'drift ' + (it.drift === null ? '—' : it.drift)"></span>
+              </div>
+              <div x-show="it.kind === 'workflow'" class="flex justify-end">
+                <button @click="cloneWorkflow(it.id)" title="この共有フローを自分のコピーに複製して使う（元は不変）"
+                  class="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors">▶ 複製</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <!-- ====== ⚡ RUNS ====== -->
       <div x-show="tab === 'runs'" class="p-6 space-y-4">
         <h2 class="text-xl font-bold text-slate-800">実行</h2>
@@ -565,6 +603,7 @@
         tabs: [
           { id: 'wish',        icon: '🐉', label: 'Wish'  },
           { id: 'workflows',   icon: '📋', label: 'Flows' },
+          { id: 'garage',      icon: '📚', label: '庫'    },
           { id: 'runs',        icon: '⚡', label: 'Runs'  },
           { id: 'handoffs',    icon: '✅', label: 'OKs'   },
           { id: 'deployments', icon: '🔧', label: 'Tools' },
@@ -582,6 +621,7 @@
 
         // Data
         workflows: [],
+        shared: [],
         runs: [],
         handoffs: [],
         integrations: [],
@@ -656,6 +696,7 @@
 
         onTabChange(t) {
           if (t === 'workflows')   this.loadWorkflows();
+          if (t === 'garage')      this.loadShared();
           if (t === 'deployments') this.loadDeployments();
           if (t === 'settings')    this.loadConfig();
         },
@@ -757,6 +798,11 @@
         // ── Workflows ────────────────────────────────
         async loadWorkflows() {
           try { this.workflows = await this.api('GET', '/api/workflows') || []; } catch { }
+        },
+
+        // ── 共有エージェント庫（A1）─────────────────
+        async loadShared() {
+          try { this.shared = await this.api('GET', '/api/shared') || []; } catch { }
         },
 
         async runWorkflow(id) {

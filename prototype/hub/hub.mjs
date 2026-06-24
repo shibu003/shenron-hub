@@ -317,6 +317,38 @@ function setVisibility(id, visibility) {   // T-0: share/unshare = visibility fl
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return { id, visibility };
 }
+// Wave A1 — 共有エージェント庫: visibility==='shared' のフロー + 承認済み部品を集約し、信頼を「実数字」で見せる
+// （trust theater の代わり: maker=作成者 / adoptedBy=再利用数 / reliability=検証pass率 / drift=劣化件数）。
+// workflows は visibility ゲート、components は approval ゲート（§I）— 2つの共有メカニズムを1つの庫に集約。
+function listShared(kind) {
+  const users = listUsers();                                                  // [{id,email}] — owner(uid)→email
+  const emailOf = (uid) => uid ? (users.find((u) => u.id === uid)?.email || null) : null;
+  const out = [];
+  if (kind !== 'component') {                                                 // ── 共有フロー ──
+    const wfs = readWorkflows(), autos = readAutomations();
+    const checks = state.checkResults || [], drifts = state.driftAlerts || [];
+    for (const wf of wfs.filter((w) => w.visibility === 'shared')) {
+      const autoIds = autos.filter((a) => a.workflow === wf.id).map((a) => a.id);
+      const subRefs = wfs.filter((w) => w.id !== wf.id && (w.nodes || []).some((n) => n.ref === wf.id)).length;
+      const myChecks = checks.filter((r) => r.flowId === wf.id || autoIds.includes(r.automationId));
+      const passed = myChecks.filter((r) => r.passed).length;
+      const drift = myChecks.length ? drifts.filter((d) => autoIds.includes(d.automationId)).length : null;  // 検証履歴ゼロ=評価不能=null（UI で「—」）
+      out.push({
+        kind: 'workflow', id: wf.id, name: wf.name, summary: wf.summary || '',
+        maker: emailOf(wf.owner),                                             // owner null（MCP/個人ハブ作成）= null = 「—」
+        adoptedBy: subRefs + autoIds.length,                                  // 他フローの sub-flow 参照 + automation 束縛 = 採用実績
+        reliability: myChecks.length ? { passed, total: myChecks.length, rate: Math.round((100 * passed) / myChecks.length) } : null,
+        drift,
+      });
+    }
+  }
+  if (kind !== 'workflow') {                                                  // ── 承認済み部品（approval が共有ゲート: §I 人が承認するまで再利用しない）──
+    for (const c of readComponents().filter((c) => c.approved)) {
+      out.push({ kind: 'component', id: c.id, name: c.what || c.id, summary: c.what || '', maker: null, adoptedBy: 0, reliability: null, drift: null });
+    }
+  }
+  return out;
+}
 // Wave Remix-1 — fork a saved flow into a NEW editable copy. The reuse-as-a-part half already works:
 // a saved flow can be dropped into another flow as a sub-flow node (kind:'workflow' + node.ref → fireWorkflowNode).
 // What was missing is forking — making a copy you can modify WITHOUT touching the original. install_template
@@ -1357,6 +1389,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
   if (req.method === 'GET' && p === '/api/drift-alerts')    // Wave R-3: drift 検出アラート（list_drift_alerts）
     return json(res, 200, (state.driftAlerts || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
+  if (req.method === 'GET' && p === '/api/shared')          // Wave A1: 共有エージェント庫（list_shared の HTTP 面・MCP は PROXY 経由で同ルートを叩く＝単一実装）
+    return json(res, 200, listShared(u.searchParams.get('kind') || undefined));
   if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
     return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
   if (req.method === 'GET') { const sm = p.match(/^\/api\/runs\/([^/]+)\/stream$/);   // O1: SSE live run stream (inherits the bearerOk gate above)
