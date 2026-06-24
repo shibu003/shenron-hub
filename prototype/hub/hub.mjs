@@ -28,7 +28,7 @@ import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wa
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { runDoctor } from './doctor.mjs';   // Wave N-3
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus, visibleTo } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
@@ -65,6 +65,7 @@ let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may 
 const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (default on) AND-ed with the global master; off → broker-only (waits for a worker)
 const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no local browser worker, no login credentials
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
+const INDEX_FILE = path.join(HERE, 'index.html');   // Wave Cockpit-1: 玄関 launcher
 const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
 const SETTINGS_FILE = path.join(HERE, 'settings.html');
@@ -299,15 +300,55 @@ function touchWorkflowRun(flowId) {
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === flowId);
   if (i < 0) return; arr[i].lastRun = now(); fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
 }
-function saveWorkflow({ id, name, summary, tags, nodes, edges, ui }) {
+function saveWorkflow({ id, name, summary, tags, nodes, edges, ui, owner, visibility }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'flow-' + randomUUID().slice(0, 4);
   const steps = toposort(nodes, edges).filter((n) => n.agent && n.skill).map((n) => ({ agent: n.agent, skill: n.skill })); // derived shim
   const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, steps, ...(ui != null ? { ui } : {}) };
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
-  if (i >= 0) arr[i] = { ...arr[i], ...wf }; else arr.push(wf);
+  if (i >= 0) { arr[i] = { ...arr[i], ...wf }; }                                                // T-0 update: 既存 owner/visibility を保持（...wf に含めないので上書きされない）
+  else { wf.owner = owner ?? null; wf.visibility = visibility || 'private'; arr.push(wf); }     // T-0 create 時のみ owner/visibility を刻む（owner=null=MCP/ハブ共有）
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return wf;
+}
+function setVisibility(id, visibility) {   // T-0: share/unshare = visibility flip のみ（owner は不変）。レコード未存在は throw。
+  const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
+  if (i < 0) throw new Error(`no workflow "${id}"`);
+  arr[i].visibility = visibility;
+  fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+  return { id, visibility };
+}
+// Wave A1 — 共有エージェント庫: visibility==='shared' のフロー + 承認済み部品を集約し、信頼を「実数字」で見せる
+// （trust theater の代わり: maker=作成者 / adoptedBy=再利用数 / reliability=検証pass率 / drift=劣化件数）。
+// workflows は visibility ゲート、components は approval ゲート（§I）— 2つの共有メカニズムを1つの庫に集約。
+function listShared(kind) {
+  const users = listUsers();                                                  // [{id,email}] — owner(uid)→email
+  const emailOf = (uid) => uid ? (users.find((u) => u.id === uid)?.email || null) : null;
+  const out = [];
+  if (kind !== 'component') {                                                 // ── 共有フロー ──
+    const wfs = readWorkflows(), autos = readAutomations();
+    const checks = state.checkResults || [], drifts = state.driftAlerts || [];
+    for (const wf of wfs.filter((w) => w.visibility === 'shared')) {
+      const autoIds = autos.filter((a) => a.workflow === wf.id).map((a) => a.id);
+      const subRefs = wfs.filter((w) => w.id !== wf.id && (w.nodes || []).some((n) => n.ref === wf.id)).length;
+      const myChecks = checks.filter((r) => r.flowId === wf.id || autoIds.includes(r.automationId));
+      const passed = myChecks.filter((r) => r.passed).length;
+      const drift = myChecks.length ? drifts.filter((d) => autoIds.includes(d.automationId)).length : null;  // 検証履歴ゼロ=評価不能=null（UI で「—」）
+      out.push({
+        kind: 'workflow', id: wf.id, name: wf.name, summary: wf.summary || '',
+        maker: emailOf(wf.owner),                                             // owner null（MCP/個人ハブ作成）= null = 「—」
+        adoptedBy: subRefs + autoIds.length,                                  // 他フローの sub-flow 参照 + automation 束縛 = 採用実績
+        reliability: myChecks.length ? { passed, total: myChecks.length, rate: Math.round((100 * passed) / myChecks.length) } : null,
+        drift,
+      });
+    }
+  }
+  if (kind !== 'workflow') {                                                  // ── 承認済み部品（approval が共有ゲート: §I 人が承認するまで再利用しない）──
+    for (const c of readComponents().filter((c) => c.approved)) {
+      out.push({ kind: 'component', id: c.id, name: c.what || c.id, summary: c.what || '', maker: null, adoptedBy: 0, reliability: null, drift: null });
+    }
+  }
+  return out;
 }
 // Wave Remix-1 — fork a saved flow into a NEW editable copy. The reuse-as-a-part half already works:
 // a saved flow can be dropped into another flow as a sub-flow node (kind:'workflow' + node.ref → fireWorkflowNode).
@@ -1149,6 +1190,7 @@ const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on r
 const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
 const SHARED_TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: internal credential — server.mjs / browser-worker / Artifact / CLI auth to act routes (same token as A2A reach). Set it (and/or use OAuth) to enforce; unset = local dev open.
 const cookieSession = (req) => { const c = req.headers['cookie'] || ''; const m = c.match(/shenron_session=([^;]+)/); return m ? m[1] : null; };
+const sessionUid = (req) => checkSession(cookieSession(req))?.userId ?? null;   // T-0: Web UI cookie → seat userId（無ければ null = MCP 運用者/開放ハブ = 全可視）
 // open flag: true until A2A_SHARED_TOKEN is set OR OAuth token issued — user registration alone does NOT close it.
 // MCP stdio (server.mjs) and browser-worker use A2A_SHARED_TOKEN; cookie sessions are for Web UI only.
 const openDev = !SHARED_TOKEN; // ponytail: evaluated once at startup; set A2A_SHARED_TOKEN to enforce
@@ -1221,6 +1263,8 @@ async function mcpDispatch(name, args) {
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
   if (name === 'clone_workflow')     return cloneWorkflow(args.id, args.name);   // Wave Remix-1: fork a saved flow → new editable copy
+  if (name === 'share_workflow')     return setVisibility(args.id, 'shared');    // T-0: 庫に publish（visibility flip・owner 不変）
+  if (name === 'unshare_workflow')   return setVisibility(args.id, 'private');   // T-0: 庫から下げる
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
   if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
   if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
@@ -1293,9 +1337,13 @@ const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'applic
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
   const p = u.pathname;
-  if (req.method === 'GET' && p === '/') {
+  if (req.method === 'GET' && p === '/') {                          // Wave Cockpit-1: / は玄関 launcher（旧 cockpit は /ui-old へ退避）
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(INDEX_FILE)); }
+    catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Shenron hub</h1><p>玄関 UI not installed yet (prototype/hub/index.html). JSON API under /api/*.</p>'); }
+  }
+  if (req.method === 'GET' && p === '/ui-old') {                    // Wave Cockpit-1: 旧 cockpit（ui.html）退避先
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI_FILE)); }
-    catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Shenron hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
+    catch { return json(res, 404, { error: 'ui.html not found' }); }
   }
   if (req.method === 'GET' && p === '/ui2') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }
@@ -1346,6 +1394,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
   if (req.method === 'GET' && p === '/api/drift-alerts')    // Wave R-3: drift 検出アラート（list_drift_alerts）
     return json(res, 200, (state.driftAlerts || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
+  if (req.method === 'GET' && p === '/api/shared')          // Wave A1: 共有エージェント庫（list_shared の HTTP 面・MCP は PROXY 経由で同ルートを叩く＝単一実装）
+    return json(res, 200, listShared(u.searchParams.get('kind') || undefined));
   if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
     return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
   if (req.method === 'GET') { const sm = p.match(/^\/api\/runs\/([^/]+)\/stream$/);   // O1: SSE live run stream (inherits the bearerOk gate above)
@@ -1367,7 +1417,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
-    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui })));
+    return json(res, 200, readWorkflows().filter((w) => visibleTo(w, sessionUid(req))).map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui, owner: w.owner ?? null, visibility: w.visibility || 'private' })));   // T-0: seat 可視性 filter + UI トグル用 owner/visibility
   }
   { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: get artifact UI code for a workflow
     if (um && req.method === 'GET') { const w = readWorkflows().find((w) => w.id === decodeURIComponent(um[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${um[1]}"` }); } }
@@ -1539,11 +1589,13 @@ const server = http.createServer((req, res) => {
       if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
       if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }
       if (p.startsWith('/api/goals/') && p.endsWith('/suggest')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/suggest'.length)); goalSuggest(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Wave Goals-3: 次の手提案（planFlow async）
-      if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
+      if (p === '/api/workflows') return json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) }));     // save wired DAG (nodes/edges + derived steps[])・T-0: 作成者=seat owner
       { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
         if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2)); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
       { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy
         if (cm) { try { return json(res, 200, cloneWorkflow(decodeURIComponent(cm[1]), j.name)); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
+      { const sm = p.match(/^\/api\/workflows\/([^/]+)\/(share|unshare)$/);   // T-0: 庫への共有/非共有トグル（visibility flip・owner 不変）。MCP の share_workflow と同じ setVisibility を cockpit にも露出
+        if (sm) { try { return json(res, 200, setVisibility(decodeURIComponent(sm[1]), sm[2] === 'share' ? 'shared' : 'private')); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
       { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
         if (tm) {
           const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
@@ -1578,7 +1630,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
       if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR（Wave B③: planFlow に集約＝remote-MCP と同一経路。have/missing は LLM-resolve §1.5-F、nodes/edges validate+layout、available も返す）
-        planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost })       // Wave 5: context で対話修正／gap:'off'|'ask'|'auto' = 道具生成の枝／cost:'free'|'paid_ok'
+        planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost, owner: sessionUid(req) })       // Wave 5: context で対話修正／gap 道具生成の枝／cost／T-0: plan→save に seat owner
           .then((r) => json(res, 200, r))
           .catch((e) => json(res, 400, { error: e.message }));
         return;

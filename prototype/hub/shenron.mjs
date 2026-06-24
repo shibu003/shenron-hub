@@ -490,3 +490,9 @@ export function goalStatus(g, now, { stallMs = GOAL_STALL_MS, deadlineMs = GOAL_
   const deadlineNear = Number.isFinite(dl) && (dl - now) <= deadlineMs;
   return { stalled, deadlineNear };
 }
+
+// --- Wave T-0 テナンシー: レコード可視性（純粋）。課金の"対象物"の核 = seat 境界の可視性分離。
+// uid==null       = MCP 運用者(A2A_SHARED_TOKEN identity) / 開放ハブ = 全可視（ハブ所有者は全部見える）
+// rec.owner==null = owner 欄の無い旧データ / MCP 作成 = ハブ共有 = 全員可視（移行スクリプト不要の後方互換）
+// rec.owner===uid = 自分の private / visibility==='shared' = publish 済み（庫掲載）= 全員可視
+export const visibleTo = (rec, uid) => uid == null || rec.owner == null || rec.owner === uid || rec.visibility === 'shared';
