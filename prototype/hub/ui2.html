@@ -248,12 +248,12 @@
 <div id="artifactPanel" style="display:none;position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.72)">
   <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(800px,95vw);max-height:92vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px -12px #000">
     <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);flex:none">
-      <b>🎨 成果物 UI</b>
+      <b>成果物 UI</b>
       <span style="color:var(--dim);font-size:11px">JSX を貼り付けて sandbox でレンダリング（fetch: api.anthropic.com → hub proxy）</span>
       <span style="margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px" onclick="closeArtifact()">✕</span>
     </div>
     <div style="padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;flex:none">
-      <textarea id="artifactCode" style="flex:1;min-height:72px;max-height:140px;background:#0a121b;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:7px 9px;font:11px/1.4 ui-monospace,Menlo,monospace;resize:vertical" placeholder="export default function App() { return <h1>Hello 🐉</h1>; }"></textarea>
+      <textarea id="artifactCode" style="flex:1;min-height:72px;max-height:140px;background:#0a121b;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:7px 9px;font:11px/1.4 ui-monospace,Menlo,monospace;resize:vertical" placeholder="export default function App() { return <h1>Hello </h1>; }"></textarea>
       <button class="tb go" onclick="renderArtifact()" style="align-self:flex-end;white-space:nowrap">▶ レンダリング</button>
     </div>
     <div id="artifactFrameWrap" style="flex:1;min-height:240px;position:relative">
@@ -266,7 +266,7 @@
 <div id="toast"></div>
 <div id="ctxMenu">
   <button id="ctxDuplicate">⧉ 複製</button>
-  <button id="ctxInspect">🔍 設定を開く</button>
+  <button id="ctxInspect">設定を開く</button>
   <button id="ctxDelete" class="ctx-del">✕ 削除</button>
 </div>
 
@@ -274,16 +274,16 @@
 /* ---------- i18n (JA/EN toggle, persisted) ---------- */
 let LANG = localStorage.getItem('bh_lang') || 'ja';
 const I18N = {
-  save:{ja:'💾 保存',en:'💾 Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, stop:{ja:'⏹ 停止',en:'⏹ Stop'}, automate:{ja:'⚡ 自動化 ▾',en:'⚡ Automate ▾'},
+  save:{ja:'保存',en:'Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, stop:{ja:'⏹ 停止',en:'⏹ Stop'}, automate:{ja:'自動化 ▾',en:'Automate ▾'},
   t_stopped:{ja:'実行を停止しました',en:'run stopped'}, t_nostop:{ja:'実行中の flow はありません',en:'no run in progress'},
   mh_trig:{ja:'配線した automation → chain から',en:'From the wired automation → chain'},
-  mi_auto:{ja:'📋 automation として保存…',en:'📋 Save as automation…'},
-  mi_fire:{ja:'⚡ build-state イベントを発火…',en:'⚡ Fire build-state event…'},
+  mi_auto:{ja:'automation として保存…',en:'Save as automation…'},
+  mi_fire:{ja:'build-state イベントを発火…',en:'Fire build-state event…'},
   mh_share:{ja:'共有',en:'Share'}, mi_export:{ja:'⇪ flow を MCP tool として export…',en:'⇪ Export flow as MCP tool…'},
-  lang_btn:{ja:'🌐 日本語',en:'🌐 EN'}, ph_flow:{ja:'無題の flow',en:'untitled flow'},
+  lang_btn:{ja:'日本語',en:'EN'}, ph_flow:{ja:'無題の flow',en:'untitled flow'},
   conn_connecting:{ja:'接続中…',en:'connecting…'}, conn_live:{ja:'● 接続',en:'● live'}, conn_off:{ja:'○ hub オフライン',en:'○ hub offline'},
   palette:{ja:'パレット',en:'Palette'}, ph_search:{ja:'agent / skill を検索…',en:'search agents / skills…'},
-  ph_newagent:{ja:'新しい agent id…',en:'new agent id…'}, add_agent:{ja:'＋ agent',en:'＋ agent'}, add_trigger:{ja:'⚡ ＋ trigger',en:'⚡ ＋ trigger'},
+  ph_newagent:{ja:'新しい agent id…',en:'new agent id…'}, add_agent:{ja:'＋ agent',en:'＋ agent'}, add_trigger:{ja:'＋ trigger',en:'＋ trigger'},
   hint:{ja:'右の <b>＋</b> で agent を追加 → <b>OUT→IN</b> で配線 → <b>▶ 実行</b>。迷ったら「正解例を配置」。',en:'Add an agent with <b>＋</b> on the right → wire <b>OUT→IN</b> → <b>▶ Run</b>. Use “Place example” if unsure.'},
   pal_tip:{ja:'左の一覧は部品置き場です。<b>＋</b>でキャンバスへ追加、配線はキャンバス上の丸から行います。',en:'This left panel is the parts shelf. Use <b>＋</b> to place a node; wiring happens on the canvas ports.'},
   coach_title:{ja:'最初はこの3手だけ',en:'Start with these 3 steps'},
@@ -313,59 +313,59 @@ const I18N = {
   insp_agent:{ja:'Agent',en:'Agent'}, insp_trigger:{ja:'Automation',en:'Automation'}, close:{ja:'閉じる ✕',en:'close ✕'},
   f_company:{ja:'会社',en:'company'}, f_skill:{ja:'skill',en:'skill'}, f_presence:{ja:'presence / runtime',en:'presence / runtime'},
   ag_rebind:{ja:'この agent を変更（中身の差し替え）',en:'change which agent (rebind)'},
-  online:{ja:'🟢 オンライン',en:'🟢 online'}, offline:{ja:'⚪ オフライン',en:'⚪ offline'}, runs_hub:{ja:' · hub で実行',en:' · runs in hub'},
+  online:{ja:'オンライン',en:'online'}, offline:{ja:'オフライン',en:'offline'}, runs_hub:{ja:' · hub で実行',en:' · runs in hub'},
   f_accepts:{ja:'accepts（受け取る型）',en:'accepts'}, f_emits:{ja:'emits（出す型）',en:'emits'}, f_policy:{ja:'policy（承認方針）',en:'policy'},
-  pol_auto:{ja:'⚡ auto — 承認なしで実行',en:'⚡ auto — runs without approval'}, pol_appr:{ja:'✋ approval — 人間ゲート',en:'✋ approval — human gate'}, toggle_sfx:{ja:' · 切替',en:' · toggle'},
-  settings:{ja:'⚙ 設定',en:'⚙ Settings'}, f_autorun:{ja:'autorun（hub が代理実行）',en:'autorun (hub runs it in-process)'},
-  autorun_on:{ja:'⚡ autorun ON — hub が代理実行',en:'⚡ autorun ON — hub runs it'}, autorun_off:{ja:'⏸ autorun OFF — worker 待ち',en:'⏸ autorun OFF — waits for a worker'},
+  pol_auto:{ja:'auto — 承認なしで実行',en:'auto — runs without approval'}, pol_appr:{ja:'approval — 人間ゲート',en:'approval — human gate'}, toggle_sfx:{ja:' · 切替',en:' · toggle'},
+  settings:{ja:'設定',en:'Settings'}, f_autorun:{ja:'autorun（hub が代理実行）',en:'autorun (hub runs it in-process)'},
+  autorun_on:{ja:'autorun ON — hub が代理実行',en:'autorun ON — hub runs it'}, autorun_off:{ja:'autorun OFF — worker 待ち',en:'autorun OFF — waits for a worker'},
   set_autorun_g:{ja:'autorun グローバル（全 local agent の hub 代理実行）',en:'autorun — global (hub runs all local agents)'},
   autorun_info:{ja:'OFF にすると hub は local agent を代理実行せず、専用 worker 起動時のみ実行（broker-only）。',en:'OFF = the hub stops running local agents in-process; only a dedicated worker runs them (broker-only).'},
   integrations:{ja:'連携（MCP servers）',en:'Integrations (MCP servers)'}, add_mcp:{ja:'＋ MCP server を追加',en:'＋ add MCP server'},
   it_label:{ja:'ラベル',en:'label'}, it_conn:{ja:'command または url',en:'command or url'}, it_tools:{ja:'tools（カンマ区切り）',en:'tools (comma-separated)'},
-  mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（⚙設定で on）',en:'no enabled MCP server (turn on in ⚙ Settings)'},
+  mcp_tools_head:{ja:'MCP tools（enabled）',en:'MCP tools (enabled)'}, pal_no_mcp:{ja:'enabled な MCP server なし（設定で on）',en:'no enabled MCP server (turn on in Settings)'},
   mcp_generic:{ja:'外部ツール（mcp）',en:'External tool (mcp)'}, mcp_generic_sub:{ja:'空の外部アクション（tool は後で）',en:'blank external action (pick tool later)'},
-  mcp_tool_sel:{ja:'tool（外部アクション）',en:'tool (external action)'}, mcp_tool_none:{ja:'— tool を選択 —',en:'— choose a tool —'}, mcp_pick_tool:{ja:'tool を選んでください',en:'choose a tool'}, mcp_no_tools:{ja:'enabled な MCP server がありません — ⚙ 設定で接続',en:'no enabled MCP server — connect one in ⚙ Settings'},
+  mcp_tool_sel:{ja:'tool（外部アクション）',en:'tool (external action)'}, mcp_tool_none:{ja:'— tool を選択 —',en:'— choose a tool —'}, mcp_pick_tool:{ja:'tool を選んでください',en:'choose a tool'}, mcp_no_tools:{ja:'enabled な MCP server がありません — 設定で接続',en:'no enabled MCP server — connect one in Settings'},
   mcp_server_sel:{ja:'server（接続先）',en:'server (connection)'}, mcp_server_none:{ja:'— server を選択 —',en:'— choose a server —'}, mcp_tools_word:{ja:'tools',en:'tools'}, mcp_loading:{ja:'読み込み中…',en:'loading…'},
   insp_mcp:{ja:'MCP tool node',en:'MCP tool node'}, f_server:{ja:'server',en:'server'}, f_tool:{ja:'tool',en:'tool'},
   mcp_node_note:{ja:'実呼び出し：接続済み MCP server の tool を承認フェンス越しに実行（外部副作用）。',en:'Real call: runs the connected MCP server\'s tool behind the approval fence (external side-effect).'}, btn_del_mcp:{ja:'✕ ノード削除',en:'✕ Delete node'},
   f_args:{ja:'引数（JSON・任意）',en:'arguments (JSON, optional)'}, mcp_args_note:{ja:'上流の出力は input として渡されます。to / subject / channel 等はここで追加。',en:'Upstream output is passed as `input`. Add fields like to / subject / channel here.'}, mcp_apply_args:{ja:'引数を適用',en:'apply args'}, t_args_ok:{ja:'引数を更新しました',en:'arguments updated'},
-  f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'⚡ auto — 承認なしで実呼び出し',en:'⚡ auto — calls without approval'}, mcp_auto_off:{ja:'✋ approval — 実行前に承認',en:'✋ approval — approve before it runs'},
+  f_mcp_auto:{ja:'自律実行（承認をスキップ）',en:'auto-run (skip approval)'}, mcp_auto_on:{ja:'auto — 承認なしで実呼び出し',en:'auto — calls without approval'}, mcp_auto_off:{ja:'approval — 実行前に承認',en:'approval — approve before it runs'},
   comp_head:{ja:'コンポーネント',en:'Components'}, comp_input:{ja:'flow の入力',en:'flow input'}, comp_prompt:{ja:'LLM テンプレート',en:'LLM template'}, comp_output:{ja:'最終出力を表示',en:'shows the result'},
   comp_name:{ja:'名前（任意）',en:'name (optional)'}, comp_name_ph:{ja:'この部品の呼び名…',en:'a name for this node…'}, comp_desc:{ja:'説明（任意）',en:'description (optional)'}, comp_desc_ph:{ja:'この部品が何をするか…',en:'what this node does…'}, comp_save:{ja:'✓ 適用',en:'✓ Apply'},
   comp_generic:{ja:'処理ブロック',en:'Processing block'}, comp_generic_sub:{ja:'空のノードを置く（種類は後で）',en:'place a blank node (pick kind later)'},
   comp_unset:{ja:'未設定',en:'unconfigured'}, comp_pick_kind:{ja:'種類を選んでください',en:'choose a kind'}, comp_kind:{ja:'種類',en:'kind'}, comp_kind_none:{ja:'— 種類を選択 —',en:'— choose a kind —'},
   t_unset:{ja:'未設定のノードがあります — inspector で種類を選んでください',en:'There are unconfigured nodes — pick a kind in the inspector'}, t_edges_dropped:{ja:'型不一致で {n} 本の配線を外しました',en:'removed {n} wire(s) (type mismatch)'},
-  sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 💾 保存',en:'no saved workflows — 💾 Save one first'},
-  flows:{ja:'🗂 一覧',en:'🗂 Flows'}, flows_title:{ja:'保存済み flow',en:'Saved flows'}, flows_none:{ja:'保存済み flow なし — 💾 で保存',en:'no saved flows — save with 💾'},
-  flows_skill:{ja:'📜 skill 化（Claude Code）',en:'📜 Make a skill (Claude Code)'}, comps_title:{ja:'🐉 生成部品（MCP server）',en:'🐉 Generated parts (MCP servers)'}, comps_pending:{ja:'承認待ち',en:'pending'},
-  collapse:{ja:'📦 {n}個を畳む',en:'📦 Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
+  sf_pick:{ja:'workflow を選択',en:'choose a workflow'}, sf_none_avail:{ja:'保存済み workflow なし — 先に 保存',en:'no saved workflows — Save one first'},
+  flows:{ja:'一覧',en:'Flows'}, flows_title:{ja:'保存済み flow',en:'Saved flows'}, flows_none:{ja:'保存済み flow なし — で保存',en:'no saved flows — save with '},
+  flows_skill:{ja:'skill 化（Claude Code）',en:'Make a skill (Claude Code)'}, comps_title:{ja:'生成部品（MCP server）',en:'Generated parts (MCP servers)'}, comps_pending:{ja:'承認待ち',en:'pending'},
+  collapse:{ja:'{n}個を畳む',en:'Collapse {n}'}, collapse_hint:{ja:'Shift+クリックで複数選択 → 畳む',en:'Shift+click to multi-select → collapse'},
   t_collapse_linear:{ja:'入口/出口が複数です — 線形の選択にしてください',en:'Multiple entry/exit points — select a linear chain'}, t_collapsed:{ja:'選択を sub-flow に畳みました',en:'collapsed into a sub-flow'}, t_collapse_min:{ja:'2つ以上を Shift+クリックで選択してください',en:'Shift+click 2+ nodes first'},
-  add_note:{ja:'📝 メモ',en:'📝 Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'}, note_done:{ja:'✓ 完了',en:'✓ Done'},
+  add_note:{ja:'メモ',en:'Note'}, note:{ja:'メモ',en:'Note'}, note_text:{ja:'メモ（Markdown 可）',en:'note (markdown)'}, note_color:{ja:'色',en:'color'}, note_done:{ja:'✓ 完了',en:'✓ Done'},
   card_fold:{ja:'設定を畳む / 開く',en:'fold / unfold settings'},
   comp_input_sub:{ja:'Run 入力を渡す',en:'passes the Run input'}, comp_output_sub:{ja:'（Run で結果表示）',en:'(result shows after Run)'}, comp_result:{ja:'結果',en:'result'}, btn_del_node:{ja:'✕ ノード削除',en:'✕ Delete node'},
   comp_consensus:{ja:'N vendor で合意',en:'agree across N vendors'}, comp_router:{ja:'trust で分岐',en:'branch on trust'},
-  h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'🔒 passport を適用',en:'🔒 Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
+  h_caps:{ja:'capability passport',en:'capability passport'}, h_never:{ja:'never（外に出さない語・パターン）',en:'never (strings that must not leave)'}, h_never_ph:{ja:'1 行 1 つ（秘密は既定で除去）',en:'one per line (secrets stripped by default)'}, h_pp_apply:{ja:'passport を適用',en:'Apply passport'}, h_pp_saved:{ja:'passport を更新',en:'passport updated'},
   h_pass:{ja:'pass（許可する外部 action の引数 — allowlist）',en:'pass (allowed external-action args — allowlist)'}, h_pass_ph:{ja:'1 行 1 つ（空 = 全許可）',en:'one per line (empty = allow all)'}, h_pass_note:{ja:'MCP 送信の構造化引数だけを既定拒否で絞る。本文 input は対象外（秘密/never で別途除去済）。',en:'Default-deny on structured MCP args only; the text input still flows (already scrubbed by secrets/never).'}, aud_dropped:{ja:'除外',en:'dropped'}, aud_allow:{ja:'許可',en:'allow'}, tp_args:{ja:'引数',en:'args'},
   cap_always:{ja:'常時',en:'always'}, cap_note:{ja:'external_send は hub が強制。net / fs は宣言＋監査（実 sandbox は runner 側・将来）。',en:'external_send is hub-enforced. net / fs are declared + audited (real sandbox is runner-side · roadmap).'},
   h_presets:{ja:'信頼プリセット（1 クリック）',en:'trust preset (1-click)'}, preset_untrusted:{ja:'未信頼 3rd-party',en:'untrusted 3rd-party'}, preset_internal:{ja:'社内',en:'internal'}, preset_trusted:{ja:'信頼済',en:'trusted'}, preset_applied:{ja:'プリセット適用',en:'preset applied'},
-  safe_btn:{ja:'🔒 Safe Handoff 例',en:'🔒 Safe Handoff example'}, safe_desc:{ja:'会社をまたぐ handoff を trust 境界つきで配置（秘密除去＋承認制送信）。',en:'Lays out a cross-company handoff fenced by the trust bundle (secret-stripped + approval-gated send).'}, safe_placed:{ja:'Safe Handoff を配置。配線 🔒 と passport を確認して ▶ Run。',en:'Safe Handoff placed. Check the 🔒 wire + passports, then ▶ Run.'},
-  check_trust:{ja:'🔒 Check trust',en:'🔒 Check trust'}, tp_title:{ja:'Trust プレビュー（実行前）',en:'Trust preview (before run)'}, tp_before:{ja:'実行前に',en:'Before you run:'}, tp_strips:{ja:'件の秘密/PII を除去',en:'secrets/PII stripped'}, tp_gates:{ja:'件の外部送信をゲート',en:'external send(s) gated'}, tp_denied:{ja:'件を拒否',en:'denied'},
+  safe_btn:{ja:'Safe Handoff 例',en:'Safe Handoff example'}, safe_desc:{ja:'会社をまたぐ handoff を trust 境界つきで配置（秘密除去＋承認制送信）。',en:'Lays out a cross-company handoff fenced by the trust bundle (secret-stripped + approval-gated send).'}, safe_placed:{ja:'Safe Handoff を配置。配線 と passport を確認して ▶ Run。',en:'Safe Handoff placed. Check the wire + passports, then ▶ Run.'},
+  check_trust:{ja:'Check trust',en:'Check trust'}, tp_title:{ja:'Trust プレビュー（実行前）',en:'Trust preview (before run)'}, tp_before:{ja:'実行前に',en:'Before you run:'}, tp_strips:{ja:'件の秘密/PII を除去',en:'secrets/PII stripped'}, tp_gates:{ja:'件の外部送信をゲート',en:'external send(s) gated'}, tp_denied:{ja:'件を拒否',en:'denied'},
   tp_wires:{ja:'配線（data firewall）',en:'wires (data firewall)'}, tp_caps:{ja:'capability ゲート',en:'capability gates'}, tp_runtime:{ja:'実行時に評価',en:'evaluated at runtime'}, tp_note:{ja:'実 enforcement コードで dry-run（agent は走らせず・送信なし）。net/fs は宣言、実 sandbox は runner 側。',en:'Dry-run with the real enforcement code (no agents run, nothing sent). net/fs are declared; real sandbox is runner-side.'},
-  trust_diff_title:{ja:'🔄 信頼の変化（基準＝前回 保存/実行 比）',en:'🔄 Trust changed (vs last save/run)'},
+  trust_diff_title:{ja:'信頼の変化（基準＝前回 保存/実行 比）',en:'Trust changed (vs last save/run)'},
   td_wire_added:{ja:'配線 追加',en:'wire added'}, td_wire_removed:{ja:'配線 削除',en:'wire removed'}, td_fence_off:{ja:'firewall 緩和',en:'firewall weakened'}, td_fence_on:{ja:'firewall 強化',en:'firewall strengthened'},
   td_gate_added:{ja:'ゲート 追加',en:'gate added'}, td_gate_removed:{ja:'ゲート 削除',en:'gate removed'}, td_send_loose:{ja:'送信 緩和',en:'send loosened'}, td_send_tight:{ja:'送信 厳格化',en:'send tightened'},
   td_predicted:{ja:'予測',en:'predicted'}, td_actual:{ja:'実測',en:'actual'},
-  gate_run_anyway:{ja:'⚠ 確認の上で実行',en:'⚠ Run anyway'}, gate_risk:{ja:'⚠ 外部送信の拒否 / firewall 緩和を含みます。実行は監査に記録されます。',en:'⚠ Includes denied sends / weakened firewall. The run is recorded in the audit.'},
+  gate_run_anyway:{ja:'確認の上で実行',en:'Run anyway'}, gate_risk:{ja:'外部送信の拒否 / firewall 緩和を含みます。実行は監査に記録されます。',en:'Includes denied sends / weakened firewall. The run is recorded in the audit.'},
   export_receipt:{ja:'証明書を書き出す',en:'Export receipt'}, t_receipt_saved:{ja:'Trust Receipt を保存しました',en:'Trust Receipt saved'},
   ts_title:{ja:'Trust verdict（実行結果）',en:'Trust verdict (last run)'}, ts_stripped:{ja:'除去',en:'stripped'}, ts_sent:{ja:'送信',en:'sent'}, ts_held:{ja:'承認待ち',en:'held'}, ts_blocked:{ja:'遮断',en:'blocked'}, ts_skipped:{ja:'分岐スキップ',en:'skipped'}, ts_noleak:{ja:'秘密/PII の漏れなし',en:'no secrets/PII leaked'},
-  aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'⚠ 改ざん検出',en:'⚠ tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
+  aud_head:{ja:'監査トレイル',en:'Audit trail'}, aud_ok:{ja:'✓ 改ざんなし',en:'✓ tamper-free'}, aud_bad:{ja:'改ざん検出',en:'tampered'}, aud_empty:{ja:'まだイベントなし',en:'no events yet'}, redacted_t:{ja:'firewall が除去',en:'redacted by the data firewall'},
   rep_title:{ja:'評価（監査が示す履歴）',en:'Reputation (what the audit shows)'},
   rep_tier_verified:{ja:'検証済',en:'verified'}, rep_tier_observed:{ja:'観測中',en:'observed'}, rep_tier_new:{ja:'履歴なし',en:'no history'}, rep_tier_broken:{ja:'検証不能',en:'unverifiable'},
   rep_runs:{ja:'run',en:'runs'}, rep_clean:{ja:'クリーン率',en:'clean'}, rep_caught:{ja:'除去',en:'caught'}, rep_blocks:{ja:'遮断',en:'blocks'}, rep_approvals:{ja:'承認',en:'approvals'},
   rep_partial:{ja:'帰属は一部（handoff 経由で推定）',en:'partial attribution (inferred via handoff)'}, rep_unattributed:{ja:'agent 不明の除去（配線単位）',en:'unattributed strips (edge-level)'},
   rep_chain_bad:{ja:'監査チェーンが改ざん — 評価は信頼できません',en:'audit chain tampered — reputation is not trustworthy'},
   rep_note:{ja:'監査が示す事実の集計（道徳評価ではない）。deny は firewall が機能した記録で、減点ではありません。',en:'Aggregated from what the audit shows (not a judgment). A deny = the firewall doing its job, not a demerit.'},
-  insp_edge:{ja:'🔒 配線（data firewall）',en:'🔒 Wire (data firewall)'}, edge_help:{ja:'この配線で何が渡るか、受け手が何をできるかを先に確認します。秘密/PII は常時除去。必要な情報カテゴリだけ追加で止めます。',en:'First check what crosses this wire and what the receiver can do. Secrets/PII are always stripped; add only the extra data classes you need.'},
+  insp_edge:{ja:'配線（data firewall）',en:'Wire (data firewall)'}, edge_help:{ja:'この配線で何が渡るか、受け手が何をできるかを先に確認します。秘密/PII は常時除去。必要な情報カテゴリだけ追加で止めます。',en:'First check what crosses this wire and what the receiver can do. Secrets/PII are always stripped; add only the extra data classes you need.'},
   edge_wire:{ja:'配線',en:'wire'}, edge_contract:{ja:'この配線で渡るもの',en:'what crosses this wire'}, edge_source:{ja:'送り手',en:'sender'}, edge_target:{ja:'受け手',en:'receiver'}, edge_company:{ja:'会社',en:'company'}, edge_sends:{ja:'出す型',en:'sends'}, edge_receives:{ja:'受ける型',en:'receives'},
   edge_cross:{ja:'会社境界をまたぐ配線 — firewall は強制',en:'cross-company wire — firewall is mandatory'}, edge_target_handles:{ja:'受け手の扱える範囲',en:'receiver handling'}, edge_data_classes:{ja:'情報カテゴリごとの設定',en:'data class policy'}, edge_custom_never:{ja:'追加 never（任意・1行1つ）',en:'extra never (optional, one per line)'}, edge_never:{ja:'追加で除去する語・パターン',en:'extra strings to strip'},
   edge_locked:{ja:'常時ON',en:'always on'}, edge_optional:{ja:'この配線で止める',en:'block on this wire'}, edge_no_agent:{ja:'受け手が agent ではないため passport はありません。型と配線 firewall だけを確認します。',en:'The receiver is not an agent, so there is no passport here. Review the type contract and wire firewall.'},
@@ -376,25 +376,25 @@ const I18N = {
   edge_dc_customer:{ja:'顧客・アカウント名',en:'customer / account names'}, edge_dc_customer_d:{ja:'customer:、account:、client: など顧客識別子を止める。',en:'Blocks customer identifiers such as customer:, account:, client:.'},
   edge_dc_strategy:{ja:'戦略・価格・ロードマップ',en:'strategy / pricing / roadmap'}, edge_dc_strategy_d:{ja:'roadmap、pricing、confidential など事業機密を止める。',en:'Blocks business-sensitive terms such as roadmap, pricing, confidential.'},
   edge_agent:{ja:'agent',en:'agent'}, edge_mcp:{ja:'MCP tool',en:'MCP tool'}, edge_component:{ja:'component',en:'component'}, edge_trigger:{ja:'trigger',en:'trigger'}, edge_unknown:{ja:'不明',en:'unknown'}, edge_mcp_gate:{ja:'MCP は外部副作用。上流 agent の external_send とこの node の approval/auto でゲートされます。',en:'MCP performs an external side-effect. It is gated by the upstream agent external_send cap plus this node approval/auto setting.'},
-  edge_apply:{ja:'🔒 firewall を適用',en:'🔒 Apply firewall'}, edge_check:{ja:'🔎 trust を確認',en:'🔎 Check trust'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
+  edge_apply:{ja:'firewall を適用',en:'Apply firewall'}, edge_check:{ja:'trust を確認',en:'Check trust'}, edge_del:{ja:'✕ 配線を削除',en:'✕ Delete wire'}, edge_saved:{ja:'配線の firewall を更新',en:'wire firewall updated'},
   edge_branch:{ja:'router の分岐',en:'router branch'}, edge_pred_true:{ja:'条件が真',en:'predicate true'}, edge_pred_false:{ja:'条件が偽',en:'predicate false'},
   trig_custom:{ja:'— カスタム（JSON を表示）',en:'— custom (Show JSON)'},
-  lf_import:{ja:'🔗 Langflow 取込',en:'🔗 Import Langflow'}, lf_empty:{ja:'Langflow flow が空です',en:'empty Langflow flow'}, lf_bad:{ja:'Langflow JSON 解析失敗',en:'bad Langflow JSON'}, lf_imported:{ja:'Langflow flow を取込（{n} ノード・{e} 配線）— firewall/passport で fence 可',en:'imported Langflow flow ({n} nodes, {e} wires) — fence it with firewall/passport'},
-  lf_host_label:{ja:'Langflow host（🔗 を含む flow の実行先）',en:'Langflow host (for running 🔗 flows)'}, lf_noflowid:{ja:'flowId 不明 — 先に「⤴ Langflow へ登録」するか flow を再取込してください',en:'no flowId — push to Langflow first, or re-import the flow'},
+  lf_import:{ja:'Langflow 取込',en:'Import Langflow'}, lf_empty:{ja:'Langflow flow が空です',en:'empty Langflow flow'}, lf_bad:{ja:'Langflow JSON 解析失敗',en:'bad Langflow JSON'}, lf_imported:{ja:'Langflow flow を取込（{n} ノード・{e} 配線）— firewall/passport で fence 可',en:'imported Langflow flow ({n} nodes, {e} wires) — fence it with firewall/passport'},
+  lf_host_label:{ja:'Langflow host（を含む flow の実行先）',en:'Langflow host (for running flows)'}, lf_noflowid:{ja:'flowId 不明 — 先に「⤴ Langflow へ登録」するか flow を再取込してください',en:'no flowId — push to Langflow first, or re-import the flow'},
   lf_key_label:{ja:'Langflow API key（任意・secured 時のみ）',en:'Langflow API key (optional, secured instances)'}, lf_push:{ja:'⤴ Langflow へ登録',en:'⤴ Push to Langflow'}, lf_push_none:{ja:'先に Langflow flow を取込んでください',en:'import a Langflow flow first'}, lf_pushed:{ja:'Langflow に登録 → flowId {id}',en:'registered in Langflow → flowId {id}'},
-  lf_run_info:{ja:'🔗 を含む flow は {host} の /v1/run へ丸ごと委譲。入力は firewall で除去・呼び出しは audit に記録。',en:'🔗 flow is delegated whole to {host} /v1/run. Input is firewalled, the call is audited.'}, lf_ran:{ja:'Langflow 実行完了（除去 {n} 件）',en:'Langflow run done ({n} redacted)'},
+  lf_run_info:{ja:'を含む flow は {host} の /v1/run へ丸ごと委譲。入力は firewall で除去・呼び出しは audit に記録。',en:'flow is delegated whole to {host} /v1/run. Input is firewalled, the call is audited.'}, lf_ran:{ja:'Langflow 実行完了（除去 {n} 件）',en:'Langflow run done ({n} redacted)'},
   gw_empty:{ja:'生成できませんでした',en:'could not generate'},
   gw_draft:{ja:'適合 agent なし → 新規 agent の下書き',en:'no matching agent → drafted a new agent'}, gw_addagent:{ja:'＋ この agent を追加',en:'＋ Add this agent'},
-  shenron:{ja:'🐉 神龍',en:'🐉 Shenron'}, sh_build:{ja:'🔗 Langflow 化',en:'🔗 To Langflow'},
-  sh_title:{ja:'🐉 神龍 — 願いを flow に',en:'🐉 Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
-  sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'🐉 計画',en:'🐉 Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（🔗 ゼロ＝透明な往復）',en:'built Langflow flow (🔗-free = transparent round-trip)'},
+  shenron:{ja:'神龍',en:'Shenron'}, sh_build:{ja:'Langflow 化',en:'To Langflow'},
+  sh_title:{ja:'神龍 — 願いを flow に',en:'Shenron — wish → flow'}, sh_info:{ja:'やりたい事を書くと、既存ツール/agent を解決し、不足は外部探索して plan を canvas に組みます。Run 前にレビュー（実行は承認フェンス維持）。',en:'Describe your goal; it resolves existing tools/agents, searches externally for gaps, and lays out a plan on the canvas. Review before Run (execution keeps the approval fence).'},
+  sh_ph:{ja:'例: 毎週月曜にチームの進捗を要約して Slack に投稿',en:'e.g. summarize the team progress every Monday and post to Slack'}, sh_btn:{ja:'計画',en:'Plan'}, sh_built:{ja:'plan を生成',en:'plan generated'}, sh_gaps:{ja:'不足',en:'gaps'}, sh_built_lf:{ja:'Langflow flow 化（ゼロ＝透明な往復）',en:'built Langflow flow (-free = transparent round-trip)'},
   sh_gap_label:{ja:'足りない道具',en:'Missing tools'}, sh_gap_ask:{ja:'不足を出して人が生成（既定）',en:'surface gaps, generate on demand (default)'}, sh_gap_auto:{ja:'不足を自動生成（登録は承認）',en:'auto-generate gaps (approve to register)'}, sh_gap_off:{ja:'作らない（既存ツールのみ）',en:"don't build (existing tools only)"}, sh_gap_autogen:{ja:'不足ツールを自動生成中…（承認待ちに入ります）',en:'auto-generating missing tools… (queued for approval)'},
-  sh_refine:{ja:'✏️ 修正',en:'✏️ Refine'}, sh_refine_title:{ja:'✏️ plan を直す',en:'✏️ Refine the plan'}, sh_refine_info:{ja:'「Slack じゃなくメールに」「要約は5行で」のように直したい所を一文で。指示の変更だけ当て、他 step は維持して再生成（重ねるほど積み上がる）。',en:'Say what to change in one line ("email instead of Slack", "summary in 5 lines"). Only that change is applied; other steps stay. Refinements stack.'}, sh_refine_ph:{ja:'例: Slack じゃなくメールで送って',en:'e.g. send by email instead of Slack'}, sh_refine_btn:{ja:'✏️ 直す',en:'✏️ Apply'}, sh_refine_wait:{ja:'再生成中…',en:'re-planning…'},
-  sh_gen_wait:{ja:'生成中…（spawn + handshake で収束検証）',en:'generating… (verifying via spawn + JSON-RPC handshake)'}, sh_gaps_result:{ja:'不足ノード — 生成した MCP server',en:'missing node — generated MCP server'}, sh_gaps_ok:{ja:'収束',en:'converged'}, sh_gaps_fail:{ja:'未収束',en:'not converged'}, sh_gaps_info:{ja:'MCP server（stdlib・JSON-RPC over stdio）を生成→spawn して handshake + run で実データ収束を検証。承認すると prototype/mcp/generated/ に書き出し integration 登録（実 mcp node として再 plan/Run）。生成コードは default で secret を抜いた env で実行し、認証 API は宣言した env 名だけ Run 時に戻す（値は repo に乗らない＝hub の env に置く）。',en:'Generated a standalone MCP server (stdlib, JSON-RPC over stdio) and verified it via spawn + handshake + run (real data). Approve to write it under prototype/mcp/generated/ and register it as an integration (resolves as a real mcp node on re-plan/Run). Generated code runs with secrets stripped by default; an authed API gets back only the env var names it declared (values live in the hub env, never the repo).'}, sh_approve:{ja:'✅ 承認して登録',en:'✅ Approve & register'}, sh_approved:{ja:'承認 → integration 登録。再 plan 中…',en:'approved → registered. re-planning…'}, sh_gaps_need_cred:{ja:'認証情報が必要（hub の env に設定して再生成）',en:'credentials required (set in the hub env, then regenerate)'},
-  btn_send:{ja:'✉️ この agent に handoff を送る…',en:'✉️ Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
+  sh_refine:{ja:'修正',en:'Refine'}, sh_refine_title:{ja:'plan を直す',en:'Refine the plan'}, sh_refine_info:{ja:'「Slack じゃなくメールに」「要約は5行で」のように直したい所を一文で。指示の変更だけ当て、他 step は維持して再生成（重ねるほど積み上がる）。',en:'Say what to change in one line ("email instead of Slack", "summary in 5 lines"). Only that change is applied; other steps stay. Refinements stack.'}, sh_refine_ph:{ja:'例: Slack じゃなくメールで送って',en:'e.g. send by email instead of Slack'}, sh_refine_btn:{ja:'直す',en:'Apply'}, sh_refine_wait:{ja:'再生成中…',en:'re-planning…'},
+  sh_gen_wait:{ja:'生成中…（spawn + handshake で収束検証）',en:'generating… (verifying via spawn + JSON-RPC handshake)'}, sh_gaps_result:{ja:'不足ノード — 生成した MCP server',en:'missing node — generated MCP server'}, sh_gaps_ok:{ja:'収束',en:'converged'}, sh_gaps_fail:{ja:'未収束',en:'not converged'}, sh_gaps_info:{ja:'MCP server（stdlib・JSON-RPC over stdio）を生成→spawn して handshake + run で実データ収束を検証。承認すると prototype/mcp/generated/ に書き出し integration 登録（実 mcp node として再 plan/Run）。生成コードは default で secret を抜いた env で実行し、認証 API は宣言した env 名だけ Run 時に戻す（値は repo に乗らない＝hub の env に置く）。',en:'Generated a standalone MCP server (stdlib, JSON-RPC over stdio) and verified it via spawn + handshake + run (real data). Approve to write it under prototype/mcp/generated/ and register it as an integration (resolves as a real mcp node on re-plan/Run). Generated code runs with secrets stripped by default; an authed API gets back only the env var names it declared (values live in the hub env, never the repo).'}, sh_approve:{ja:'✓ 承認して登録',en:'✓ Approve & register'}, sh_approved:{ja:'承認 → integration 登録。再 plan 中…',en:'approved → registered. re-planning…'}, sh_gaps_need_cred:{ja:'認証情報が必要（hub の env に設定して再生成）',en:'credentials required (set in the hub env, then regenerate)'},
+  btn_send:{ja:'この agent に handoff を送る…',en:'Send a handoff to this agent…'}, btn_copy_mcp:{ja:'⧉ MCP 呼び出しをコピー',en:'⧉ Copy MCP call'}, btn_remove:{ja:'✕ キャンバスから外す',en:'✕ Remove from canvas'},
   f_match:{ja:'{ } JSON を表示（上級者向け）',en:'{ } Show JSON (advanced)'},
   btn_apply:{ja:'✓ match を適用',en:'✓ Apply match'}, btn_del_trig:{ja:'✕ automation を削除',en:'✕ Delete automation'},
-  trig_hint:{ja:'この automation の OUT を agent に配線 → ⚡ Automate → Save as automation。',en:"Wire this automation's OUT into an agent, then ⚡ Automate → Save as automation."},
+  trig_hint:{ja:'この automation の OUT を agent に配線 → Automate → Save as automation。',en:"Wire this automation's OUT into an agent, then Automate → Save as automation."},
   trig_set:{ja:'(クリックで match を設定)',en:'(click to set match)'},
   insp_flow:{ja:'Flow & 実行',en:'Flow & runs'}, s_online:{ja:'オンライン',en:'online'}, s_queued:{ja:'待機',en:'queued'}, s_await:{ja:'承認待ち',en:'awaiting'}, s_running:{ja:'実行中',en:'running'}, s_done:{ja:'完了',en:'done'}, s_failed:{ja:'失敗',en:'failed'},
   hf_empty_f:{ja:'このフィルタに handoff なし。',en:'No handoffs in this filter.'}, hf_empty:{ja:'handoff なし。flow を配線して ▶ 実行、または agent を選んで handoff を送る。',en:'No handoffs yet. Wire a flow and ▶ Run, or select an agent → Send a handoff.'},
@@ -402,18 +402,18 @@ const I18N = {
   m_save_t:{ja:'workflow として保存',en:'Save as workflow'}, m_save_b:{ja:'保存',en:'Save'}, m_name:{ja:'Workflow 名',en:'Workflow name'},
   m_run_t:{ja:'flow を実行',en:'Run flow'}, m_run_b:{ja:'▶ 実行',en:'▶ Run'}, m_entry:{ja:'入口ノードへの入力',en:'Input for the entry node(s)'},
   m_auto_t:{ja:'automation として保存',en:'Save as automation'}, m_auto_name:{ja:'Automation 名',en:'Automation name'}, m_auto_in:{ja:'入口ノードへの既定入力',en:'Default input for the entry node(s)'},
-  m_fire_t:{ja:'build-state イベントを発火',en:'Fire build-state event'}, m_fire_b:{ja:'⚡ 発火',en:'⚡ Fire'},
+  m_fire_t:{ja:'build-state イベントを発火',en:'Fire build-state event'}, m_fire_b:{ja:'発火',en:'Fire'},
   fire_plain_info:{ja:'これは「開発で何が起きたか」を手動で再現するテストです。通常は下の選択だけで十分です。JSONは確認用です。',en:'This manually simulates what happened in development. The choices below are enough for normal use; JSON is just the preview.'},
   fire_what:{ja:'何が起きた?',en:'What happened?'}, fire_result:{ja:'結果',en:'Result'}, fire_opt:{ja:'（任意）',en:'(optional)'}, fire_custom:{ja:'カスタム（自由 JSON）',en:'Custom (free JSON)'},
   fire_custom_hint:{ja:'下の「JSON を表示」を押して直接編集してください。',en:'Press “Show JSON” below and edit it directly.'}, fire_adv:{ja:'{ } JSON を表示（任意）',en:'{ } Show JSON (optional)'},
-  fp_head:{ja:'発火すると {n} 件の automation が走ります：',en:'Firing this runs {n} automation(s):'}, fp_fenced:{ja:'🔒 firewall',en:'🔒 firewall'},
+  fp_head:{ja:'発火すると {n} 件の automation が走ります：',en:'Firing this runs {n} automation(s):'}, fp_fenced:{ja:'firewall',en:'firewall'},
   fp_none:{ja:'マッチする automation はありません — 何も実行されません。',en:'No automation matches — nothing will run.'},
-  fp_none_hint:{ja:'まず automation→chain を配線し「📋 automation として保存」してください。',en:'First wire an automation→chain and “📋 Save as automation”.'},
+  fp_none_hint:{ja:'まず automation→chain を配線し「automation として保存」してください。',en:'First wire an automation→chain and “Save as automation”.'},
   trig_sum:{ja:'「{e}」のとき実行',en:'Runs when: {e}'}, trig_sum_custom:{ja:'カスタム条件（下の「JSON を表示」）',en:'custom condition (see “Show JSON”)'},
   m_export_info:{ja:'workflow として保存しました。任意の MCP クライアントから呼べます:',en:'Saved as a workflow. Call it from any MCP client:'}, m_copy:{ja:'⧉ コピー',en:'⧉ Copy'}, m_mcp_call:{ja:'MCP tool 呼び出し',en:'MCP tool call'},
   m_send_b:{ja:'送信',en:'Send'}, f_from:{ja:'from（送信元）',en:'from (sender)'}, f_input:{ja:'入力',en:'input'}, ph_input:{ja:'agent に何をさせる?',en:'what should the agent do?'}, cancel:{ja:'キャンセル',en:'cancel'},
   t_wire1:{ja:'先に配線してください: out ポートを in ポートへドラッグ。',en:'Wire a flow first: drag an out-port onto an in-port.'}, t_wire2:{ja:'先に flow を配線してください。',en:'Wire a flow first.'},
-  t_need_trig:{ja:'⚡ automation をパレットから追加し chain に配線してください。',en:'Add an ⚡ automation and wire it into the chain first.'}, t_need_agent:{ja:'automation を最低 1 つの agent に配線してください。',en:'Wire the automation into at least one agent.'},
+  t_need_trig:{ja:'automation をパレットから追加し chain に配線してください。',en:'Add an automation and wire it into the chain first.'}, t_need_agent:{ja:'automation を最低 1 つの agent に配線してください。',en:'Wire the automation into at least one agent.'},
   t_match_ok:{ja:'match を更新しました',en:'match updated'}, t_badjson:{ja:'不正な JSON',en:'invalid JSON'}, t_mcp_copied:{ja:'MCP 呼び出しをコピーしました',en:'MCP call copied'}, t_snip_copied:{ja:'MCP tool スニペットをコピーしました',en:'MCP tool snippet copied'}, t_running:{ja:'flow を実行中…',en:'running flow…'},
   mcp_info:{ja:'AI に、この agent への handoff を頼む文面 / 呼び出しを取得します。',en:'Get the instruction / call to ask an AI to hand off to this agent.'},
   mcp_tool:{ja:'tool を選択',en:'choose a tool'}, mcp_nl:{ja:'① AI への指示文（そのまま貼る）',en:'① Instruction for an AI (paste as-is)'}, mcp_call2:{ja:'② tool 呼び出し（JSON）',en:'② Tool call (JSON)'},
@@ -490,7 +490,7 @@ const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
 let CAPVOCAB = { net:['none','read','full'], fs:['none','diff-only','repo'], external_send:['deny','approval','allow'], secrets:['deny'] };   // Wave B: capability vocabulary (refreshed from /api/capvocab)
-let TRUSTPREVIEW = null;   // Wave E1: last "🔒 Check trust" dry-run (wires + gates); annotates the canvas + panel
+let TRUSTPREVIEW = null;   // Wave E1: last "Check trust" dry-run (wires + gates); annotates the canvas + panel
 let TRUST_BASELINE = null, TRUST_DIFF = null, PREDICTED = {};   // Wave ④: baseline posture (last save/run/first-check), last diff, per-run predicted summary (audit closed-loop)
 let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes (INTEGRATIONS = token-light refs; tools = a COUNT, not the array)
 // Wave A2 — clean-mcp lazy index: the picker is a server→tool cascade. INTEGRATIONS holds refs (search index);
@@ -504,7 +504,7 @@ const ensureServers = (ids) => Promise.all([...new Set((ids||[]).filter(Boolean)
 const toolsOf = (server) => (INTEG_FULL[server]&&INTEG_FULL[server].tools)||[];   // sync read — caller must have awaited getIntegration(server)
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
 let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
-let WORKFLOWS = [];                                  // saved workflows (for the 📦 Sub-flow node's picker)
+let WORKFLOWS = [];                                  // saved workflows (for the Sub-flow node's picker)
 let NOTES = [], noidc = 0;                           // (b) Langflow-style annotation cards (markdown + color, not executable)
 const NOTE_COLORS = { amber:{bg:'#241b07',border:'#5c4a16'}, blue:{bg:'#10233a',border:'#274b73'}, green:{bg:'#0c1f12',border:'#1f5130'}, grey:{bg:'#161b22',border:'#30363d'} };
 const mdLite = (s) => esc(s).replace(/^### (.*)$/gm,'<b style="font-size:13px">$1</b>').replace(/^## (.*)$/gm,'<b style="font-size:14px">$1</b>').replace(/^# (.*)$/gm,'<b style="font-size:15px">$1</b>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^[-*] (.*)$/gm,'• $1').replace(/\n/g,'<br>');   // tiny safe markdown (escape first)
@@ -532,7 +532,7 @@ const COMP = {                                       // minimal component librar
   router: { label:'Router', svg:NI('<path d="M7 4v5a3 3 0 0 0 3 3h7"/><path d="M14 9l3 3-3 3"/><path d="M7 14v6"/><circle cx="7" cy="4" r="1.4"/>'), desc:'条件で then/else に分岐', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
-  workflow: { label:'Sub-flow', svg:NI('<path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>'), desc:'保存済みフローを1ノードとして実行', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // 📦 a saved workflow as one node; runs as its own nested run
+  workflow: { label:'Sub-flow', svg:NI('<path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>'), desc:'保存済みフローを1ノードとして実行', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // a saved workflow as one node; runs as its own nested run
   langflow: { label:'Langflow', svg:NI('<path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/>'), desc:'Langflow 由来コンポーネント', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
 };
 const UNDO_STACK = [], REDO_STACK = [];
@@ -562,7 +562,7 @@ async function refresh() {
     for(const run of (state.runs||[])){
       if(_prevRunStatuses[run.id]==='running' && run.status==='completed'){
         const outs=Object.values(run.outputs||{}); const out=outs[outs.length-1];
-        if(out) toast('✅ '+(String(out).slice(0,80)+(String(out).length>80?'…':'')));
+        if(out) toast('✓ '+(String(out).slice(0,80)+(String(out).length>80?'…':'')));
       }
       _prevRunStatuses[run.id]=run.status;
     }
@@ -575,7 +575,7 @@ function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); ren
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('multi', selSet.has(n.dataset.id)));        // ③b-2 multi-select highlight
   // checkpoint badge — 承認待ちがあれば topbar に出す（クリックで承認ダイアログ）
   const ckN=(state.handoffs||[]).filter(h=>h.status==='awaiting_approval').length;
-  const cb=$('#ckptBadge'); if(cb){ cb.style.display=ckN?'inline-flex':'none'; cb.textContent=`⏸ ${ckN} 承認待ち`; } }
+  const cb=$('#ckptBadge'); if(cb){ cb.style.display=ckN?'inline-flex':'none'; cb.textContent=`${ckN} 承認待ち`; } }
 function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
@@ -634,7 +634,7 @@ function mcpCascade(mn, cls){
   const a=(k,v)=>`data-mcpnf="${esc(mn.id)}" data-${k}="${v}"`;
   const srvSel=`<select class="${cls}${cls==='nf'?' nkind':''}" ${a('mcpserver','1')}>`
     +`<option value="" ${mn.server?'':'selected'}>${esc(t('mcp_server_none'))}</option>`
-    +servers.map(it=>`<option value="${esc(it.id)}" ${mn.server===it.id?'selected':''}>🔌 ${esc(it.label||it.id)}${it.tools?` · ${it.tools} ${t('mcp_tools_word')}`:''}</option>`).join('')
+    +servers.map(it=>`<option value="${esc(it.id)}" ${mn.server===it.id?'selected':''}>${esc(it.label||it.id)}${it.tools?` · ${it.tools} ${t('mcp_tools_word')}`:''}</option>`).join('')
     +`</select>`;
   const toolSel=mn.server?`<select class="${cls}${cls==='nf'?' nkind':''}" ${a('mcptool','1')} ${loading?'disabled':''}>`
     +(loading?`<option selected>${esc(t('mcp_loading'))}</option>`
@@ -843,7 +843,7 @@ function drawLinks(){
     const fenced = pw ? pw.fences.length>0 : !!(e.share&&((e.share.never||[]).length));        // Wave A/E1: this wire has a data-firewall policy
     const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
     const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;                     // Wave E2: router branch label
-    const lbl=(br?(br+': '):'')+(fenced?('🔒'+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
+    const lbl=(br?(br+': '):'')+(fenced?(''+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
     return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
       +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0a121b" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4" fill="${col}"/>`
@@ -905,7 +905,7 @@ function inspNode(id){
     +`<textarea class="nf" data-noteid="${esc(nt.id)}" data-notefield="text" rows="5" placeholder="${esc(t('note_text'))}">${esc(nt.text||'')}</textarea>`
     +`<div class="nfrow"><label class="nflabel">${t('note_color')}</label><select class="nf" data-noteid="${esc(nt.id)}" data-notefield="color">${Object.keys(NOTE_COLORS).map(cc=>`<option value="${cc}" ${nt.color===cc?'selected':''}>${cc}</option>`).join('')}</select></div>`
     +`<button class="ibtn danger" onclick="deleteSelected()">${NI(NIC.del,14)} 削除</button>`;
-  return inspHead(id)+`<button class="ibtn danger" onclick="deleteSelected()">🗑 削除</button>`;
+  return inspHead(id)+`<button class="ibtn danger" onclick="deleteSelected()">削除</button>`;
 }
 const listClean = (xs) => [...new Set((xs||[]).map(x=>String(x||'').trim()).filter(Boolean))];
 function inspEdge(e){   // ui2: trust-free wire editor — connection + (router) branch + delete
@@ -934,7 +934,7 @@ function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.
 // B3 — mcp / component / note settings now edit on the card (renderNodes + inlineField + the delegated
 // input/change handlers); their right-panel inspectors are retired. The card paths cover everything the old
 // inspectors did (cascade, kind selector, per-kind fields, name/desc, auto/args, note text/colour).
-// ui2: pending approvals — the one bit of run-state that's actionable (not history). Opened from the ⏸ badge.
+// ui2: pending approvals — the one bit of run-state that's actionable (not history). Opened from the badge.
 function openApprovals(){
   const dlg=$('#modal');
   const pend=(state.handoffs||[]).filter(h=>h.status==='awaiting_approval');
@@ -944,7 +944,7 @@ function openApprovals(){
       ${h.checkpoint?`<div class="ckpt"><div class="ckpt-label">${esc(h.checkpoint.label||'')}</div>${h.checkpoint.screenshot?`<img class="ckpt-img" src="${esc(h.checkpoint.screenshot)}" alt="screenshot">`:''}</div>`:''}
       <div class="acts"><button class="act ok" data-ok="${h.id}">${t('approve')}</button><button class="act no" data-no="${h.id}">${t('decline')}</button>${h.checkpoint&&h.checkpoint.tool?`<button class="act" data-always="${h.id}" data-tool="${esc(h.checkpoint.tool)}" data-domain="${esc(h.checkpoint.domain||'')}">${t('always_allow')}</button>`:''}</div>
     </div>`).join('') : `<div class="empty">承認待ちはありません。</div>`;
-  dlg.innerHTML=`<div class="dh">⏸ 承認待ち（${pend.length}）</div><div class="db">${rows}</div><div class="df"><button class="act" id="apClose">${t('close')}</button></div>`;
+  dlg.innerHTML=`<div class="dh">承認待ち（${pend.length}）</div><div class="db">${rows}</div><div class="df"><button class="act" id="apClose">${t('close')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#apClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await act(b.getAttribute('data-ok'),'approve'); dlg.close(); });
@@ -954,8 +954,8 @@ function openApprovals(){
 
 /* ---------- actions ---------- */
 async function fetchIntegrations(){ try{ INTEGRATIONS=await api('/api/integrations/search'); }catch{ INTEGRATIONS=[]; } INTEG_FULL={}; }   // A2: refs only; drop stale full-tool cache (also runs after a toggle/add)
-async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the 📦 Sub-flow picker
-async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');                                // 🗂 overview: all saved flows; click → loadFlow onto canvas
+async function fetchWorkflows(){ try{ WORKFLOWS=await api('/api/workflows'); }catch{ WORKFLOWS=[]; } }   // saved workflows for the Sub-flow picker
+async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');                                // overview: all saved flows; click → loadFlow onto canvas
   const cards = WORKFLOWS.length
     ? WORKFLOWS.map(w=>`<button class="flowcard act" data-id="${esc(w.id)}"><span class="fc-skill" data-id="${esc(w.id)}" title="${t('flows_skill')}">${NI(NIC.skill,13)}</span><div class="fc-name">${esc(w.name||w.id)}</div><div class="mini">${w.nodes} nodes · ${w.edges} edges</div></button>`).join('')
     : `<div class="minfo">${t('flows_none')}</div>`;
@@ -963,10 +963,10 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
   if(!dlg.open) dlg.showModal();
   $('#flowsClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
-  dlg.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast('📜 '+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });   // Wave 10: flow → Claude Code SKILL.md（Wave 7 endpoint）
+  dlg.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast(''+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });   // Wave 10: flow → Claude Code SKILL.md（Wave 7 endpoint）
 }
 // ── 神龍: NL の願い → /api/shenron/plan → canvas に展開（clarify/refine 対応）。
-// loadFlow は ui.html から移植：ui2 では未定義で 🗂読込/JSON import/Langflow import も壊れていたので同時修復。
+// loadFlow は ui.html から移植：ui2 では未定義で 読込/JSON import/Langflow import も壊れていたので同時修復。
 let LAST_PLAN = null, SH_CLARIFY = null;
 function loadFlow(flow){                              // saved/生成フローを canvas に materialize（buildFlow の逆）
   undoSnap(); TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();
@@ -1010,7 +1010,7 @@ function shClarify(clarify, blockers){
     +`<div class="opts" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px">`
     +(q.options||[]).map(o=>`<button class="tb" onclick="${sel}">${esc(o)}</button>`).join('')
     +`</div>`+(q.why?`<div style="color:var(--dim);font-size:10px;margin-top:3px">${esc(q.why)}</div>`:'')+`</div>`).join('');
-  if(blockers&&blockers.length) h+=`<div style="color:var(--amber);font-size:11px;margin:4px 0">⚠️ ${blockers.map(esc).join(' · ')}</div>`;
+  if(blockers&&blockers.length) h+=`<div style="color:var(--amber);font-size:11px;margin:4px 0">${blockers.map(esc).join(' · ')}</div>`;
   h+=`<button class="tb go" style="width:100%;margin-top:4px" onclick="shSubmitChoices()">✓ ${LANG==='ja'?'確定して計画':'confirm & plan'}</button>`;
   $('#shClarify').innerHTML=h;
 }
@@ -1019,13 +1019,13 @@ async function shRefine(){ const ins=$('#shRefine').value.trim(); if(!ins||!LAST
   catch(e){ toast(e.message); b.disabled=false; b.textContent=t('sh_refine_btn'); return; }
   b.disabled=false; b.textContent=t('sh_refine_btn'); $('#shRefine').value=''; applyPlan(r);
 }
-function applyPlan(r){                                // plan/refine 共通: canvas 描画 + 要約/gap 提示。Run/Save は既存の ▶実行/💾保存 を使う
+function applyPlan(r){                                // plan/refine 共通: canvas 描画 + 要約/gap 提示。Run/Save は既存の ▶実行/保存 を使う
   if(!r||!r.nodes||!r.nodes.length){ toast(LANG==='ja'?'plan が空です':'empty plan'); return; }
   LAST_PLAN=r; loadFlow(r); if(r.plain_summary) $('#flowName').value=r.plain_summary;
   const gaps=r.missing||[];
-  $('#shSummary').textContent=`✅ ${t('sh_built')} — ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'');
+  $('#shSummary').textContent=`✓ ${t('sh_built')} — ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'');
   $('#shResult').style.display='block';
-  toast(`🐉 ${t('sh_built')} (${r.nodes.length})`);
+  toast(`${t('sh_built')} (${r.nodes.length})`);
 }
 // ui2: agent picker — the palette is gone, so this is how you (re)place an agent on the canvas. Hidden agents
 // (hidden after loadFlow) become reachable again; clicking reveals + centers, or just focuses one already placed.
@@ -1034,7 +1034,7 @@ function openAgentPicker(){
   const rows = ags.length ? ags.map(a=>{ const on=!HIDDEN.has(a.id);
     return `<button class="flowcard act" data-aid="${esc(a.id)}"><div class="fc-name">${NI(NIC.agent,13)} ${esc(a.id)}${on?' <span class="kindchip ag">配置済み</span>':''}</div><div class="mini">${esc(a.company||'—')}${a.skill?' · '+esc(a.skill):''}${a.online?'':' · オフライン'}</div></button>`;
   }).join('') : `<div class="minfo">エージェントがありません（hub を agents/*.json 付きで起動してください）。</div>`;
-  dlg.innerHTML=`<div class="dh">👤 エージェントを配置（${ags.length}）</div><div class="db flowgrid">${rows}</div><div class="df"><button class="act" id="agpClose">${t('cancel')}</button></div>`;
+  dlg.innerHTML=`<div class="dh">エージェントを配置（${ags.length}）</div><div class="db flowgrid">${rows}</div><div class="df"><button class="act" id="agpClose">${t('cancel')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#agpClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('[data-aid]').forEach(b=>b.onclick=()=>{ const id=b.dataset.aid;
@@ -1056,7 +1056,7 @@ function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
   return { nodes:[...ids].map(nodeSpecOf).concat(NOTES.map(nt=>nodeSpecOf(nt.id))), edges:EDGES.map(edgeSpecOf) }; }   // notes are unwired → append them so they persist
 function buildSubflow(ids, edges){ return { nodes:ids.map(nodeSpecOf), edges:edges.map(edgeSpecOf) }; }   // ③b-2: serialize a selected subset
-// ③b-2 — collapse a (linear) multi-selection into one 📦 Sub-flow node: save the picked nodes + their internal
+// ③b-2 — collapse a (linear) multi-selection into one Sub-flow node: save the picked nodes + their internal
 // edges as a workflow, drop a workflow node in their place, and rewire the external edges to it. Linear only —
 // >1 external entry or >1 external exit is refused (ask for a linear chain). The new node runs as a nested run (③b).
 async function collapseSelection(){
@@ -1083,11 +1083,11 @@ async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1')
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
     onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; lastSaved=Date.now(); conn('保存しました: '+wf.id); fetchWorkflows(); refresh(); } }); }
-const lfHost=()=>localStorage.getItem('lf_host')||'http://localhost:7860';   // 🔗 run/import target; editable in ⚙ Settings
+const lfHost=()=>localStorage.getItem('lf_host')||'http://localhost:7860';   // run/import target; editable in Settings
 const lfKey=()=>localStorage.getItem('lf_key')||'';                          // optional x-api-key (secured Langflow only)
 let LF_SOURCE=null;                                                          // raw last-imported Langflow JSON, kept for verbatim re-upload
-// 🔗 a flow holding an exotic Langflow component can't run node-by-node here → delegate the whole flow to
-// Langflow /api/v1/run; the hub still firewalls the input + audits the call. flowId rode in on the 🔗 node's config.
+// a flow holding an exotic Langflow component can't run node-by-node here → delegate the whole flow to
+// Langflow /api/v1/run; the hub still firewalls the input + audits the call. flowId rode in on the node's config.
 function runLangflow(lfNode){
   const flowId=lfNode.config&&lfNode.config._lfFlowId; if(!flowId) return toast(t('lf_noflowid'));
   openModal({ title:t('m_run_t'), info:t('lf_run_info').replace('{host}',lfHost()), submitLabel:t('m_run_b'),
@@ -1162,13 +1162,13 @@ const LF_KIND = { ChatInput:'input', TextInput:'input', ChatOutput:'output', Tex
   StructuredOutput:'structured', ParseData:'parser', note:'note' };
 const lfVal=(tmpl,k)=>{ const f=tmpl&&tmpl[k]; return f&&typeof f==='object'?f.value:f; };
 function importLangflowFlow(lf){
-  const flowId=(lf&&lf.id)||''; LF_SOURCE=lf;   // top-level id = flowId for /api/v1/run (kept on 🔗 nodes); raw kept for ⤴ re-upload
+  const flowId=(lf&&lf.id)||''; LF_SOURCE=lf;   // top-level id = flowId for /api/v1/run (kept on nodes); raw kept for ⤴ re-upload
   const d=(lf&&lf.data)||lf||{}; const lns=d.nodes||[], les=d.edges||[];
   if(!lns.length) return toast(t('lf_empty'));
   const xs=lns.map(n=>n.position?.x||0), ys=lns.map(n=>n.position?.y||0), minx=Math.min(...xs), miny=Math.min(...ys), S=0.55;   // Langflow coords are large/spread → normalize into the canvas
   const nodes=lns.map(ln=>{ const dt=(ln.data&&ln.data.type)||(ln.type==='noteNode'?'note':''); const tmpl=(ln.data&&ln.data.node&&ln.data.node.template)||{};
     const kind=LF_KIND[dt]||'langflow', x=Math.round(((ln.position?.x||0)-minx)*S)+60, y=Math.round(((ln.position?.y||0)-miny)*S)+40;
-    if(kind==='note') return { id:ln.id, kind:'note', text:lfVal(tmpl,'text')||(ln.data&&ln.data.node&&ln.data.node.template&&ln.data.node.template.note)||'📝', color:'blue', x, y };
+    if(kind==='note') return { id:ln.id, kind:'note', text:lfVal(tmpl,'text')||(ln.data&&ln.data.node&&ln.data.node.template&&ln.data.node.template.note)||'', color:'blue', x, y };
     const config={ name:(ln.data&&ln.data.display_name)||dt };
     if(kind==='input') config.text=lfVal(tmpl,'input_value')||'';
     else if(kind==='prompt') config.template=lfVal(tmpl,'template')||'{input}';
@@ -1244,7 +1244,7 @@ function deleteSelected(){ const id=selected; if(!id)return; undoSnap();
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id); else if(noteOf(id)) removeNote(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
 applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{});
-// Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「✏️ 編集」の着地点）。showFlows の click と同処理。
+// Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「編集」の着地点）。showFlows の click と同処理。
 (async()=>{ const fid=new URLSearchParams(location.search).get('flow'); if(!fid) return;
   const w=await api('/api/workflows?id='+encodeURIComponent(fid)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); toast(w.name||w.id); } else toast(t('flows_none')); })();
 document.getElementById('ctxDuplicate').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) duplicateNode(id); };
@@ -1281,7 +1281,7 @@ function renderArtifact() {
 <style>body{margin:10px;font-family:system-ui,sans-serif}*{box-sizing:border-box}</style>
 </head><body><div id="root"></div><script type="text/babel">
 ${code}
-;(function(){try{const R=ReactDOM.createRoot(document.getElementById('root'));R.render(React.createElement(typeof App!=='undefined'?App:()=>React.createElement('p',null,'⚠ App が見つかりません')));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red">'+e.message+'<\\/pre>';}})();
+;(function(){try{const R=ReactDOM.createRoot(document.getElementById('root'));R.render(React.createElement(typeof App!=='undefined'?App:()=>React.createElement('p',null,'App が見つかりません')));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red">'+e.message+'<\\/pre>';}})();
 <\/script>
 
 </body></html>`;
