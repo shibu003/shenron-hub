@@ -176,6 +176,7 @@
   <a class="tb" href="/shenron" title="会話で flow を作るのは神龍。ここ（キャンバス）は視覚編集に専念" style="text-decoration:none">神龍で作る</a>
   <div class="tb-actions">
     <button class="tb primary" id="btnSave" onclick="saveFlow()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 14h8v6H8z"/></svg> 保存</button>
+    <button class="tb" id="btnShare" onclick="toggleShare()" title="保存してから庫へ共有"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 10.9l7.8-3.8M8.1 13.1l7.8 3.8"/></svg> 共有</button>
     <button class="tb go" id="btnRun" onclick="runFlow()">▶ 実行</button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none">■ 停止</button>
     <button id="ckptBadge" onclick="openApprovals()"></button>
@@ -470,6 +471,7 @@ function openAddMenu(){ document.querySelectorAll('.menu-pop.open').forEach(m=>m
 const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
+let SAVED_ID = '', FLOW_VIS = 'private';   // Cockpit-3: 共有トグルの真実源（保存済み id + 庫公開状態。#flowName.value は name と id が混ざるので別持ち）
 let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
 let CAPVOCAB = { net:['none','read','full'], fs:['none','diff-only','repo'], external_send:['deny','approval','allow'], secrets:['deny'] };   // Wave B: capability vocabulary (refreshed from /api/capvocab)
 let TRUSTPREVIEW = null;   // Wave E1: last "Check trust" dry-run (wires + gates); annotates the canvas + panel
@@ -944,7 +946,7 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
   dlg.innerHTML=`<div class="dh">${t('flows_title')}（${WORKFLOWS.length}）</div><div class="db flowgrid">${cards}</div><div class="df"><button class="act" id="flowsClose">${t('cancel')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#flowsClose').onclick=()=>dlg.close();
-  dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
+  dlg.querySelectorAll('.flowcard').forEach(b=>b.onclick=async()=>{ const w=await api('/api/workflows?id='+encodeURIComponent(b.dataset.id)); if(w&&w.nodes){ $('#flowName').value=w.id; SAVED_ID=w.id; FLOW_VIS=w.visibility||'private'; renderShareBtn(); loadFlow(w); dlg.close(); toast(w.name||w.id); } else toast(t('flows_none')); });
   dlg.querySelectorAll('.fc-skill').forEach(s=>s.onclick=async e=>{ e.stopPropagation(); try{ const r=await api('/api/shenron/skill',{id:s.dataset.id}); toast(''+(r.path||r.slug||'skill')); }catch(err){ toast(err.message); } });   // Wave 10: flow → Claude Code SKILL.md（Wave 7 endpoint）
 }
 // ── 神龍: NL の願い → /api/shenron/plan → canvas に展開（clarify/refine 対応）。
@@ -1020,7 +1022,19 @@ async function collapseSelection(){
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
   if(f.nodes.some(NODE_UNSET)) return toast(t('t_unset'));
   openModal({ title:t('m_save_t'), submitLabel:t('m_save_b'), fields:[{key:'name',label:t('m_name'),value:flowName()}],
-    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; lastSaved=Date.now(); conn('保存しました: '+wf.id); fetchWorkflows(); refresh(); } }); }
+    onSubmit:async v=>{ if(!v.name) return; const wf=await api('/api/workflows',{ name:v.name, nodes:f.nodes, edges:f.edges }); $('#flowName').value=wf.id; SAVED_ID=wf.id; FLOW_VIS=wf.visibility||'private'; renderShareBtn(); lastSaved=Date.now(); conn('保存しました: '+wf.id); fetchWorkflows(); refresh(); } }); }
+// ── Cockpit-3: 現在のフローを庫へ共有/非共有（shenron Flows の 🔗/🌐 トグルと対の逆方向廊下）。
+// visibility flip だけ＝backend 不変。共有先は神龍の📚 庫（GET /api/shared）。未保存（id 無し）なら先に保存を促す。
+function renderShareBtn(){ const b=$('#btnShare'); if(!b) return; const saved=!!SAVED_ID, on=FLOW_VIS==='shared';
+  const svg='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 10.9l7.8-3.8M8.1 13.1l7.8 3.8"/></svg>';
+  b.innerHTML=svg+' '+(on?'共有中':'共有'); b.style.color=on?'var(--green)':''; b.style.opacity=saved?'1':'.5';
+  b.title=!saved?'保存してから庫へ共有できます':on?'庫に共有中（クリックで非共有に戻す）':'庫に共有（チームの庫＝神龍📚 に公開）'; }
+async function toggleShare(){ if(!SAVED_ID) return toast('先に保存してください（保存後に庫へ共有できます）');
+  const on=FLOW_VIS==='shared', act=on?'unshare':'share';
+  let r; try{ r=await api('/api/workflows/'+encodeURIComponent(SAVED_ID)+'/'+act,{}); }catch(e){ return toast(e.message||'共有に失敗'); }
+  if(r&&r.error) return toast(r.error);
+  FLOW_VIS=on?'private':'shared'; renderShareBtn();
+  toast(on?'非共有に戻しました':'庫に共有しました（神龍の📚 庫に掲載）'); }
 const lfHost=()=>localStorage.getItem('lf_host')||'http://localhost:7860';   // run/import target; editable in Settings
 const lfKey=()=>localStorage.getItem('lf_key')||'';                          // optional x-api-key (secured Langflow only)
 let LF_SOURCE=null;                                                          // raw last-imported Langflow JSON, kept for verbatim re-upload
@@ -1184,7 +1198,8 @@ function deleteSelected(){ const id=selected; if(!id)return; undoSnap();
 applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{});
 // Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「編集」の着地点）。showFlows の click と同処理。
 (async()=>{ const fid=new URLSearchParams(location.search).get('flow'); if(!fid) return;
-  const w=await api('/api/workflows?id='+encodeURIComponent(fid)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); toast(w.name||w.id); } else toast(t('flows_none')); })();
+  const w=await api('/api/workflows?id='+encodeURIComponent(fid)); if(w&&w.nodes){ $('#flowName').value=w.id; SAVED_ID=w.id; FLOW_VIS=w.visibility||'private'; renderShareBtn(); loadFlow(w); toast(w.name||w.id); } else toast(t('flows_none')); })();
+renderShareBtn();   // Cockpit-3: 新規フローは共有ボタンを dim 表示（保存後に有効化）
 document.getElementById('ctxDuplicate').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) duplicateNode(id); };
 document.getElementById('ctxInspect').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) selectNode(id); };
 document.getElementById('ctxDelete').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id){ selected=id; deleteSelected(); } };
