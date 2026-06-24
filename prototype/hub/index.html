@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🐉 神龍 — 玄関</title>
+<link rel="manifest" href="/manifest.json">
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#30363d; --txt:#e6edf3; --dim:#8b949e; --accent:#6e7cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt);
+         display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; gap:30px; }
+  h1 { margin:0; font-size:30px; font-weight:700; letter-spacing:.5px; }
+  h1 span { color:var(--dim); font-weight:400; font-size:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; width:100%; max-width:760px; }
+  a.card { display:flex; flex-direction:column; gap:8px; text-decoration:none; color:var(--txt);
+           background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px 20px;
+           transition:border-color .12s, transform .12s, background .12s; }
+  a.card:hover { border-color:var(--accent); transform:translateY(-2px); background:var(--panel2); }
+  .card .ic { font-size:32px; }
+  .card .ti { font-size:16px; font-weight:600; }
+  .card .de { font-size:12.5px; color:var(--dim); }
+  .foot { font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+  <h1>🐉 神龍 <span>玄関</span></h1>
+  <div class="grid">
+    <a class="card" href="/shenron">
+      <div class="ic">💬</div>
+      <div class="ti">神龍</div>
+      <div class="de">会話でフローを叶える（主役）</div>
+    </a>
+    <a class="card" href="/ui2">
+      <div class="ic">✏️</div>
+      <div class="ti">キャンバス</div>
+      <div class="de">ビジュアルエディタで組み立てる</div>
+    </a>
+    <a class="card" href="/settings">
+      <div class="ic">⚙️</div>
+      <div class="ti">設定</div>
+      <div class="de">経路・連携・保管庫・通知</div>
+    </a>
+    <a class="card" href="/ui-old">
+      <div class="ic">🐲</div>
+      <div class="ti">旧 cockpit</div>
+      <div class="de">レガシー UI（移行用）</div>
+    </a>
+  </div>
+  <div class="foot">MCP がコントロールプレーン — cockpit はその上の薄い view</div>
+</body>
+</html>

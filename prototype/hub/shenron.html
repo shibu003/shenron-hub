@@ -75,7 +75,7 @@
 
     <!-- Sidebar -->
     <nav class="w-16 bg-slate-900 flex flex-col items-center py-4 gap-1 shrink-0 z-10">
-      <a href="/" class="text-xl mb-3 hover:opacity-70 transition-opacity" title="旧 UI">🐲</a>
+      <a href="/" class="text-xl mb-3 hover:opacity-70 transition-opacity" title="玄関">🚪</a>
       <template x-for="t in tabs" :key="t.id">
         <button @click="tab = t.id"
           class="relative w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors"
@@ -244,6 +244,8 @@
                     class="px-2.5 py-1 text-xs border rounded-lg transition-colors"
                     :class="wf.visibility === 'shared' ? 'border-emerald-300 text-emerald-600 hover:border-emerald-400' : 'border-gray-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'"
                     x-text="wf.visibility === 'shared' ? '🌐' : '🔗'"></button>
+                  <a :href="'/ui2?flow=' + encodeURIComponent(wf.id)" title="キャンバスで編集"
+                    class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors no-underline">✏️</a>
                   <button @click="cloneWorkflow(wf.id)" title="複製（fork → 改造して別フローの部品に再利用）"
                     class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors">⧉</button>
                   <button @click="makeSkill(wf.id)" title="Claude Code Skill を生成"
@@ -587,7 +589,7 @@
 
             <!-- Hub link -->
             <div class="text-center pt-2">
-              <a href="/" class="text-xs text-slate-400 hover:text-slate-600 underline">旧 UI (ビジュアルエディタ) →</a>
+              <a href="/ui-old" class="text-xs text-slate-400 hover:text-slate-600 underline">旧 cockpit →</a>
             </div>
           </div>
         </template>

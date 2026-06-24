@@ -65,6 +65,7 @@ let AUTORUN = !process.argv.includes('--no-autorun');     // global master: may 
 const autorunOn = (a) => AUTORUN && a.autorun !== false;  // per-agent autorun (default on) AND-ed with the global master; off → broker-only (waits for a worker)
 const managedMode = () => !!process.env.SHENRON_MANAGED;  // managed hub: no local browser worker, no login credentials
 const STATE_FILE = sp('inbox.json', path.join(HERE, 'inbox.json'));
+const INDEX_FILE = path.join(HERE, 'index.html');   // Wave Cockpit-1: 玄関 launcher
 const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
 const SETTINGS_FILE = path.join(HERE, 'settings.html');
@@ -1336,9 +1337,13 @@ const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'applic
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
   const p = u.pathname;
-  if (req.method === 'GET' && p === '/') {
+  if (req.method === 'GET' && p === '/') {                          // Wave Cockpit-1: / は玄関 launcher（旧 cockpit は /ui-old へ退避）
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(INDEX_FILE)); }
+    catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Shenron hub</h1><p>玄関 UI not installed yet (prototype/hub/index.html). JSON API under /api/*.</p>'); }
+  }
+  if (req.method === 'GET' && p === '/ui-old') {                    // Wave Cockpit-1: 旧 cockpit（ui.html）退避先
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI_FILE)); }
-    catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Shenron hub</h1><p>UI not installed yet (prototype/hub/ui.html). JSON API under /api/*.</p>'); }
+    catch { return json(res, 404, { error: 'ui.html not found' }); }
   }
   if (req.method === 'GET' && p === '/ui2') {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }

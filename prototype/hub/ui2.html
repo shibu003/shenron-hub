@@ -197,6 +197,7 @@
     </div>
     <button class="tb" onclick="openArtifact()" title="成果物 UI をレンダリング（Wave UI S1）">🎨 成果物</button>
     <a class="tb" href="/settings" title="設定" style="text-decoration:none">⚙ 設定</a>
+    <a class="tb" href="/" title="玄関" style="text-decoration:none">🚪 玄関</a>
   </div>
   <span id="conn"></span>
 </header>
@@ -1229,6 +1230,9 @@ function deleteSelected(){ const id=selected; if(!id)return; undoSnap();
   if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id); else if(noteOf(id)) removeNote(id);
   else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
 applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{});
+// Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「✏️ 編集」の着地点）。showFlows の click と同処理。
+(async()=>{ const fid=new URLSearchParams(location.search).get('flow'); if(!fid) return;
+  const w=await api('/api/workflows?id='+encodeURIComponent(fid)); if(w&&w.nodes){ $('#flowName').value=w.id; loadFlow(w); toast(w.name||w.id); } else toast(t('flows_none')); })();
 document.getElementById('ctxDuplicate').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) duplicateNode(id); };
 document.getElementById('ctxInspect').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id) selectNode(id); };
 document.getElementById('ctxDelete').onclick=()=>{ const id=CTX_TARGET; closeCtxMenu(); if(id){ selected=id; deleteSelected(); } };
