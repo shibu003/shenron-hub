@@ -782,6 +782,15 @@
           } catch (e) { this.showToast('複製エラー: ' + e.message, false); }
         },
 
+        async shareWorkflow(wf) {   // Wave T-0: 庫への共有/非共有トグル（visibility flip・owner 不変）。MCP share_workflow と同じ setVisibility を叩く
+          const to = wf.visibility === 'shared' ? 'unshare' : 'share';
+          try {
+            const r = await this.api('POST', `/api/workflows/${encodeURIComponent(wf.id)}/${to}`, {});
+            wf.visibility = r.visibility;   // レスポンスで楽観更新 → ボタン（🌐/🔗）が即トグル
+            this.showToast(r.visibility === 'shared' ? '🌐 庫に共有しました' : '🔗 非共有に戻しました');
+          } catch (e) { this.showToast('共有エラー: ' + e.message, false); }
+        },
+
         // ── Runs (O1 live SSE) ───────────────────────
         liveSubscribe() {
           this._streams ||= {};

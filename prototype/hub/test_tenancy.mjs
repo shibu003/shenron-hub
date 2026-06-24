@@ -1,6 +1,9 @@
 // test_tenancy.mjs — Wave T-0 テナンシー（owner/visibility）ユニット + HTTP smoke。
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { visibleTo } from './shenron.mjs';
 
 // ── 純粋: visibleTo の seat 可視性 ──
@@ -17,8 +20,9 @@ const PORT = 8911, HUB = 'http://localhost:' + PORT;
 const ROOT = new URL('../..', import.meta.url).pathname;
 const get  = async (p) => (await fetch(HUB + p)).json();
 const post = async (p, b) => (await fetch(HUB + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) })).json();
+const STATE_DIR = mkdtempSync(path.join(os.tmpdir(), 'tenancy-test-'));   // 本番 workflows.json を汚さない（hub は STATE_DIR があれば全 state をそこに書く・hub.mjs:38）
 const hub = spawn('node', ['prototype/hub/hub.mjs', '--port', String(PORT), '--vendor', 'stub'],
-  { cwd: ROOT, stdio: 'ignore', env: { ...process.env, SHENRON_NO_AUTOSPAWN: '1', SHENRON_NO_SCHEDULER: '1' } });
+  { cwd: ROOT, stdio: 'ignore', env: { ...process.env, STATE_DIR, SHENRON_NO_AUTOSPAWN: '1', SHENRON_NO_SCHEDULER: '1' } });
 const waitUp = async () => { for (let i = 0; i < 60; i++) { try { await get('/api/health'); return; } catch { await new Promise(r => setTimeout(r, 100)); } } throw new Error('no boot'); };
 let bad = false;
 try {

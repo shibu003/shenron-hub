@@ -1555,6 +1555,8 @@ const server = http.createServer((req, res) => {
         if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2)); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
       { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy
         if (cm) { try { return json(res, 200, cloneWorkflow(decodeURIComponent(cm[1]), j.name)); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
+      { const sm = p.match(/^\/api\/workflows\/([^/]+)\/(share|unshare)$/);   // T-0: 庫への共有/非共有トグル（visibility flip・owner 不変）。MCP の share_workflow と同じ setVisibility を cockpit にも露出
+        if (sm) { try { return json(res, 200, setVisibility(decodeURIComponent(sm[1]), sm[2] === 'share' ? 'shared' : 'private')); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
       { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
         if (tm) {
           const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
