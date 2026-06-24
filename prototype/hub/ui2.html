@@ -202,24 +202,6 @@
   <span id="conn"></span>
 </header>
 
-<!-- ponytail: dead — 役割分離(d329c33)で「神龍で作る」はリンク化、この内蔵ダイアログは到達不能。
-     applyPlan/loadFlow/LAST_PLAN が shSummary/shResult と結合しており剥がすと回帰リスク。
-     除去するなら applyPlan を shPanel 非依存に分離してから（別 pass）。今は到達不能で無害。 -->
-<div id="shPanel" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);width:460px;max-width:92vw;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 34px #000a;padding:14px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-    <b id="shTitle"></b><span style="cursor:pointer;color:var(--dim);font-size:16px" onclick="closeShenron()">✕</span>
-  </div>
-  <div id="shInfo" style="color:var(--dim);font-size:11px;line-height:1.5;margin-bottom:9px"></div>
-  <textarea class="nf" id="shGoal" rows="3" style="width:100%;box-sizing:border-box"></textarea>
-  <div id="shClarify" style="margin-top:8px"></div>
-  <div style="margin-top:9px"><button class="tb go" id="shPlanBtn" style="width:100%"></button></div>
-  <div id="shResult" style="display:none;margin-top:11px;border-top:1px solid var(--line);padding-top:10px">
-    <div id="shSummary" style="font-size:12px;margin-bottom:9px"></div>
-    <input class="nf" id="shRefine" style="width:100%;box-sizing:border-box">
-    <div style="margin-top:6px"><button class="tb" id="shRefineBtn" style="width:100%"></button></div>
-  </div>
-</div>
-
 <div id="main-wrap">
   <main id="canvas">
     <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
@@ -967,7 +949,6 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
 }
 // ── 神龍: NL の願い → /api/shenron/plan → canvas に展開（clarify/refine 対応）。
 // loadFlow は ui.html から移植：ui2 では未定義で 読込/JSON import/Langflow import も壊れていたので同時修復。
-let LAST_PLAN = null, SH_CLARIFY = null;
 function loadFlow(flow){                              // saved/生成フローを canvas に materialize（buildFlow の逆）
   undoSnap(); TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // 全 agent を隠してからフローの agent だけ出す
@@ -983,49 +964,6 @@ function loadFlow(flow){                              // saved/生成フロー�
   for(const n of (flow.nodes||[])) COLLAPSED.add(n.id);   // 読込直後は折りたたみ（カードは題名+要約のみ）
   localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED]));
   deselect(); render();
-}
-function openShenron(){ const p=$('#shPanel'); $('#shTitle').textContent=t('sh_title'); $('#shInfo').textContent=t('sh_info'); $('#shGoal').placeholder=t('sh_ph'); $('#shPlanBtn').textContent=t('sh_btn'); $('#shRefine').placeholder=t('sh_refine_ph'); $('#shRefineBtn').textContent=t('sh_refine_btn'); p.style.display='block'; $('#shGoal').focus(); }
-function closeShenron(){ $('#shPanel').style.display='none'; }
-const shCost=()=>localStorage.getItem('sh_cost')||'free';   // お財布: free（既定・従量0優先）| paid_ok
-async function shPlan(){ const goal=$('#shGoal').value.trim(); if(!goal) return; const b=$('#shPlanBtn'); b.disabled=true; b.textContent=t('sh_refine_wait');
-  let r; try{ r=await api('/api/shenron/plan',{goal,save:true,gap:'ask',cost:shCost()}); }
-  catch(e){ toast(e.message); b.disabled=false; b.textContent=t('sh_btn'); return; }
-  b.disabled=false; b.textContent=t('sh_btn');
-  if(r.mode==='clarify'||(r.clarify&&r.clarify.length)){ SH_CLARIFY={goal,clarify:r.clarify||[]}; shClarify(r.clarify||[], r.blockers||[]); return; }   // discover が曖昧/地雷 → 確認を出す
-  shHideClarify(); applyPlan(r);
-}
-async function shSubmitChoices(){ if(!SH_CLARIFY) return;   // clarify の回答を context.choices に入れて再計画
-  const choices=(SH_CLARIFY.clarify||[]).map((q,i)=>{ const sel=document.querySelector(`#shq_${i} .opts button.sel`); return {question:q.question, answer:sel?sel.textContent:''}; }).filter(c=>c.answer);
-  if(!choices.length) return toast(LANG==='ja'?'選択してください':'pick an option');
-  let r; try{ r=await api('/api/shenron/plan',{goal:SH_CLARIFY.goal,save:true,gap:'ask',cost:shCost(),context:{choices}}); }catch(e){ return toast(e.message); }
-  if(r.mode==='clarify'||(r.clarify&&r.clarify.length)){ shClarify(r.clarify||[], r.blockers||[]); return; }
-  SH_CLARIFY=null; shHideClarify(); applyPlan(r);
-}
-function shHideClarify(){ $('#shClarify').innerHTML=''; }
-// clarify（questions+options）を #shClarify に描画する。各 question を #shq_<i> で包み、options は .opts 内のボタンに、
-// 選択は同 question 内で排他に .sel を付ける（shSubmitChoices が `#shq_<i> .opts button.sel` を読む）。確定ボタンは shSubmitChoices() を呼ぶ。
-function shClarify(clarify, blockers){
-  const sel="this.closest('.opts').querySelectorAll('button').forEach(b=>{b.classList.remove('sel');b.style.borderColor='';b.style.color=''});this.classList.add('sel');this.style.borderColor='var(--green)';this.style.color='var(--green)'";
-  let h=(clarify||[]).map((q,i)=>`<div class="shq" id="shq_${i}" style="margin-bottom:9px"><b style="font-size:12px">${esc(q.question)}</b>`
-    +`<div class="opts" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px">`
-    +(q.options||[]).map(o=>`<button class="tb" onclick="${sel}">${esc(o)}</button>`).join('')
-    +`</div>`+(q.why?`<div style="color:var(--dim);font-size:10px;margin-top:3px">${esc(q.why)}</div>`:'')+`</div>`).join('');
-  if(blockers&&blockers.length) h+=`<div style="color:var(--amber);font-size:11px;margin:4px 0">${blockers.map(esc).join(' · ')}</div>`;
-  h+=`<button class="tb go" style="width:100%;margin-top:4px" onclick="shSubmitChoices()">✓ ${LANG==='ja'?'確定して計画':'confirm & plan'}</button>`;
-  $('#shClarify').innerHTML=h;
-}
-async function shRefine(){ const ins=$('#shRefine').value.trim(); if(!ins||!LAST_PLAN) return; const b=$('#shRefineBtn'); b.disabled=true; b.textContent=t('sh_refine_wait');
-  let r; try{ r=await api('/api/shenron/plan',{goal:$('#shGoal').value.trim(),save:true,cost:shCost(),context:{prev_plan:LAST_PLAN,instruction:ins}}); }   // 指示だけ当て他 step 維持（backend REFINE_PROMPT）
-  catch(e){ toast(e.message); b.disabled=false; b.textContent=t('sh_refine_btn'); return; }
-  b.disabled=false; b.textContent=t('sh_refine_btn'); $('#shRefine').value=''; applyPlan(r);
-}
-function applyPlan(r){                                // plan/refine 共通: canvas 描画 + 要約/gap 提示。Run/Save は既存の ▶実行/保存 を使う
-  if(!r||!r.nodes||!r.nodes.length){ toast(LANG==='ja'?'plan が空です':'empty plan'); return; }
-  LAST_PLAN=r; loadFlow(r); if(r.plain_summary) $('#flowName').value=r.plain_summary;
-  const gaps=r.missing||[];
-  $('#shSummary').textContent=`✓ ${t('sh_built')} — ${r.nodes.length} nodes`+(gaps.length?` · ${t('sh_gaps')}: ${gaps.length}`:'');
-  $('#shResult').style.display='block';
-  toast(`${t('sh_built')} (${r.nodes.length})`);
 }
 // ui2: agent picker — the palette is gone, so this is how you (re)place an agent on the canvas. Hidden agents
 // (hidden after loadFlow) become reachable again; clicking reveals + centers, or just focuses one already placed.
