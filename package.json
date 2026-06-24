@@ -1,9 +1,28 @@
 {
   "name": "shenron-hub",
+  "version": "0.1.0",
+  "description": "神龍 (Shenron) — 自己ホスト型 MCP コントロールプレーン。願い(自然文)→発見→plan→生成→承認→実行→定期化。従量0(本人サブスク)・ローカル credentials・道具自動生成。",
   "type": "module",
+  "license": "MIT",
   "engines": { "node": ">=20" },
   "bin": { "shenron": "bin/shenron.mjs" },
-  "scripts": {
-    "start": "node prototype/hub/hub.mjs"
-  }
+  "repository": { "type": "git", "url": "https://github.com/shibu003/Shenron.git" },
+  "keywords": ["mcp", "automation", "self-hosted", "ai-agents", "workflow", "claude"],
+  "files": [
+    "bin/",
+    "prototype/*.mjs",
+    "prototype/hub/*.mjs",
+    "prototype/hub/*.html",
+    "prototype/hub/sw.js",
+    "prototype/hub/manifest.json",
+    "prototype/hub/shenron.config.example.json",
+    "prototype/mcp/*.mjs",
+    "prototype/mcp/integrations.json",
+    "prototype/mcp/workflows.json",
+    "prototype/agents/*.mjs",
+    "prototype/templates/*.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": { "start": "node prototype/hub/hub.mjs" }
 }
