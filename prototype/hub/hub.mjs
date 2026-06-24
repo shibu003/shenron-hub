@@ -28,7 +28,7 @@ import { TOOLS, PROXY, forRemote, REMOTE_DENY } from '../mcp/tools.mjs';   // Wa
 import { addMemory, listMemories, deleteMemory, relevantMemories } from './memory.mjs';
 import { runDoctor } from './doctor.mjs';   // Wave N-3
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword } from './auth.mjs';
-import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus, visibleTo } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
@@ -299,15 +299,23 @@ function touchWorkflowRun(flowId) {
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === flowId);
   if (i < 0) return; arr[i].lastRun = now(); fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
 }
-function saveWorkflow({ id, name, summary, tags, nodes, edges, ui }) {
+function saveWorkflow({ id, name, summary, tags, nodes, edges, ui, owner, visibility }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'flow-' + randomUUID().slice(0, 4);
   const steps = toposort(nodes, edges).filter((n) => n.agent && n.skill).map((n) => ({ agent: n.agent, skill: n.skill })); // derived shim
   const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, steps, ...(ui != null ? { ui } : {}) };
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
-  if (i >= 0) arr[i] = { ...arr[i], ...wf }; else arr.push(wf);
+  if (i >= 0) { arr[i] = { ...arr[i], ...wf }; }                                                // T-0 update: 既存 owner/visibility を保持（...wf に含めないので上書きされない）
+  else { wf.owner = owner ?? null; wf.visibility = visibility || 'private'; arr.push(wf); }     // T-0 create 時のみ owner/visibility を刻む（owner=null=MCP/ハブ共有）
   fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
   return wf;
+}
+function setVisibility(id, visibility) {   // T-0: share/unshare = visibility flip のみ（owner は不変）。レコード未存在は throw。
+  const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
+  if (i < 0) throw new Error(`no workflow "${id}"`);
+  arr[i].visibility = visibility;
+  fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2));
+  return { id, visibility };
 }
 // Wave Remix-1 — fork a saved flow into a NEW editable copy. The reuse-as-a-part half already works:
 // a saved flow can be dropped into another flow as a sub-flow node (kind:'workflow' + node.ref → fireWorkflowNode).
@@ -1149,6 +1157,7 @@ const oauthTokens  = new Set();  // valid Bearer tokens (in-memory; cleared on r
 const reqBase = (req) => { const proto = req.headers['x-forwarded-proto'] || 'http'; const host = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${PORT}`; return `${proto}://${host}`; };
 const SHARED_TOKEN = process.env.A2A_SHARED_TOKEN || '';   // Wave C: internal credential — server.mjs / browser-worker / Artifact / CLI auth to act routes (same token as A2A reach). Set it (and/or use OAuth) to enforce; unset = local dev open.
 const cookieSession = (req) => { const c = req.headers['cookie'] || ''; const m = c.match(/shenron_session=([^;]+)/); return m ? m[1] : null; };
+const sessionUid = (req) => checkSession(cookieSession(req))?.userId ?? null;   // T-0: Web UI cookie → seat userId（無ければ null = MCP 運用者/開放ハブ = 全可視）
 // open flag: true until A2A_SHARED_TOKEN is set OR OAuth token issued — user registration alone does NOT close it.
 // MCP stdio (server.mjs) and browser-worker use A2A_SHARED_TOKEN; cookie sessions are for Web UI only.
 const openDev = !SHARED_TOKEN; // ponytail: evaluated once at startup; set A2A_SHARED_TOKEN to enforce
@@ -1221,6 +1230,8 @@ async function mcpDispatch(name, args) {
   if (name === 'set_config')         { writeCfg(mergeCfg(args || {})); trail('config-set', { keys: Object.keys(args || {}) }); return configStatus(); }   // 即反映（liveCfg）
   if (name === 'save_workflow')      return saveWorkflow(args);
   if (name === 'clone_workflow')     return cloneWorkflow(args.id, args.name);   // Wave Remix-1: fork a saved flow → new editable copy
+  if (name === 'share_workflow')     return setVisibility(args.id, 'shared');    // T-0: 庫に publish（visibility flip・owner 不変）
+  if (name === 'unshare_workflow')   return setVisibility(args.id, 'private');   // T-0: 庫から下げる
   if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
   if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
   if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
@@ -1367,7 +1378,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
-    return json(res, 200, readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui })));
+    return json(res, 200, readWorkflows().filter((w) => visibleTo(w, sessionUid(req))).map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui, owner: w.owner ?? null, visibility: w.visibility || 'private' })));   // T-0: seat 可視性 filter + UI トグル用 owner/visibility
   }
   { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: get artifact UI code for a workflow
     if (um && req.method === 'GET') { const w = readWorkflows().find((w) => w.id === decodeURIComponent(um[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${um[1]}"` }); } }
@@ -1539,7 +1550,7 @@ const server = http.createServer((req, res) => {
       if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
       if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }
       if (p.startsWith('/api/goals/') && p.endsWith('/suggest')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/suggest'.length)); goalSuggest(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Wave Goals-3: 次の手提案（planFlow async）
-      if (p === '/api/workflows') return json(res, 200, saveWorkflow(j));     // save wired DAG (nodes/edges + derived steps[])
+      if (p === '/api/workflows') return json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) }));     // save wired DAG (nodes/edges + derived steps[])・T-0: 作成者=seat owner
       { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
         if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; fs.writeFileSync(WF_FILE, JSON.stringify(arr, null, 2)); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
       { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy
@@ -1578,7 +1589,7 @@ const server = http.createServer((req, res) => {
       if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
       if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
       if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR（Wave B③: planFlow に集約＝remote-MCP と同一経路。have/missing は LLM-resolve §1.5-F、nodes/edges validate+layout、available も返す）
-        planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost })       // Wave 5: context で対話修正／gap:'off'|'ask'|'auto' = 道具生成の枝／cost:'free'|'paid_ok'
+        planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost, owner: sessionUid(req) })       // Wave 5: context で対話修正／gap 道具生成の枝／cost／T-0: plan→save に seat owner
           .then((r) => json(res, 200, r))
           .catch((e) => json(res, 400, { error: e.message }));
         return;

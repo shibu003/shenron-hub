@@ -239,6 +239,11 @@
                   <span x-show="wf.lastRun" x-text="'· ' + relTime(wf.lastRun)"></span>
                 </div>
                 <div class="flex gap-1.5">
+                  <button @click="shareWorkflow(wf)"
+                    :title="wf.visibility === 'shared' ? '共有中：チームの庫に公開（クリックで非共有に戻す）' : '非共有：自分だけ（クリックで庫に共有）'"
+                    class="px-2.5 py-1 text-xs border rounded-lg transition-colors"
+                    :class="wf.visibility === 'shared' ? 'border-emerald-300 text-emerald-600 hover:border-emerald-400' : 'border-gray-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'"
+                    x-text="wf.visibility === 'shared' ? '🌐' : '🔗'"></button>
                   <button @click="cloneWorkflow(wf.id)" title="複製（fork → 改造して別フローの部品に再利用）"
                     class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors">⧉</button>
                   <button @click="makeSkill(wf.id)" title="Claude Code Skill を生成"
