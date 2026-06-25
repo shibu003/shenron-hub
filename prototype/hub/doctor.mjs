@@ -3,6 +3,7 @@ import net from 'node:net';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { vaultBackend } from './vault.mjs';   // Wave Vault-1: credential 暗号化 backend の可視化
 
 const DEFAULT_PORT = Number(process.env.PORT) || 8795;
 
@@ -68,6 +69,14 @@ export async function runDoctor(port = DEFAULT_PORT) {
     warn: userCount === 0,
     detail: userCount === 0 ? '未登録（ハブ起動後に POST /api/auth/register で作成）' : `${userCount} 件登録済み`,
     fix: userCount === 0 ? 'node bin/shenron.mjs を起動後: curl -s localhost:8795/api/auth/register -H "content-type: application/json" -d \'{"email":"you@example.com","password":"pw"}\'' : null,
+  });
+
+  // 6. Vault backend（Wave Vault-1: 非Mac は AES-256-GCM・info 表示）
+  checks.push({
+    name: 'Credential vault',
+    ok: true,
+    detail: vaultBackend(),
+    fix: null,
   });
 
   const allOk = checks.every(c => c.ok);
