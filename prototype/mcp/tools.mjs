@@ -18,7 +18,7 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'search_workflows', surfaces: ['stdio'], description: 'Search the workflow/automation index. Returns small refs. Use get_workflow for the full definition.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
-  { name: 'get_workflow', surfaces: ['stdio'], description: 'Get one workflow\'s full definition (steps) by id.',
+  { name: 'get_workflow', surfaces: ['stdio'], description: 'Get one workflow\'s full definition (nodes/edges) by id.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'search_automations', surfaces: ['stdio'], description: 'Search the automation index (trigger-bound workflow runs: schedule/build_state). Returns small refs — token-light. Use get_automation for the full definition.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },

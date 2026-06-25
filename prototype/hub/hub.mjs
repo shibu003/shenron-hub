@@ -91,7 +91,7 @@ function closeRunListeners(runId) {   // terminal: flush 'done' already emitted 
   runListeners.delete(runId);
 }
 const parseFmt = (p, inp) => String(p || '{input}').split('{input}').join(inp || '');   // Parser node: substitute {input} (pure string transform)
-const WF_FILE = sp('workflows.json', path.join(HERE, '..', 'mcp', 'workflows.json'));   // shared workflow store (nodes/edges canonical + steps[] shim)
+const WF_FILE = sp('workflows.json', path.join(HERE, '..', 'mcp', 'workflows.json'));   // shared workflow store (nodes/edges canonical)
 // Wave O2 — 同梱フローテンプレ（read-only）。templates/*.json を読み、ワンクリック install で saveWorkflow へ。
 const TEMPLATES_DIR = path.join(HERE, '..', 'templates');
 const readTemplates = () => { try { return fs.readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith('.json')).map((f) => { try { return JSON.parse(fs.readFileSync(path.join(TEMPLATES_DIR, f), 'utf8')); } catch { return null; } }).filter(Boolean); } catch { return []; } };
@@ -291,8 +291,7 @@ function reconcileRuns() {
 }
 
 // ---------- flow engine (Wave B2): save a wired DAG, run it topologically via the executor above ----------
-// Save shape = nodes/edges CANONICAL (Langflow-style); steps[] is a derived linear shim so the existing
-// MCP run_workflow / run_automation (a2aSend) stay compatible. Execution is REACTIVE: each node is a handoff
+// Save shape = nodes/edges CANONICAL (Langflow-style). Execution is REACTIVE: each node is a handoff
 // (run by B1 for local agents), and when it completes, downstream nodes whose inputs are all ready fire next
 // — so per-agent approval pauses the run cleanly until approved, and the cockpit animates it via handoff edges.
 const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, 'utf8')); } catch { return []; } };
@@ -340,8 +339,7 @@ function touchWorkflowRun(flowId) {
 function saveWorkflow({ id, name, summary, tags, nodes, edges, ui, owner, visibility }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'flow-' + randomUUID().slice(0, 4);
-  const steps = toposort(nodes, edges).filter((n) => n.agent && n.skill).map((n) => ({ agent: n.agent, skill: n.skill })); // derived shim
-  const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, steps, ...(ui != null ? { ui } : {}) };
+  const wf = { id, name: name || id, summary: summary || '', tags: tags || [], nodes, edges, ...(ui != null ? { ui } : {}) };
   const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === id);
   if (i >= 0) { arr[i] = { ...arr[i], ...wf }; }                                                // T-0 update: 既存 owner/visibility を保持（...wf に含めないので上書きされない）
   else { wf.owner = owner ?? null; wf.visibility = visibility || 'private'; arr.push(wf); }     // T-0 create 時のみ owner/visibility を刻む（owner=null=MCP/ハブ共有）
@@ -1322,7 +1320,7 @@ async function mcpDispatch(name, args) {
   if (name === 'clone_workflow')     return cloneWorkflow(args.id, args.name);   // Wave Remix-1: fork a saved flow → new editable copy
   if (name === 'share_workflow')     return setVisibility(args.id, 'shared');    // T-0: 庫に publish（visibility flip・owner 不変）
   if (name === 'unshare_workflow')   return setVisibility(args.id, 'private');   // T-0: 庫から下げる
-  if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', steps: (w.steps || []).length, lastRun: w.lastRun || null }));
+  if (name === 'list_workflows')     return readWorkflows().map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, lastRun: w.lastRun || null }));
   if (name === 'list_templates')     return readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }));
   if (name === 'install_template')   { const t = readTemplates().find((x) => x.id === args.id); if (!t) throw new Error(`no template "${args.id}"`); const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges }); const warnings = templateGaps(t); trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length }); return { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings }; }
   if (name === 'run_workflow')       return runFlow({ id: args.id, input: args.input || '' });
@@ -1478,7 +1476,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/workflows') {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
-    return json(res, 200, readWorkflows().filter((w) => visibleTo(w, sessionUid(req))).map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui, owner: w.owner ?? null, visibility: w.visibility || 'private' })));   // T-0: seat 可視性 filter + UI トグル用 owner/visibility
+    return json(res, 200, readWorkflows().filter((w) => visibleTo(w, sessionUid(req))).map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui, owner: w.owner ?? null, visibility: w.visibility || 'private' })));   // T-0: seat 可視性 filter + UI トグル用 owner/visibility
   }
   if (req.method === 'GET' && p === '/api/artifacts') {   // Wave Canvas-1: 成果物ギャラリーの裏（list_artifacts）。UI 付き flow + 今すぐ操作できる pending handoff を同定。token-light（コードは get_flow_ui で個別取得）。
     const uid = sessionUid(req);
@@ -1666,7 +1664,7 @@ const server = http.createServer((req, res) => {
       if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
       if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }
       if (p.startsWith('/api/goals/') && p.endsWith('/suggest')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/suggest'.length)); goalSuggest(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Wave Goals-3: 次の手提案（planFlow async）
-      if (p === '/api/workflows') return json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) }));     // save wired DAG (nodes/edges + derived steps[])・T-0: 作成者=seat owner
+      if (p === '/api/workflows') return json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) }));     // save wired DAG (nodes/edges canonical)・T-0: 作成者=seat owner
       { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
         if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; writeJsonAtomic(WF_FILE, arr); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
       { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy

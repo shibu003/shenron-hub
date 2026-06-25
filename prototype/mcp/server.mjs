@@ -80,7 +80,7 @@ const searchAgents = (q, limit) => searchIndex(Object.values(AGENTS),
   (a) => ({ id: a.id, name: a.name, company: a.company, skillId: a.skill.id, skill: a.skill.name, tags: a.skill.tags }), q, limit);
 const searchWorkflows = (q, limit) => searchIndex(WORKFLOWS,
   (w) => `${w.name} ${w.summary} ${(w.tags || []).join(' ')}`,
-  (w) => ({ id: w.id, name: w.name, summary: w.summary, steps: w.steps.length, tags: w.tags, lastRun: w.lastRun || null }), q, limit);
+  (w) => ({ id: w.id, name: w.name, summary: w.summary, nodes: (w.nodes || []).length, tags: w.tags, lastRun: w.lastRun || null }), q, limit);
 const searchAutomations = (q, limit) => searchIndex(AUTOMATIONS,
   (m) => `${m.name} ${m.summary} ${(m.tags || []).join(' ')} ${m.trigger?.type || ''} ${m.workflow}`,
   (m) => ({ id: m.id, name: m.name, summary: m.summary, trigger: m.trigger?.type, workflow: m.workflow, enabled: m.enabled !== false, tags: m.tags }), q, limit);
@@ -106,10 +106,10 @@ async function a2aSend(agentUrl, skill, inputText) {
   if (j.error) throw new Error(`${agentUrl} RPC ${j.error.code}: ${j.error.message}`);
   return (j.result?.parts || []).find((p) => p.kind === 'text')?.text || '';
 }
-// run a workflow's chained handoffs; shared by run_workflow / run_automation / fire_event
+// run a workflow's chained handoffs (legacy a2a); steps[] no longer saved by hub (B1) → empty/no-op for DAG flows, which run via hub /api/runflow
 async function execWorkflow(w, input) {
   let payload = input; const trace = [];
-  for (const step of w.steps) {
+  for (const step of (w.steps || [])) {
     const a = AGENTS[step.agent]; if (!a) throw new Error(`workflow refs unknown agent "${step.agent}"`);
     const out = await a2aSend(a.url, step.skill, payload);
     trace.push({ agent: a.company, skill: step.skill, chars: out.length });
@@ -117,7 +117,7 @@ async function execWorkflow(w, input) {
   }
   return { result: payload, trace };
 }
-const planOf = (w) => w.steps.map((s, i) => `${i + 1}. ${AGENTS[s.agent]?.company || s.agent} · ${s.skill}`);
+const planOf = (w) => (w.steps || []).map((s, i) => `${i + 1}. ${AGENTS[s.agent]?.company || s.agent} · ${s.skill}`);
 
 // ---------- durable inbox (hub proxy: prototype/hub) ----------
 async function hub(p, body) {

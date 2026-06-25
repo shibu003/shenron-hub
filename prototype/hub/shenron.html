@@ -259,7 +259,7 @@
               </div>
               <div class="flex items-center justify-between pt-2 border-t border-[#182d3e]">
                 <div class="text-xs text-[#6d8aa0] space-x-2">
-                  <span x-text="wf.steps + ' steps'"></span>
+                  <span x-text="(wf.nodes || 0) + ' nodes'"></span>
                   <span x-show="wf.lastRun" x-text="'· ' + relTime(wf.lastRun)"></span>
                 </div>
                 <div class="flex gap-1.5">
