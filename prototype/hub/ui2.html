@@ -513,20 +513,24 @@ const NIC={
   del:'<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/>'
 };
 const COMP = {                                       // minimal component library (per-field typed template). `desc` = JP one-liner shown on the card + in the kind picker.
-  input:  { label:'Chat Input',  svg:NI('<path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7.5 8.8l2.2 2.2-2.2 2.2"/><path d="M12.2 13.2h4.6"/>'), desc:'フローの入力テキスト', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(空 → Run の入力を使う)' }] },
-  prompt: { label:'Prompt',      svg:NI('<path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4"/><path d="M8 12h7M8 16h5"/>'), desc:'テンプレートで文面を組む（{input}=前段の出力）', accepts:['*'], emits:['text','*'], fields:[{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }] },
-  consensus: { label:'Consensus', svg:NI('<path d="M3 12l4 4 7-9"/><path d="M11 14l3 3 7-9"/>'), desc:'複数 vendor の合意を取る', accepts:['*'], emits:['consensus','*'], fields:[{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }] },
-  output: { label:'Chat Output', svg:NI('<path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7 9.3h10"/><path d="M7 12.4h6"/>'), desc:'最終結果を表示', accepts:['*'], emits:[],           fields:[] },
-  languagemodel: { label:'Language Model', svg:NI('<rect x="8" y="8" width="8" height="8" rx="1.2"/><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M10 3.5V1M14 3.5V1M10 23v-2.5M14 23v-2.5M3.5 10H1M3.5 14H1M23 10h-2.5M23 14h-2.5"/>'), desc:'LLM 呼び出し（system + 入力）', accepts:['*'], emits:['text','*'], fields:[   // Langflow LM: system + input → vendor (in-process)
-    { key:'model', label:'model', type:'select', options:['claude','codex','gemini','stub'], value:'claude' }, { key:'system', label:'system message', type:'textarea' } ] },
-  structured: { label:'Structured Output', svg:NI('<path d="M8 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3"/><path d="M16 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3"/>'), desc:'LLM に JSON 構造で出させる', accepts:['*'], emits:['json','*'], fields:[   // Langflow structured-output: ask the LLM for JSON
-    { key:'schema', label:'fields (comma-sep)', value:'' }, { key:'instructions', label:'instructions', type:'textarea' } ] },
-  parser: { label:'Parser', svg:NI('<path d="M4 7h11M4 12h7M4 17h11"/><path d="M18 9l2.5 3-2.5 3"/>'), desc:'文字列整形（LLM 不使用）', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM)
+  input:  { label:'Chat Input', hidden:true, svg:NI('<path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7.5 8.8l2.2 2.2-2.2 2.2"/><path d="M12.2 13.2h4.6"/>'), desc:'フローの入力テキスト', accepts:[],    emits:['text','*'], fields:[{ key:'text', label:'text', type:'textarea', ph:'(空 → Run の入力を使う)' }] },   // R1: hidden — 新規 palette から除去（n8n 式 trigger=入口）。既存フローは load・表示・pass-through 実行は維持
+  model: { label:'Model', svg:NI('<rect x="8" y="8" width="8" height="8" rx="1.2"/><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M10 3.5V1M14 3.5V1M10 23v-2.5M14 23v-2.5M3.5 10H1M3.5 14H1M23 10h-2.5M23 14h-2.5"/>'), desc:'LLM（mode で plain/system/structured/consensus を切替・in-process）', accepts:['*'], emits:['text','*'], fields:[   // R1: 旧 prompt/languagemodel/structured/consensus を 1 ノードに統合。mode 固有フィールドは MODEL_MODE_FIELDS（inspNode で出し分け）。
+    { key:'mode', label:'mode', type:'select', options:['plain','system','structured','consensus'], value:'plain', rerender:true },
+    { key:'vendor', label:'vendor（任意・空=既定）', type:'select', options:['','claude','codex','gemini','stub'], value:'' } ] },
+  output: { label:'Chat Output', hidden:true, svg:NI('<path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7 9.3h10"/><path d="M7 12.4h6"/>'), desc:'最終結果を表示', accepts:['*'], emits:[],           fields:[] },   // R1: hidden — 末端ノード出力=結果（n8n 式）。既存フローは表示・pass-through 維持
+  parser: { label:'Parser', svg:NI('<path d="M4 7h11M4 12h7M4 17h11"/><path d="M18 9l2.5 3-2.5 3"/>'), desc:'文字列整形（LLM 不使用）', accepts:['*'], emits:['text','*'], fields:[{ key:'pattern', label:'template — {input}', type:'textarea', value:'{input}' }] },   // pure string format (no LLM) — R1: 唯一の非 LLM ゆえ独立維持
   router: { label:'Router', svg:NI('<path d="M7 4v5a3 3 0 0 0 3 3h7"/><path d="M14 9l3 3-3 3"/><path d="M7 14v6"/><circle cx="7" cy="4" r="1.4"/>'), desc:'条件で then/else に分岐', accepts:['*'], emits:['*'], fields:[   // Wave E2: conditional branch (then/else on the wires)
     { key:'predicate', label:'route → then when…', type:'select', options:['redacted','clean','contains','always'], value:'redacted' },
     { key:'value', label:'substring (for "contains")', value:'' } ] },
   workflow: { label:'Sub-flow', svg:NI('<path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>'), desc:'保存済みフローを1ノードとして実行', accepts:['*'], emits:['*'], fields:[{ key:'ref', label:'which workflow', type:'workflow' }] },   // a saved workflow as one node; runs as its own nested run
   langflow: { label:'Langflow', svg:NI('<path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/>'), desc:'Langflow 由来コンポーネント', accepts:['*'], emits:['*'], fields:[] },   // an imported Langflow component the cockpit doesn't natively run → executed via Langflow /v1/run, fenced here (_lfType kept in config)
+};
+const KIND_ALIAS = { languagemodel:['model',{mode:'system'}], structured:['model',{mode:'structured'}], consensus:['model',{mode:'consensus'}], prompt:['model',{mode:'plain'}] };   // R1: load 時に旧 LLM kind → model+mode へ昇格（保存 JSON 後方互換・一方向）
+const MODEL_MODE_FIELDS = {   // R1: model の mode 固有 inspector フィールド（共通 mode/vendor は COMP.model.fields）。旧 kind の config キーをそのまま使い後方互換。
+  plain:      [{ key:'template', label:'template — {input} = upstream', type:'textarea', value:'{input}' }],
+  system:     [{ key:'system', label:'system message', type:'textarea' }],
+  structured: [{ key:'schema', label:'fields (comma-sep)', value:'' }, { key:'instructions', label:'instructions', type:'textarea' }],
+  consensus:  [{ key:'vendors', label:'vendors (comma-sep)', value:'claude,codex,gemini' }, { key:'prompt', label:'task ({input} appended)', type:'textarea' }],
 };
 const UNDO_STACK = [], REDO_STACK = [];
 let lastSaved = 0, CTX_TARGET = null, SEARCH_Q = '';
@@ -657,7 +661,7 @@ function placeNodes(){
 // in-node settings: render one component field as a compact inline widget bound live to config (data-nf/data-fk)
 function inlineField(c,f){ const id=esc(c.id), k=esc(f.key), val=c.config?.[f.key]??f.value??'';
   const w = f.type==='textarea'?`<textarea class="nf" data-nf="${id}" data-fk="${k}" rows="2" placeholder="${esc(f.ph||'')}">${esc(val)}</textarea>`
-    : f.type==='select'?`<select class="nf" data-nf="${id}" data-fk="${k}">${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
+    : f.type==='select'?`<select class="nf" data-nf="${id}" data-fk="${k}"${f.rerender?' data-rerender="1"':''}>${(f.options||[]).map(o=>`<option ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`
     : f.type==='number'?`<input class="nf" type="number" data-nf="${id}" data-fk="${k}" value="${esc(val)}">`
     : f.type==='workflow'?`<select class="nf" data-nf="${id}" data-fk="ref" data-rerender="1"><option value="" ${!val?'selected':''}>${esc(WORKFLOWS.length?t('sf_pick'):t('sf_none_avail'))}</option>${WORKFLOWS.map(w=>`<option value="${esc(w.id)}" ${String(val)===w.id?'selected':''}>${esc(w.name||w.id)}</option>`).join('')}</select>`
     : `<input class="nf" data-nf="${id}" data-fk="${k}" value="${esc(val)}" placeholder="${esc(f.ph||'')}">`;
@@ -897,9 +901,10 @@ function inspNode(id){
   const c=comp(id);
   if(c){
     const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
-    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.label+(m.desc?' — '+m.desc:''))}</option>`).join('')}</select>`;
+    const kindSel=`<select class="nf nkind" data-nf="${esc(c.id)}" data-kindsel="1">${isSet?'':`<option value="" selected>${esc(t('comp_kind_none'))}</option>`}${Object.entries(COMP).filter(([k,m])=>!m.hidden||c.kind===k).map(([k,m])=>`<option value="${k}" ${c.kind===k?'selected':''}>${esc(m.label+(m.desc?' — '+m.desc:''))}</option>`).join('')}</select>`;
     const nameDesc=inlineField(c,{key:'name',label:t('comp_name'),ph:t('comp_name_ph')})+inlineField(c,{key:'desc',label:t('comp_desc'),type:'textarea',ph:t('comp_desc_ph')});
-    const fieldsHtml=isSet?(meta.fields||[]).map(f=>inlineField(c,f)).join(''):'';
+    const flds=c.kind==='model'?(meta.fields||[]).concat(MODEL_MODE_FIELDS[(c.config&&c.config.mode)||'plain']||[]):(meta.fields||[]);   // R1: model は mode 固有フィールドを追加表示
+    const fieldsHtml=isSet?flds.map(f=>inlineField(c,f)).join(''):'';
     return inspHead(meta.label||c.kind, meta.svg||'')
       +`<div class="nfrow"><label class="nflabel">${t('comp_kind')}</label>${kindSel}${isSet&&meta.desc?`<div class="mini">${esc(meta.desc)}</div>`:''}</div>`+nameDesc+fieldsHtml
       +(res!=null?`<div class="nfres">${esc(String(res)).slice(0,400)}</div>`:'')
@@ -974,7 +979,12 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
 function loadFlow(flow){                              // saved/生成フローを canvas に materialize（buildFlow の逆）
   undoSnap(); NODES=[]; EDGES=[]; clearTrust();
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // 全 agent を隠してからフローの agent だけ出す
-  for(const n of (flow.nodes||[])){
+  for(const rn of (flow.nodes||[])){
+    const al=KIND_ALIAS[rn.kind];   // R1: 旧 LLM kind を model+mode に昇格（保存 JSON 後方互換）
+    let n = rn;
+    if(al){ const config={ ...(rn.config||{}), ...al[1] };
+      if(rn.kind==='languagemodel' && config.model && !config.vendor){ config.vendor=config.model; delete config.model; }   // 旧 LM の model フィールドは vendor 選択（claude/codex/…）→ 新 model の vendor へ（c.model 名への誤流入を防ぐ）
+      n={ ...rn, kind:al[0], config }; }
     POS[n.id]={ x:n.x||40, y:n.y||40 };
     if(n.kind==='agent'){ HIDDEN.delete(n.agent||n.id); }
     else if(n.kind==='trigger'){ NODES.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }

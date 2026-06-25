@@ -59,7 +59,7 @@ let bad = false;
   const compKinds = [...block.matchAll(/^\s+(\w+):\s*\{/gm)].map((m) => m[1]);
   const palette = new Set([...compKinds, 'mcp', 'trigger', 'agent', 'note']);     // COMP 外で addMcpNode/addTrigger/agent picker/NOTES が生む kind
 
-  const RUN = new Set(['input', 'output', 'prompt', 'consensus', 'router', 'mcp', 'workflow', 'parser', 'languagemodel', 'structured']);
+  const RUN = new Set(['input', 'output', 'model', 'router', 'mcp', 'workflow', 'parser']);   // R1: prompt/languagemodel/structured/consensus → 統合 model（旧 kind は backend dispatch に温存し ③ で後方互換を実走確認）
   const FENCED = new Set(['langflow']);
   const STRIP = new Set(['trigger', 'note']);
   const AGENT = new Set(['agent']);
@@ -132,6 +132,17 @@ try {
   assert.equal(run.status, 'completed', 'consensus run 完了');
   assert.ok(run.outputs.c.includes('consensus'), 'consensus: 合意ヘッダ付き出力');
   console.log('OK consensus');
+
+  // model（R1 統合ノード — config.mode で旧4種に委譲。plain と consensus を代表で実走）
+  run = await runAndWait([{ id: 'i', kind: 'input', config: { text: 'world' } }, { id: 'mp', kind: 'model', config: { mode: 'plain', template: 'Hi {input}' } }, { id: 'o', kind: 'output' }],
+    [{ source: 'i', target: 'mp' }, { source: 'mp', target: 'o' }]);
+  assert.equal(run.status, 'completed', 'model(plain) run 完了');
+  assert.ok(run.outputs.mp.includes('world') && !run.outputs.mp.includes('→ stub]'), 'model(plain): {input} 置換 + stub 成功');
+  run = await runAndWait([{ id: 'i', kind: 'input', config: { text: 'topic' } }, { id: 'mc', kind: 'model', config: { mode: 'consensus', vendors: 'claude,codex', prompt: 'rank' } }, { id: 'o', kind: 'output' }],
+    [{ source: 'i', target: 'mc' }, { source: 'mc', target: 'o' }]);
+  assert.equal(run.status, 'completed', 'model(consensus) run 完了');
+  assert.ok(run.outputs.mc.includes('consensus'), 'model(consensus): 合意ヘッダ付き出力');
+  console.log('OK model (plain + consensus modes)');
 
   // parser（純文字列整形・LLM 不使用・同期）
   run = await runAndWait([{ id: 'i', kind: 'input', config: { text: 'NAME' } }, { id: 'pp', kind: 'parser', config: { pattern: 'Hello {input}!' } }, { id: 'o', kind: 'output' }],

@@ -1,7 +1,8 @@
-// R0 characterization harness — proves the 4-array→NODES[] refactor is behavior-preserving.
-// Runs ui2.html's inline <script> in a vm with DOM stubs, loads a flow covering all 13 kinds,
-// and snapshots every node's card markup + inspector + buildFlow + an undo round-trip to a golden JSON.
-// (canvasSnap's raw shape is internal — R0 changes it on purpose — so we assert undo PRESERVES buildFlow instead.)
+// Canvas characterization harness — snapshots card markup + inspectors + buildFlow + undo round-trip for a
+// flow covering every kind, to a golden JSON. Originally proved R0 (4-array→NODES[]) byte-identical.
+// R1 (LLM-kind merge) changes kinds ON PURPOSE: prompt/languagemodel/structured/consensus load as model+mode
+// via KIND_ALIAS — baseline regenerated for R1; the HOOK now ALSO asserts that promotion directly. Past R1 this
+// is a regression guard for any UNINTENDED drift. (undo round-trip still proves canvasSnap preserves buildFlow.)
 //   node test_r0_snapshot.mjs --write   # (re)generate r0_baseline.json
 //   node test_r0_snapshot.mjs           # compare current output to baseline (exit 1 on drift)
 // ponytail: stubs are the minimum render()/inspNode()/buildFlow() actually touch; grow only on a throw.
@@ -111,6 +112,10 @@ const HOOK = `
   INTEGRATIONS = [{ id:'srv-a', label:'Server A', enabled:true, tools:1 }];
   INTEG_FULL['srv-a'] = { id:'srv-a', tools:[{ name:'do_thing', accepts:['*'], emits:['*'] }] };
   loadFlow(__FLOW__);
+  // R1 alias check (independent of the golden compare): old LLM kinds must promote to model+mode.
+  const __EXP = { 'prompt-1':'plain', 'languagemodel-1':'system', 'structured-1':'structured', 'consensus-1':'consensus' };
+  for(const __id in __EXP){ const __n = NODES.find(x=>x.id===__id);
+    if(!__n || __n.kind!=='model' || (__n.config&&__n.config.mode)!==__EXP[__id]) throw new Error('R1 alias FAIL: '+__id+' → '+(__n?__n.kind+'/'+(__n.config&&__n.config.mode):'missing')+' expected model/'+__EXP[__id]); }
   render();
   const out = {};
   for(const n of __FLOW__.nodes){

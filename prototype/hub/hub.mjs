@@ -536,6 +536,13 @@ function fireNode(run, node, input) {
   if (node.kind === 'parser') { run.outputs[node.id] = parseFmt((node.config && node.config.pattern) || '{input}', input); save(); return advanceFrom(run, node.id); }   // Langflow-style Parser: pure string format (no LLM)
   if (node.kind === 'languagemodel') return firePromptNode(run, { ...node, config: { template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from);   // = prompt + system preamble (in-process vendor)
   if (node.kind === 'structured') return firePromptNode(run, { ...node, config: { template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from);   // structured-output ≈ prompt asking for JSON
+  if (node.kind === 'model') {   // R1: 統合 LLM ノード。config.mode で旧 prompt/languagemodel/structured/consensus の実体に委譲。旧 if も温存（後方互換）。dispatch table 化は R2/B6。
+    const mode = (node.config && node.config.mode) || 'plain';
+    if (mode === 'consensus') return fireConsensusNode(run, node, input, from);
+    if (mode === 'system') return firePromptNode(run, { ...node, config: { ...node.config, template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from);
+    if (mode === 'structured') return firePromptNode(run, { ...node, config: { ...node.config, template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from);
+    return firePromptNode(run, node, input, from);   // plain = config.template（vendor/model/tier も尊重）
+  }
   const h = create({ from, to: node.agent, skill: node.skill, input });
   h.runId = run.id; h.node = node.id;
   const nv = node.vendor || (node.config && node.config.vendor); if (nv) h.vendor = nv;   // Wave G: per-node vendor on an agent node（flow で「この step は別 AI」）
@@ -1198,7 +1205,7 @@ for line in sys.stdin:
   return { name, path: path.relative(REPO_ROOT, file),
     registerHint: `任意の MCP client に stdio server として登録: command="python3", args=["${path.relative(REPO_ROOT, file)}"]。'claude' CLI が PATH に必要（あなたのサブスクで動く）。` };
 }
-const PORTS = { input: { accepts: [], emits: ['text', '*'] }, prompt: { accepts: ['*'], emits: ['text', '*'] }, output: { accepts: ['*'], emits: [] }, trigger: { accepts: [], emits: ['*'] } };
+const PORTS = { input: { accepts: [], emits: ['text', '*'] }, prompt: { accepts: ['*'], emits: ['text', '*'] }, model: { accepts: ['*'], emits: ['text', '*'] }, output: { accepts: ['*'], emits: [] }, trigger: { accepts: [], emits: ['*'] } };
 function portsOf(node) {
   if (node.kind === 'agent') { const a = state.agents[node.agent || node.id]; return { accepts: a?.accepts || ['*'], emits: a?.emits || ['*'] }; }
   if (node.kind === 'mcp') { const it = readIntegrations().find((x) => x.id === node.server); const tl = (it?.tools || []).find((t) => t.name === node.tool); return { accepts: tl?.accepts || ['*'], emits: tl?.emits || ['*'] }; }
