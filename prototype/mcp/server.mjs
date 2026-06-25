@@ -218,6 +218,7 @@ async function callTool(name, args = {}) {
     case 'advance_artifact': return await hub(`/api/handoffs/${args.id}/result`, { result: args.result });
     case 'set_flow_ui': return await hub(`/api/workflows/${encodeURIComponent(args.id)}/ui`, { code: args.code });
     case 'get_flow_ui': return await hub(`/api/workflows/${encodeURIComponent(args.id)}/ui`);
+    case 'list_artifacts': return await hub('/api/artifacts');   // Wave Canvas-1
     case 'set_policy': return await hub(`/api/agents/${args.agent}/policy`, { policy: args.policy });
     // 神龍 self-extension + co-pilot gates over MCP (web cockpit no longer required for the full lifecycle)
     case 'gen_component': return await hub('/api/shenron/gen-component', { what: args.what, ...(args.maxIters ? { maxIters: args.maxIters } : {}) });

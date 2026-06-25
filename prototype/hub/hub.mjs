@@ -72,6 +72,7 @@ const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
 const SETTINGS_FILE = path.join(HERE, 'settings.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
+const CANVAS_FILE = path.join(HERE, 'canvas.html');   // Wave Canvas-1: 成果物ギャラリー（/artifacts）
 const MANIFEST_FILE = path.join(HERE, 'manifest.json');
 const SW_FILE = path.join(HERE, 'sw.js');
 const ONLINE_MS = 12000;                    // an agent is "online" if it polled within this window
@@ -1392,6 +1393,10 @@ const server = http.createServer((req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
   }
+  if (req.method === 'GET' && p === '/artifacts') {   // Wave Canvas-1: 成果物ギャラリー
+    try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(CANVAS_FILE)); }
+    catch { return json(res, 404, { error: 'canvas.html not found' }); }
+  }
   if (req.method === 'GET' && p === '/manifest.json') {
     try { res.writeHead(200, { 'content-type': 'application/manifest+json', 'access-control-allow-origin': '*' }); return res.end(fs.readFileSync(MANIFEST_FILE)); }
     catch { return json(res, 404, { error: 'manifest.json not found' }); }
@@ -1453,6 +1458,14 @@ const server = http.createServer((req, res) => {
     const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
     return json(res, 200, readWorkflows().filter((w) => visibleTo(w, sessionUid(req))).map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, steps: (w.steps || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui, owner: w.owner ?? null, visibility: w.visibility || 'private' })));   // T-0: seat 可視性 filter + UI トグル用 owner/visibility
+  }
+  if (req.method === 'GET' && p === '/api/artifacts') {   // Wave Canvas-1: 成果物ギャラリーの裏（list_artifacts）。UI 付き flow + 今すぐ操作できる pending handoff を同定。token-light（コードは get_flow_ui で個別取得）。
+    const uid = sessionUid(req);
+    return json(res, 200, readWorkflows().filter((w) => w.ui && visibleTo(w, uid)).map((w) => {
+      const run = Object.values(state.runs).filter((r) => r.flowId === w.id && r.status === 'running').slice(-1)[0];   // 最新の running run（interrupted/cancelled は除外＝Reliable-1 整合）
+      const pending = run ? state.handoffs.find((h) => h.runId === run.id && h.checkpoint && h.checkpoint.decided === null) : null;   // 人在ループ checkpoint
+      return { id: w.id, name: w.name, summary: w.summary || '', lastRun: w.lastRun || null, visibility: w.visibility || 'private', hasPending: !!pending, handoffId: pending ? pending.id : null, runId: run ? run.id : null };
+    }));
   }
   { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: get artifact UI code for a workflow
     if (um && req.method === 'GET') { const w = readWorkflows().find((w) => w.id === decodeURIComponent(um[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${um[1]}"` }); } }

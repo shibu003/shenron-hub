@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>神龍 — 成果物</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f172a">
+<style>
+  /* Netdive Blue（攻殻・フラット青）— docs/THEME.md */
+  :root{ --bg:#0a121b; --panel:#0c1822; --line:#213e56; --txt:#cfe0ee; --dim:#7e9bb0; --dim2:#6d8aa0; --acc:#5b9bd1; --acc2:#6fb1d8; --hover:#0f1f2c; --sel:#15324a; --amber:#d7a45b; }
+  *{ box-sizing:border-box }
+  body{ margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 system-ui,-apple-system,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif }
+  header{ display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel) }
+  header .brand{ font:600 15px ui-monospace,Menlo,monospace; letter-spacing:.04em; color:var(--txt) }
+  header .brand span{ color:var(--dim2); font-weight:400 }
+  header a.home{ display:flex; align-items:center; gap:6px; color:var(--dim); text-decoration:none; font-size:12px; border:1px solid var(--line); border-radius:8px; padding:6px 10px }
+  header a.home:hover{ color:var(--acc2); border-color:#3b6f97 }
+  .wrap{ max-width:1080px; margin:0 auto; padding:22px 18px }
+  .lead{ color:var(--dim); font-size:12.5px; margin:0 0 16px }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:14px 15px; display:flex; flex-direction:column; gap:9px }
+  .card h3{ margin:0; font-size:14px; color:var(--txt); word-break:break-word }
+  .card .sum{ color:var(--dim); font-size:12px; flex:1; min-height:16px }
+  .card .meta{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:10.5px; color:var(--dim2) }
+  .pill{ border:1px solid var(--line); border-radius:999px; padding:2px 8px; font-size:10px }
+  .pill.pending{ border-color:#3b6f97; color:var(--acc2) }
+  .pill.preview{ color:var(--dim2) }
+  .badge{ border:1px solid var(--line); border-radius:6px; padding:1px 6px; color:var(--dim2) }
+  .badge.shared{ border-color:#2f6f57; color:#7fc3a4 }
+  button.op{ align-self:flex-start; background:transparent; border:1px solid var(--line); color:var(--acc2); border-radius:8px; padding:7px 13px; font-size:12px; cursor:pointer }
+  button.op:hover{ border-color:#3b6f97; background:var(--hover) }
+  button.op.pending{ border-color:#3b6f97; color:#bfe0f5 }
+  .empty{ border:1px dashed var(--line); border-radius:11px; padding:28px 20px; text-align:center; color:var(--dim) }
+  .empty b{ color:var(--txt) }
+  .empty code{ background:#0a121b; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:11px; color:var(--acc2) }
+</style>
+</head>
+<body>
+<header>
+  <a class="home" href="/" title="玄関へ">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+    玄関
+  </a>
+  <div class="brand">神龍 <span>/ 成果物</span></div>
+</header>
+
+<div class="wrap">
+  <p class="lead">作った道具（成果物 UI 付きフロー）を、ここから直接操作します。キャンバスを開かずに、一覧から選んで承認・入力・選択ができます。</p>
+  <div id="gallery" class="grid"></div>
+</div>
+
+<!-- 成果物 UI ビューア — sandbox iframe + fetch-shim → /api/artifact-llm proxy（鍵は箱に残る・Wave UI S1/S2 移植） -->
+<div id="artifactPanel" style="display:none;position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.72)">
+  <div style="position:absolute;inset:24px;background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line)">
+      <b id="artifactTitle" style="font-size:13px;color:var(--txt)">成果物</b>
+      <span id="artifactState" style="color:var(--dim2);font-size:11px"></span>
+      <span style="flex:1"></span>
+      <button onclick="closeArtifact()" style="background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer">閉じる (Esc)</button>
+    </div>
+    <div style="flex:1;min-height:240px;position:relative;background:#fff">
+      <iframe id="artifactFrame" sandbox="allow-scripts" style="width:100%;height:100%;min-height:280px;border:none;background:#fff;display:block"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+const api = async (m, p, b) => { const r = await fetch(p, { method:m, headers:{'content-type':'application/json'}, ...(b?{body:JSON.stringify(b)}:{}) }); if(!r.ok) throw new Error(p+' → '+r.status); return r.json(); };
+const esc = (s) => String(s==null?'':s).replace(/[&<>"]/g, (c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let _artHandoffId = null;
+
+// ── ギャラリー ──
+async function loadGallery() {
+  let list = [];
+  try { list = await api('GET','/api/artifacts'); } catch { return; }
+  const g = document.getElementById('gallery');
+  if (!list.length) {
+    g.innerHTML = `<div class="empty" style="grid-column:1/-1"><b>まだ操作できる成果物はありません</b><br><span style="font-size:12.5px">フローに成果物 UI を付けると（神龍に「操作画面も作って」と頼む / <code>gen_artifact_ui</code> / <code>set_flow_ui</code>）ここに現れます。</span></div>`;
+    return;
+  }
+  g.innerHTML = list.map((a) => `
+    <div class="card">
+      <h3>${esc(a.name||a.id)}</h3>
+      <div class="sum">${esc(a.summary||'')}</div>
+      <div class="meta">
+        <span class="pill ${a.hasPending?'pending':'preview'}">${a.hasPending?'操作待ち':'プレビュー'}</span>
+        <span class="badge ${a.visibility==='shared'?'shared':''}">${a.visibility==='shared'?'共有':'自分'}</span>
+        ${a.lastRun?`<span>最終実行 ${esc(new Date(a.lastRun).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))}</span>`:''}
+      </div>
+      <button class="op ${a.hasPending?'pending':''}" data-id="${esc(a.id)}" data-h="${esc(a.handoffId||'')}" data-name="${esc(a.name||a.id)}">${a.hasPending?'操作する':'プレビュー'}</button>
+    </div>`).join('');
+  g.querySelectorAll('button.op').forEach((b) => b.onclick = () => openCard(b.dataset.id, b.dataset.h||null, b.dataset.name));
+}
+
+async function openCard(id, handoffId, name) {
+  let code = '';
+  try { const r = await api('GET','/api/workflows/'+encodeURIComponent(id)+'/ui'); code = r && r.ui ? r.ui : ''; } catch {}
+  if (!code) { alert('このフローには成果物 UI コードがありません。'); return; }
+  _artHandoffId = handoffId || null;
+  document.getElementById('artifactTitle').textContent = name || id;
+  document.getElementById('artifactState').textContent = _artHandoffId ? '操作待ち（送信でフローが進みます）' : 'プレビュー（操作は反映されません）';
+  renderArtifact(code);
+  document.getElementById('artifactPanel').style.display = 'block';
+}
+function closeArtifact() { document.getElementById('artifactPanel').style.display = 'none'; document.getElementById('artifactFrame').srcdoc = ''; _artHandoffId = null; }
+
+// fetch shim を srcdoc に埋め込む（null-origin iframe は相対 fetch 不可 → postMessage ブリッジ）
+// window.shenron.approve/decline/advance を提供 — art-flow-req/res ペアで hub へ転送（Wave UI S2 移植）
+const ARTIFACT_SHIM = `<script>(function(){var _f=window.fetch,_p={},_i=0;window.addEventListener('message',function(e){var d=e.data;if(d&&(d.type==='art-res'||d.type==='art-flow-res')&&_p[d.id]){_p[d.id](d);delete _p[d.id];}});window.shenron={approve:function(){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(d.data);};window.parent.postMessage({type:'art-approve',id:id},'*');});},decline:function(){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(d.data);};window.parent.postMessage({type:'art-decline',id:id},'*');});},advance:function(data){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(d.data);};window.parent.postMessage({type:'art-advance',id:id,data:data},'*');});}};window.fetch=function(u,o){var s=typeof u==='string'?u:(u&&u.href)||'';if(s.indexOf('api.anthropic.com')>=0){return new Promise(function(res,rej){var id=++_i;_p[id]=function(d){d.error?rej(new Error(d.error)):res(new Response(JSON.stringify(d.data),{status:d.status||200,headers:{'content-type':'application/json'}}));};window.parent.postMessage({type:'art-req',id:id,body:o&&o.body},'*');});}return _f.call(this,u,o);};})();<\/script>`;
+
+function renderArtifact(raw) {
+  const code = String(raw||'').trim()
+    .replace(/^import\s.+?['"].+?['"];?\s*$/gm, '')
+    .replace(/^export\s+default\s+/gm, '')
+    .replace(/^export\s+/gm, '');
+  const src = `<!doctype html><html><head><meta charset="utf-8">${ARTIFACT_SHIM}
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script>
+<style>body{margin:10px;font-family:system-ui,sans-serif}*{box-sizing:border-box}</style>
+</head><body><div id="root"></div><script type="text/babel">
+${code}
+;(function(){try{const R=ReactDOM.createRoot(document.getElementById('root'));R.render(React.createElement(typeof App!=='undefined'?App:()=>React.createElement('p',null,'App が見つかりません')));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red">'+e.message+'<\\/pre>';}})();
+<\/script>
+</body></html>`;
+  document.getElementById('artifactFrame').srcdoc = src;
+}
+
+// postMessage ブリッジ: iframe → hub（source 検証済みホワイトリスト）
+// art-req → /api/artifact-llm    art-approve/decline/advance → /api/handoffs/:id/*
+window.addEventListener('message', async function(e) {
+  const frame = document.getElementById('artifactFrame');
+  if (!frame || e.source !== frame.contentWindow) return;   // source 検証
+  const d = e.data; if (!d) return;
+  if (d.type === 'art-req') {
+    try {
+      const r = await fetch('/api/artifact-llm', { method:'POST', headers:{'content-type':'application/json'}, body:d.body });
+      frame.contentWindow.postMessage({ type:'art-res', id:d.id, status:r.status, data:await r.json() }, '*');
+    } catch(err) { frame.contentWindow.postMessage({ type:'art-res', id:d.id, error:err.message }, '*'); }
+  } else if (d.type === 'art-approve' || d.type === 'art-decline' || d.type === 'art-advance') {
+    if (!_artHandoffId) { frame.contentWindow.postMessage({ type:'art-flow-res', id:d.id, error:'no handoff linked (プレビュー中)' }, '*'); return; }
+    const action = d.type === 'art-advance' ? 'result' : d.type === 'art-approve' ? 'approve' : 'decline';
+    const body = d.type === 'art-advance' ? JSON.stringify({ result:d.data }) : '{}';
+    try {
+      const r = await fetch('/api/handoffs/'+_artHandoffId+'/'+action, { method:'POST', headers:{'content-type':'application/json'}, body });
+      frame.contentWindow.postMessage({ type:'art-flow-res', id:d.id, data:await r.json() }, '*');
+      loadGallery();   // 操作でフローが進む → 一覧の操作待ちを更新
+    } catch(err) { frame.contentWindow.postMessage({ type:'art-flow-res', id:d.id, error:err.message }, '*'); }
+  }
+});
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('artifactPanel').style.display!=='none') closeArtifact(); }, true);
+
+loadGallery();
+setInterval(loadGallery, 4000);   // 操作待ちの出現を反映（poll は軽量・SSE は不要）
+</script>
+
+<!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
+<div id="cmdk" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(4,8,13,.62)">
+  <div style="max-width:520px;margin:12vh auto 0;background:#0c1822;border:1px solid #213e56;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px -24px #000">
+    <input id="cmdk-q" placeholder="ページへ移動…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
+      style="width:100%;box-sizing:border-box;background:#0a121b;border:0;border-bottom:1px solid #213e56;color:#cfe0ee;font:13px ui-monospace,Menlo,monospace;padding:14px 16px;outline:none">
+    <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px"></div>
+  </div>
+</div>
+<button id="cmdk-open" title="ページ移動 (⌘K)"
+  style="position:fixed;right:14px;bottom:14px;z-index:99998;display:flex;align-items:center;gap:7px;background:#0c1822;border:1px solid #213e56;color:#7e9bb0;border-radius:8px;padding:7px 11px;font:11px ui-monospace,Menlo,monospace;cursor:pointer">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+  移動 <span style="opacity:.55">⌘K</span>
+</button>
+<script>(function(){
+  var DEST=[
+    {label:'玄関',      desc:'ランチャー',           path:'/'},
+    {label:'神龍',      desc:'会話でフローを叶える',  path:'/shenron'},
+    {label:'キャンバス', desc:'ビジュアルエディタ',    path:'/ui2'},
+    {label:'成果物',     desc:'作った道具を操作',      path:'/artifacts'},
+    {label:'設定',      desc:'経路・連携・保管庫・通知', path:'/settings'}
+  ];
+  var here=(location.pathname.replace(/\/+$/,'')||'/');
+  var box=document.getElementById('cmdk'),q=document.getElementById('cmdk-q'),list=document.getElementById('cmdk-list'),sel=0,items=DEST.slice();
+  function render(){
+    var s=(q.value||'').toLowerCase();
+    items=DEST.filter(function(d){return !s||d.label.toLowerCase().indexOf(s)>=0||d.desc.toLowerCase().indexOf(s)>=0||d.path.indexOf(s)>=0;});
+    if(sel>=items.length)sel=Math.max(0,items.length-1);
+    list.innerHTML=items.map(function(d,i){
+      var cur=((d.path.replace(/\/+$/,'')||'/')===here);
+      return '<div data-i="'+i+'" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;cursor:pointer;font-family:ui-monospace,Menlo,monospace;background:'+(i===sel?'#15324a':'transparent')+'">'
+        +'<span style="color:#cfe0ee;font-size:13px;min-width:88px">'+d.label+'</span>'
+        +'<span style="color:#6d8aa0;font-size:11px;flex:1">'+d.desc+'</span>'
+        +(cur?'<span style="color:#5b9bd1;font-size:10px">現在</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
+        +'</div>';
+    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">該当なし</div>';
+    [].forEach.call(list.children,function(el){
+      if(!el.dataset)return;
+      el.onclick=function(){go(items[+el.dataset.i]);};
+      el.onmouseenter=function(){sel=+el.dataset.i;paint();};
+    });
+  }
+  function paint(){[].forEach.call(list.children,function(el,i){if(el.style)el.style.background=(i===sel?'#15324a':'transparent');});}
+  function go(d){if(d)location.href=d.path;}
+  function open(){box.style.display='block';q.value='';sel=0;render();setTimeout(function(){q.focus();},0);}
+  function close(){box.style.display='none';}
+  document.getElementById('cmdk-open').onclick=open;
+  box.onclick=function(e){if(e.target===box)close();};
+  q.oninput=render;
+  document.addEventListener('keydown',function(e){
+    if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();box.style.display==='block'?close():open();return;}
+    if(box.style.display!=='block')return;
+    if(e.key==='Escape'){e.preventDefault();close();}
+    else if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(items.length-1,sel+1);paint();}
+    else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(0,sel-1);paint();}
+    else if(e.key==='Enter'){e.preventDefault();go(items[sel]);}
+  });
+})();</script>
+</body>
+</html>
