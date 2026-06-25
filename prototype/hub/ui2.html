@@ -476,11 +476,11 @@ const $ = (s, r=document) => r.querySelector(s);
 const POS = {}; const expanded = new Set();
 let state = { agents: [], handoffs: [], runs: [] };
 let SAVED_ID = '', FLOW_VIS = 'private';   // Cockpit-3: 共有トグルの真実源（保存済み id + 庫公開状態。#flowName.value は name と id が混ざるので別持ち）
-let EDGES = [], wiring = null, eidc = 0, TRIGGERS = [], tidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
+let EDGES = [], wiring = null, eidc = 0, MCP = null, BUILDSTATE = { events:[], operators:[] };
 let CAPVOCAB = { net:['none','read','full'], fs:['none','diff-only','repo'], external_send:['deny','approval','allow'], secrets:['deny'] };   // Wave B: capability vocabulary (refreshed from /api/capvocab)
 let TRUSTPREVIEW = null;   // Wave E1: last "Check trust" dry-run (wires + gates); annotates the canvas + panel
 let TRUST_BASELINE = null, TRUST_DIFF = null, PREDICTED = {};   // Wave ④: baseline posture (last save/run/first-check), last diff, per-run predicted summary (audit closed-loop)
-let INTEGRATIONS = [], MCP_NODES = [], mnidc = 0;   // Wave F.2: connected MCP servers + placed mcp-tool nodes (INTEGRATIONS = token-light refs; tools = a COUNT, not the array)
+let INTEGRATIONS = [];   // Wave F.2: connected MCP servers (token-light refs; tools = a COUNT, not the array). Placed mcp nodes now live in NODES (R0).
 // Wave A2 — clean-mcp lazy index: the picker is a server→tool cascade. INTEGRATIONS holds refs (search index);
 // a server's full tool list is fetched on demand (get_integration) and cached here. Cleared whenever refs refetch.
 let INTEG_FULL = {};   // server id → full integration object { ..., tools:[{name,accepts,emits}] }
@@ -491,9 +491,14 @@ async function getIntegration(id){ if(!id) return null; if(INTEG_FULL[id]) retur
 const ensureServers = (ids) => Promise.all([...new Set((ids||[]).filter(Boolean))].map(getIntegration));
 const toolsOf = (server) => (INTEG_FULL[server]&&INTEG_FULL[server].tools)||[];   // sync read — caller must have awaited getIntegration(server)
 let AUDIT = { entries:[], verify:{ok:true} };        // Wave H: tamper-evident trust trail
-let COMPONENTS = [], cidc = 0;                       // Wave K: Langflow-style component nodes (chat input/output, prompt)
+// R0: single node store — the 4 arrays (triggers/mcp/components/notes) are unified into NODES[]. agents stay
+// server-owned (state.agents) and are projected in via allNodes(); only NODES is edited/persisted locally.
+let NODES = [], _idc = 0;
+const nextId = (k) => `${k}-${++_idc}`;                                  // single id counter (was tidc/mnidc/cidc/noidc)
+const seedIdc = () => { for(const n of NODES){ const m=/-(\d+)$/.exec(n.id); if(m && +m[1]>_idc) _idc=+m[1]; } };   // after load: seed past existing ids so new ones don't collide
+const agentNodes = () => state.agents.filter(a=>!HIDDEN.has(a.id)).map(a=>({ id:a.id, kind:'agent', _agent:a }));
+const allNodes = () => [...agentNodes(), ...NODES];                      // iterate/render order: agents first, then NODES
 let WORKFLOWS = [];                                  // saved workflows (for the Sub-flow node's picker)
-let NOTES = [], noidc = 0;                           // (b) Langflow-style annotation cards (markdown + color, not executable)
 const NOTE_COLORS = { amber:{bg:'#241b07',border:'#5c4a16'}, blue:{bg:'#10233a',border:'#274b73'}, green:{bg:'#0c1f12',border:'#1f5130'}, grey:{bg:'#161b22',border:'#30363d'} };
 const mdLite = (s) => esc(s).replace(/^### (.*)$/gm,'<b style="font-size:13px">$1</b>').replace(/^## (.*)$/gm,'<b style="font-size:14px">$1</b>').replace(/^# (.*)$/gm,'<b style="font-size:15px">$1</b>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^[-*] (.*)$/gm,'• $1').replace(/\n/g,'<br>');   // tiny safe markdown (escape first)
 // ノードアイコン: card は innerHTML で SVG 描画可 / <option>・inspHead はテキストのみ → svg と label を分離
@@ -525,9 +530,9 @@ const COMP = {                                       // minimal component librar
 };
 const UNDO_STACK = [], REDO_STACK = [];
 let lastSaved = 0, CTX_TARGET = null, SEARCH_Q = '';
-function canvasSnap(){ return JSON.stringify({TRIGGERS:TRIGGERS.map(t=>({...t,match:{...t.match}})),MCP_NODES:MCP_NODES.map(m=>({...m,config:{...m.config}})),COMPONENTS:COMPONENTS.map(c=>({...c,config:{...c.config}})),NOTES:NOTES.map(n=>({...n})),EDGES:EDGES.map(e=>({...e})),HIDDEN:[...HIDDEN],POS:Object.fromEntries(Object.entries(POS).map(([k,v])=>[k,{...v}]))}); }
+function canvasSnap(){ return JSON.stringify({NODES:NODES.map(n=>JSON.parse(JSON.stringify(n))),EDGES:EDGES.map(e=>({...e})),HIDDEN:[...HIDDEN],POS:Object.fromEntries(Object.entries(POS).map(([k,v])=>[k,{...v}]))}); }
 function undoSnap(){ UNDO_STACK.push(canvasSnap()); if(UNDO_STACK.length>50) UNDO_STACK.shift(); REDO_STACK.length=0; }
-function undoApply(s){ const d=JSON.parse(s); TRIGGERS=d.TRIGGERS; MCP_NODES=d.MCP_NODES; COMPONENTS=d.COMPONENTS; NOTES=d.NOTES; EDGES=d.EDGES; HIDDEN.clear(); d.HIDDEN.forEach(h=>HIDDEN.add(h)); const keys=new Set(Object.keys(d.POS)); Object.keys(POS).forEach(k=>{if(!keys.has(k))delete POS[k];}); Object.assign(POS,d.POS); deselect(); render(); }
+function undoApply(s){ const d=JSON.parse(s); NODES=d.NODES; EDGES=d.EDGES; HIDDEN.clear(); d.HIDDEN.forEach(h=>HIDDEN.add(h)); const keys=new Set(Object.keys(d.POS)); Object.keys(POS).forEach(k=>{if(!keys.has(k))delete POS[k];}); Object.assign(POS,d.POS); deselect(); render(); }
 function undo(){ if(!UNDO_STACK.length) return toast(LANG==='ja'?'戻せません':'nothing to undo'); const cur=canvasSnap(); REDO_STACK.push(cur); undoApply(UNDO_STACK.pop()); }
 function redo(){ if(!REDO_STACK.length) return toast(LANG==='ja'?'やり直せません':'nothing to redo'); const cur=canvasSnap(); UNDO_STACK.push(cur); undoApply(REDO_STACK.pop()); }
 const HIDDEN = new Set(); let selected = null, selEdge = null, nodeDrag = null, filter = null;
@@ -570,11 +575,11 @@ function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('sho
 function conn(m){ const c=$('#conn'); c.textContent=m; c.style.color='var(--blue)'; }
 
 const ag = (id) => state.agents.find(a=>a.id===id);
-const trig = (id) => TRIGGERS.find(t=>t.id===id);
-const mcpn = (id) => MCP_NODES.find(m=>m.id===id);
-const comp = (id) => COMPONENTS.find(c=>c.id===id);
-const noteOf = (id) => NOTES.find(n=>n.id===id);
-const nodeOf = (id) => ag(id) || trig(id) || mcpn(id) || comp(id) || noteOf(id);
+const trig = (id) => NODES.find(n=>n.id===id && n.kind==='trigger');
+const mcpn = (id) => NODES.find(n=>n.id===id && n.kind==='mcp');
+const noteOf = (id) => NODES.find(n=>n.id===id && n.kind==='note');
+const comp = (id) => { const n=NODES.find(x=>x.id===id); return n && n.kind!=='trigger' && n.kind!=='mcp' && n.kind!=='note' ? n : undefined; };   // COMP-driven (input/prompt/.../unset/workflow/langflow)
+const nodeOf = (id) => ag(id) || NODES.find(n=>n.id===id);
 function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--){ const o=rs[i].outputs; if(o && id in o) return o[id]; } return null; }
 /* Langflow-style: color handles + edges by data type (stable hash → palette; "*"/unknown → gray). */
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
@@ -586,10 +591,10 @@ function typeColor(tp){ if(!tp||tp==='*') return '#9ca3af'; let h=0; for(let i=0
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ui2: left palette + tutorial coach removed — nodes come from the ＋ menu, click a node to edit it. */
-function addComp(kind){ undoSnap(); const c=COMP[kind]; const id=(c?kind:'node')+'-'+(++cidc); const y=40+COMPONENTS.length*26;
+function addComp(kind){ undoSnap(); const c=COMP[kind]; const id=nextId(c?kind:'node'); const y=40+NODES.filter(n=>n.kind!=='trigger'&&n.kind!=='mcp'&&n.kind!=='note').length*26;
   if(c){ const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
-    COMPONENTS.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y }); }
-  else { COMPONENTS.push({ id, kind:'unset', accepts:['*'], emits:['*'], config:{}, x:200, y }); }   // blank node: choose the kind in the inspector
+    NODES.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y }); }
+  else { NODES.push({ id, kind:'unset', accepts:['*'], emits:['*'], config:{}, x:200, y }); }   // blank node: choose the kind in the inspector
   COLLAPSED.add(id); selectNode(id); render(); }
 // the node's ports change when its kind/中身 changes → drop wires that no longer type-match (and say so)
 function revalidateEdges(id){ const before=EDGES.length;
@@ -602,10 +607,10 @@ function setCompKind(cn, kind){ const m=COMP[kind];
   cn.config={}; (m.fields||[]).forEach(f=>{ if(f.value!=null) cn.config[f.key]=f.value; });
   if(keepName) cn.config.name=keepName; if(keepDesc) cn.config.desc=keepDesc;
   revalidateEdges(cn.id); selectNode(cn.id); }
-function removeComp(id){ undoSnap(); COMPONENTS=COMPONENTS.filter(c=>c.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
-function addMcpNode(tl){ undoSnap(); const id='mcp-'+(++mnidc); const {x,y}=canvasCenter(MCP_NODES.length*24, MCP_NODES.length*16);
-  MCP_NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x, y }
-                   :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x, y });   // blank: choose the tool in the inspector
+function removeNode(id){ NODES=NODES.filter(n=>n.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }   // R0: unified remove (undoSnap is the caller's job — see deleteSelected)
+function addMcpNode(tl){ undoSnap(); const id=nextId('mcp'); const mc=NODES.filter(n=>n.kind==='mcp').length; const {x,y}=canvasCenter(mc*24, mc*16);
+  NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x, y }
+               :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x, y });   // blank: choose the tool in the inspector
   COLLAPSED.add(id); selectNode(id); render(); }
 // an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
 const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool)) || (n.kind==='workflow' && !n.ref);
@@ -635,10 +640,9 @@ function mcpCascade(mn, cls){
   const wrap=(inner)=>cls==='nf'?`<div class="nfrow">${inner}</div>`:`<div class="field">${inner}</div>`;
   return wrap(lbl('mcp_server_sel')+srvSel)+(mn.server?wrap(lbl('mcp_tool_sel')+toolSel):'');
 }
-function removeMcpNode(id){ undoSnap(); MCP_NODES=MCP_NODES.filter(m=>m.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }function canvasCenter(dx=0,dy=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+dx), y:Math.round((r.height/2-PANY)/ZOOM+dy) }; }
-function addTrigger(){ undoSnap(); const id='trigger-'+(++tidc); TRIGGERS.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(TRIGGERS.length*24, TRIGGERS.length*16) }); COLLAPSED.add(id); selectNode(id); render(); }
-function addNote(){ undoSnap(); const id='note-'+(++noidc); NOTES.push({ id, text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(NOTES.length*24, NOTES.length*16) }); selectNode(id); render(); }   // (b) annotation card
-function removeNote(id){ undoSnap(); NOTES=NOTES.filter(n=>n.id!==id); deselect(); }
+function canvasCenter(dx=0,dy=0){ const r=$('#canvas').getBoundingClientRect(); return { x:Math.round((r.width/2-PANX)/ZOOM+dx), y:Math.round((r.height/2-PANY)/ZOOM+dy) }; }
+function addTrigger(){ undoSnap(); const id=nextId('trigger'); const tc=NODES.filter(n=>n.kind==='trigger').length; NODES.push({ id, kind:'trigger', type:'build_state', match:{ event:'review_completed', status:'green' }, ...canvasCenter(tc*24, tc*16) }); COLLAPSED.add(id); selectNode(id); render(); }
+function addNote(){ undoSnap(); const id=nextId('note'); const nc=NODES.filter(n=>n.kind==='note').length; NODES.push({ id, kind:'note', text:'# メモ\nここに説明を書く（**太字**・- 箇条書き可）', color:'amber', ...canvasCenter(nc*24, nc*16) }); selectNode(id); render(); }   // (b) annotation card
 
 /* ---------- canvas nodes ---------- */
 function placeNodes(){
@@ -667,78 +671,68 @@ const hasPort=(arr)=>(arr||['*']).length>0;
 const portHTML=(hasIn,hasOut)=>`${hasIn?'<span class="port in" data-port="in"></span>':''}${hasOut?'<span class="port out" data-port="out"></span>':''}`;
 function renderNodes(){
   const canvas=$('#world');
-  $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'flex';
+  const nodes=allNodes();
+  $('#hint').style.display=nodes.length?'none':'flex';
   const seen=new Set();
-  for(const a of state.agents){
-    if(HIDDEN.has(a.id)) continue;
-    const nid='n_'+cssid(a.id); seen.add(nid);
-    let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node agent'; n.id=nid; n.dataset.id=a.id; canvas.appendChild(n); attachNode(n,a.id); }
-    n.style.left=POS[a.id].x+'px'; n.style.top=POS[a.id].y+'px';
+  for(const node of nodes){ seen.add('n_'+cssid(node.id)); renderNode(node, canvas); }
+  for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
+}
+// R0: one node → its card. Branches by kind; markup copied verbatim from the old 5 loops (snapshot-verified identical).
+function renderNode(node, canvas){
+  const id=node.id, kind=node.kind, nid='n_'+cssid(id);
+  const cls = kind==='agent'?'agent':kind==='trigger'?'trigger':kind==='mcp'?'mcp':kind==='note'?'note':'comp';
+  let n=document.getElementById(nid);
+  if(!n){ n=document.createElement('div'); n.className='node '+cls; n.id=nid; n.dataset.id=id; canvas.appendChild(n); attachNode(n,id); }
+  if(kind!=='agent' && !POS[id]){ const d=kind==='trigger'?{x:30,y:30}:kind==='mcp'?{x:320,y:40}:kind==='note'?{x:90,y:90}:{x:200,y:40}; POS[id]={x:node.x||d.x,y:node.y||d.y}; }
+  n.style.left=POS[id].x+'px'; n.style.top=POS[id].y+'px';
+  n.classList.toggle('selected',selected===id);
+  if(kind==='agent'){
+    const a=node._agent;
     const mine=state.handoffs.filter(h=>h.to===a.id);
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const busy=mine.some(h=>h.status==='running'||h.status==='approved');
-    n.classList.toggle('busy',busy); n.classList.toggle('selected',selected===a.id);
-    n.classList.toggle('collapsed',COLLAPSED.has(a.id));
-    if(n.contains(document.activeElement)) continue;   // don't rebuild the card while a field inside it is focused
+    n.classList.toggle('busy',busy); n.classList.toggle('collapsed',COLLAPSED.has(a.id));
+    if(n.contains(document.activeElement)) return;   // don't rebuild the card while a field inside it is focused
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
     n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${NI(NIC.agent,14)} ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`
       +portHTML(hasPort(a.accepts), hasPort(a.emits));
+    return;
   }
-  for(const tr of TRIGGERS){   // ui2: card = title + summary only; the event/status editor lives in the right panel
-    const nid='n_'+cssid(tr.id); seen.add(nid);
-    let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=tr.id; canvas.appendChild(n); attachNode(n,tr.id); }
-    if(!POS[tr.id]) POS[tr.id]={x:tr.x||30,y:tr.y||30};
-    n.style.left=POS[tr.id].x+'px'; n.style.top=POS[tr.id].y+'px'; n.classList.toggle('selected',selected===tr.id);
-    n.innerHTML=`<div class="name">${NI(NIC.trigger,14)} トリガー</div><div class="co">${esc(triggerSummary(tr.match))}</div>`
+  if(kind==='trigger'){   // ui2: card = title + summary only; the event/status editor lives in the right panel
+    n.innerHTML=`<div class="name">${NI(NIC.trigger,14)} トリガー</div><div class="co">${esc(triggerSummary(node.match))}</div>`
       +portHTML(false, true);   // trigger = start point: OUT only, no input
+    return;
   }
-  for(const mn of MCP_NODES){
-    const nid='n_'+cssid(mn.id); seen.add(nid);
-    let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node mcp'; n.id=nid; n.dataset.id=mn.id; canvas.appendChild(n); attachNode(n,mn.id); }
-    if(!POS[mn.id]) POS[mn.id]={x:mn.x||320,y:mn.y||40};
-    n.style.left=POS[mn.id].x+'px'; n.style.top=POS[mn.id].y+'px'; n.classList.toggle('selected',selected===mn.id);
-    const mine=state.handoffs.filter(h=>h.mcp&&h.node===mn.id);
+  if(kind==='mcp'){
+    const mine=state.handoffs.filter(h=>h.mcp&&h.node===id);
     const pending=mine.filter(h=>FLOW.has(h.status)).length;
     const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy);
-    const mset=!!(mn.server&&mn.tool);
-    n.innerHTML=`<div class="name">${NI(NIC.mcp,14)} ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(mn.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`
-      +portHTML(hasPort(mn.accepts), hasPort(mn.emits));
+    const mset=!!(node.server&&node.tool);
+    n.innerHTML=`<div class="name">${NI(NIC.mcp,14)} ${esc(mset?node.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+      +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(node.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`
+      +portHTML(hasPort(node.accepts), hasPort(node.emits));
+    return;
   }
-  for(const c of COMPONENTS){
-    const nid='n_'+cssid(c.id); seen.add(nid);
-    let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node comp'; n.id=nid; n.dataset.id=c.id; canvas.appendChild(n); attachNode(n,c.id); }
-    if(!POS[c.id]) POS[c.id]={x:c.x||200,y:c.y||40};
-    n.style.left=POS[c.id].x+'px'; n.style.top=POS[c.id].y+'px'; n.classList.toggle('selected',selected===c.id);
-    const meta=COMP[c.kind]||{}; const isSet=!!COMP[c.kind]; const res=c.kind==='output'?lastOutput(c.id):null;
-    const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));
-    const tierBadge=c.tier?`<span class="tier-badge ${c.tier}">${c.tier}</span>`:'';
-    n.innerHTML=`<div class="name">${meta.svg||''} ${esc(cname)}${tierBadge}</div>`
-      +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||c.kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`
-      +portHTML(hasPort(c.accepts), hasPort(c.emits));   // input→OUT only, output→IN only (accepts/emits driven)
+  if(kind==='note'){   // (b) annotation cards — colored, markdown, no ports
+    n.ondblclick=()=>{ noteEdit=id; render(); setTimeout(()=>{ const ta=document.getElementById(nid)?.querySelector('textarea'); ta&&ta.focus(); },0); };   // B1 — double-click to edit
+    const col=NOTE_COLORS[node.color]||NOTE_COLORS.amber; n.style.background=col.bg; n.style.borderColor=col.border;
+    if(noteEdit===id){
+      if(n.contains(document.activeElement)) return;   // don't rebuild while typing
+      n.innerHTML=`<div class="nbody"><textarea class="nf" data-noteid="${esc(id)}" data-notefield="text" rows="4" placeholder="${esc(t('note_text'))}">${esc(node.text||'')}</textarea>`
+        +`<div class="nfrow"><label class="nflabel">${t('note_color')}</label><select class="nf" data-noteid="${esc(id)}" data-notefield="color">${Object.keys(NOTE_COLORS).map(c=>`<option value="${c}" ${node.color===c?'selected':''}>${c}</option>`).join('')}</select></div>`
+        +`<button class="ibtn" data-notedone="${esc(id)}">${t('note_done')}</button></div>`;
+    } else n.innerHTML=`<div class="notebody">${mdLite(node.text||'')}</div>`;
+    return;
   }
-  for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
-    const nid='n_'+cssid(nt.id); seen.add(nid);
-    let n=document.getElementById(nid);
-    if(!n){ n=document.createElement('div'); n.className='node note'; n.id=nid; n.dataset.id=nt.id; canvas.appendChild(n); attachNode(n,nt.id); }
-    if(!POS[nt.id]) POS[nt.id]={x:nt.x||90,y:nt.y||90};
-    n.style.left=POS[nt.id].x+'px'; n.style.top=POS[nt.id].y+'px'; n.classList.toggle('selected',selected===nt.id);
-    n.ondblclick=()=>{ noteEdit=nt.id; render(); setTimeout(()=>{ const ta=document.getElementById(nid)?.querySelector('textarea'); ta&&ta.focus(); },0); };   // B1 — double-click to edit
-    const col=NOTE_COLORS[nt.color]||NOTE_COLORS.amber; n.style.background=col.bg; n.style.borderColor=col.border;
-    if(noteEdit===nt.id){
-      if(n.contains(document.activeElement)) continue;   // don't rebuild while typing
-      n.innerHTML=`<div class="nbody"><textarea class="nf" data-noteid="${esc(nt.id)}" data-notefield="text" rows="4" placeholder="${esc(t('note_text'))}">${esc(nt.text||'')}</textarea>`
-        +`<div class="nfrow"><label class="nflabel">${t('note_color')}</label><select class="nf" data-noteid="${esc(nt.id)}" data-notefield="color">${Object.keys(NOTE_COLORS).map(c=>`<option value="${c}" ${nt.color===c?'selected':''}>${c}</option>`).join('')}</select></div>`
-        +`<button class="ibtn" data-notedone="${esc(nt.id)}">${t('note_done')}</button></div>`;
-    } else n.innerHTML=`<div class="notebody">${mdLite(nt.text||'')}</div>`;
-  }
-  for(const n of [...canvas.querySelectorAll('.node')]) if(!seen.has(n.id)) n.remove();
+  // comp (COMP-driven): input/prompt/consensus/output/languagemodel/structured/parser/router/workflow/langflow/unset
+  const meta=COMP[kind]||{}; const isSet=!!COMP[kind]; const res=kind==='output'?lastOutput(id):null;
+  const cname=(node.config?.name||'').trim()||meta.label||(isSet?kind:t('comp_unset'));
+  const tierBadge=node.tier?`<span class="tier-badge ${node.tier}">${node.tier}</span>`:'';
+  n.innerHTML=`<div class="name">${meta.svg||''} ${esc(cname)}${tierBadge}</div>`
+    +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`
+    +portHTML(hasPort(node.accepts), hasPort(node.emits));   // input→OUT only, output→IN only (accepts/emits driven)
 }
 const WIRE_EDGE=13;   // px-from-border zone that starts a wire instead of a move
 function attachNode(n, id){
@@ -941,7 +935,6 @@ function triggerSummary(match){                              // plain-language o
 }
 // B3 — trigger settings now edit on the card (see renderNodes trigger loop + the [data-trig] change handler);
 // the inspector + match-JSON editor are retired. triggerSummary (kept above) is reused on the card.
-function removeTrigger(id){ TRIGGERS=TRIGGERS.filter(x=>x.id!==id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); }
 // B3 — mcp / component / note settings now edit on the card (renderNodes + inlineField + the delegated
 // input/change handlers); their right-panel inspectors are retired. The card paths cover everything the old
 // inspectors did (cascade, kind selector, per-kind fields, name/desc, auto/args, note text/colour).
@@ -979,16 +972,17 @@ async function showFlows(){ await fetchWorkflows(); const dlg=$('#modal');      
 // ── 神龍: NL の願い → /api/shenron/plan → canvas に展開（clarify/refine 対応）。
 // loadFlow は ui.html から移植：ui2 では未定義で 読込/JSON import/Langflow import も壊れていたので同時修復。
 function loadFlow(flow){                              // saved/生成フローを canvas に materialize（buildFlow の逆）
-  undoSnap(); TRIGGERS=[]; MCP_NODES=[]; COMPONENTS=[]; NOTES=[]; EDGES=[]; clearTrust();
+  undoSnap(); NODES=[]; EDGES=[]; clearTrust();
   HIDDEN.clear(); state.agents.forEach(a=>HIDDEN.add(a.id));   // 全 agent を隠してからフローの agent だけ出す
   for(const n of (flow.nodes||[])){
     POS[n.id]={ x:n.x||40, y:n.y||40 };
     if(n.kind==='agent'){ HIDDEN.delete(n.agent||n.id); }
-    else if(n.kind==='trigger'){ TRIGGERS.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }
-    else if(n.kind==='mcp'){ MCP_NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
-    else if(n.kind==='note'){ NOTES.push({ id:n.id, text:n.text||'', color:n.color||'amber' }); }
-    else if(COMP[n.kind]){ const m=COMP[n.kind]; const config=n.config||{}; if(n.kind==='workflow'&&n.ref&&!config.ref) config.ref=n.ref; COMPONENTS.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config, tier:n.tier||null }); }
+    else if(n.kind==='trigger'){ NODES.push({ id:n.id, kind:'trigger', type:(n.trigger&&n.trigger.type)||'build_state', match:(n.trigger&&n.trigger.match)||{} }); }
+    else if(n.kind==='mcp'){ NODES.push({ id:n.id, kind:'mcp', server:n.server, tool:n.tool, accepts:n.accepts||['*'], emits:n.emits||['*'], config:n.config||{}, auto:!!n.auto }); }
+    else if(n.kind==='note'){ NODES.push({ id:n.id, kind:'note', text:n.text||'', color:n.color||'amber' }); }
+    else if(COMP[n.kind]){ const m=COMP[n.kind]; const config=n.config||{}; if(n.kind==='workflow'&&n.ref&&!config.ref) config.ref=n.ref; NODES.push({ id:n.id, kind:n.kind, accepts:m.accepts.slice(), emits:m.emits.slice(), config, tier:n.tier||null }); }
   }
+  seedIdc();   // R0: advance the single id counter past loaded ids (collision-free new nodes)
   EDGES=(flow.edges||[]).map(e=>({ id:e.id||('fe_'+(++eidc)), source:e.source, target:e.target, type:e.type||matchType(e.source,e.target), ...(e.share?{share:e.share}:{}), ...(e.branch?{branch:e.branch}:{}) }));
   for(const n of (flow.nodes||[])) COLLAPSED.add(n.id);   // 読込直後は折りたたみ（カードは題名+要約のみ）
   localStorage.setItem('bh_collapsed', JSON.stringify([...COLLAPSED]));
@@ -1021,7 +1015,7 @@ function nodeSpecOf(id){ const X=Math.round(POS[id]?.x||0), Y=Math.round(POS[id]
 const edgeSpecOf=(e)=>{ const sh=serialShare(e.share); return { id:e.id, source:e.source, target:e.target, ...(sh?{share:sh}:{}), ...(e.branch?{branch:e.branch}:{}) }; };
 function buildFlow(){ if(!EDGES.length) return null;
   const ids=new Set(); EDGES.forEach(e=>{ids.add(e.source);ids.add(e.target);});
-  return { nodes:[...ids].map(nodeSpecOf).concat(NOTES.map(nt=>nodeSpecOf(nt.id))), edges:EDGES.map(edgeSpecOf) }; }   // notes are unwired → append them so they persist
+  return { nodes:[...ids].map(nodeSpecOf).concat(NODES.filter(n=>n.kind==='note').map(nt=>nodeSpecOf(nt.id))), edges:EDGES.map(edgeSpecOf) }; }   // notes are unwired → append them so they persist
 function buildSubflow(ids, edges){ return { nodes:ids.map(nodeSpecOf), edges:edges.map(edgeSpecOf) }; }   // ③b-2: serialize a selected subset
 // ③b-2 — collapse a (linear) multi-selection into one Sub-flow node: save the picked nodes + their internal
 // edges as a workflow, drop a workflow node in their place, and rewire the external edges to it. Linear only —
@@ -1038,12 +1032,12 @@ async function collapseSelection(){
   let wf; try{ wf=await api('/api/workflows',{ name:(flowName()||'flow')+'-sub', nodes:f.nodes, edges:f.edges }); }catch(e){ return toast(e.message); }
   fetchWorkflows();
   const cx=Math.round(ids.reduce((s,id)=>s+(POS[id]?.x||0),0)/ids.length), cy=Math.round(ids.reduce((s,id)=>s+(POS[id]?.y||0),0)/ids.length);
-  const wid='workflow-'+(++cidc);
-  COMPONENTS.push({ id:wid, kind:'workflow', accepts:['*'], emits:['*'], config:{ ref:wf.id, name:wf.name } }); POS[wid]={x:cx,y:cy};
+  const wid=nextId('workflow');
+  NODES.push({ id:wid, kind:'workflow', accepts:['*'], emits:['*'], config:{ ref:wf.id, name:wf.name } }); POS[wid]={x:cx,y:cy};
   inExt.forEach(e=>{ if(!EDGES.some(x=>x.source===e.source&&x.target===wid)) EDGES.push({ id:'fe_'+(++eidc), source:e.source, target:wid }); });
   outExt.forEach(e=>{ if(!EDGES.some(x=>x.source===wid&&x.target===e.target)) EDGES.push({ id:'fe_'+(++eidc), source:wid, target:e.target }); });
   EDGES=EDGES.filter(e=>!S.has(e.source)&&!S.has(e.target));   // drop the collapsed nodes' own edges (rewired ones survive — wid ∉ S)
-  ids.forEach(id=>{ if(ag(id)) HIDDEN.add(id); else if(trig(id)) TRIGGERS=TRIGGERS.filter(x=>x.id!==id); else if(mcpn(id)) MCP_NODES=MCP_NODES.filter(x=>x.id!==id); else if(comp(id)) COMPONENTS=COMPONENTS.filter(x=>x.id!==id); });
+  ids.forEach(id=>{ if(ag(id)) HIDDEN.add(id); else NODES=NODES.filter(x=>x.id!==id); });   // R0: trigger/mcp/comp all live in NODES now
   selSet.clear(); clearTrust(); selectNode(wid); toast(t('t_collapsed'));
 }
 async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1'));
@@ -1103,13 +1097,13 @@ function showNodeSearch(){ const ns=$('#nodeSearch'); if(ns){ns.style.display='f
 function showCtxMenu(e,id){ e.preventDefault(); CTX_TARGET=id; const m=$('#ctxMenu'); m.style.left=e.clientX+'px'; m.style.top=e.clientY+'px'; m.style.display='block'; }
 function closeCtxMenu(){ const m=$('#ctxMenu'); if(m) m.style.display='none'; CTX_TARGET=null; }
 function duplicateNode(id){ undoSnap(); const pos=POS[id]||{x:100,y:100}; const dx=30,dy=30;
-  const tr=trig(id); if(tr){ const nid='trigger-'+(++tidc); TRIGGERS.push({...tr,match:{...tr.match},id:nid}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
-  const mn=mcpn(id); if(mn){ const nid='mcp-'+(++mnidc); MCP_NODES.push({...mn,id:nid,config:{...mn.config}}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
-  const cn=comp(id); if(cn){ const nid=cn.kind+'-'+(++cidc); COMPONENTS.push({...cn,id:nid,config:{...cn.config}}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
-  const nt=noteOf(id); if(nt){ const nid='note-'+(++noidc); NOTES.push({...nt,id:nid}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; selectNode(nid); render(); return; }
+  const tr=trig(id); if(tr){ const nid=nextId('trigger'); NODES.push({...tr,match:{...tr.match},id:nid}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
+  const mn=mcpn(id); if(mn){ const nid=nextId('mcp'); NODES.push({...mn,id:nid,config:{...mn.config}}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
+  const cn=comp(id); if(cn){ const nid=nextId(cn.kind); NODES.push({...cn,id:nid,config:{...cn.config}}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; COLLAPSED.add(nid); selectNode(nid); render(); return; }
+  const nt=noteOf(id); if(nt){ const nid=nextId('note'); NODES.push({...nt,id:nid}); POS[nid]={x:pos.x+dx,y:pos.y+dy}; selectNode(nid); render(); return; }
   toast(LANG==='ja'?'Agent は複製不可（パレットから追加）':'Agent nodes: add from palette'); }
 function autoLayout(){
-  const allIds=[...TRIGGERS.map(t=>t.id),...state.agents.filter(a=>!HIDDEN.has(a.id)).map(a=>a.id),...MCP_NODES.map(m=>m.id),...COMPONENTS.map(c=>c.id)];
+  const allIds=allNodes().filter(n=>n.kind!=='note').map(n=>n.id);   // R0: agents (projected) + trigger/mcp/comp from NODES; notes excluded from layout
   if(!allIds.length) return toast(LANG==='ja'?'ノードがありません':'no nodes');
   undoSnap();
   const inDeg=Object.fromEntries(allIds.map(id=>[id,0]));
@@ -1220,8 +1214,7 @@ document.addEventListener('keydown', e=>{
     if(selEdge){ undoSnap(); EDGES=EDGES.filter(e2=>e2.id!==selEdge); selEdge=null; render(); } else deleteSelected(); }
 });
 function deleteSelected(){ const id=selected; if(!id)return; undoSnap();
-  if(trig(id)) removeTrigger(id); else if(mcpn(id)) removeMcpNode(id); else if(comp(id)) removeComp(id); else if(noteOf(id)) removeNote(id);
-  else if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } }
+  if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } else removeNode(id); }
 applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{});
 // Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「編集」の着地点）。showFlows の click と同処理。
 (async()=>{ const fid=new URLSearchParams(location.search).get('flow'); if(!fid) return;
