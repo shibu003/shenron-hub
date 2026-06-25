@@ -228,6 +228,8 @@ assert.throws(() => flowSkill({ name: 'no id' }), /id.*required/, 'guard: workfl
 // OC-3 — flowSkill は旧名 "BuildHUD" でなく "Shenron" を名乗る（ClawHub 公開 skill に旧ブランドが漏れないよう固定）。
 assert.ok(!/BuildHUD/.test(sk.content), 'skill body drops the legacy "BuildHUD" brand');
 assert.ok(/Shenron/.test(sk.content), 'skill body names the Shenron brand');
+// DX-1 — flowSkill は機械可読マーカー <!-- shenron-flow: <id> --> を埋める。これで list_skills が神龍生成だけ拾い、delete_skill が手書き skill を誤殺しない。
+assert.ok(/<!-- shenron-flow: wf_abc123 -->/.test(sk.content), 'skill body carries the shenron-flow marker with the source flow id (list/delete depend on it)');
 
 // Wave 8/9 — 生成部品の cache 照合（gen-component の重複生成を承認ゲートで回避）。componentKey 正規化 + matchComponent は
 // approved 済みのみ拾う。これが崩れると未承認の無審査コードを再利用 or 毎回再生成する。

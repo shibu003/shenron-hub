@@ -18,6 +18,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
+import os from 'node:os';   // DX-1: user-level skill 出力先 ~/.claude/skills
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { runVendorAsync } from '../runner.mjs';
@@ -295,6 +296,19 @@ function reconcileRuns() {
 // (run by B1 for local agents), and when it completes, downstream nodes whose inputs are all ready fire next
 // — so per-agent approval pauses the run cleanly until approved, and the cockpit animates it via handoff edges.
 const readWorkflows = () => { try { return JSON.parse(fs.readFileSync(WF_FILE, 'utf8')); } catch { return []; } };
+// DX-1: flow→SKILL.md の出力先。'user'=~/.claude/skills（Claude Code が全リポジトリ横断で読む＝lib 配布の代替）/ 'repo'=この project だけ。
+const skillsDir = (scope) => scope === 'user' ? path.join(os.homedir(), '.claude', 'skills') : path.join(REPO_ROOT, '.claude', 'skills');
+const FLOW_MARK = /<!-- shenron-flow: (\S+) -->/;   // flowSkill が書く機械可読マーカー（神龍生成だけを list/delete 対象に）
+const listGeneratedSkills = () => ['repo', 'user'].flatMap((scope) => {   // 両 scope を走査し、マーカー有り（＝神龍生成）SKILL.md だけ返す。dir 不在は空。
+  const base = skillsDir(scope);
+  let slugs; try { slugs = fs.readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return []; }
+  return slugs.flatMap((slug) => {
+    let content; try { content = fs.readFileSync(path.join(base, slug, 'SKILL.md'), 'utf8'); } catch { return []; }
+    const m = content.match(FLOW_MARK); if (!m) return [];   // 手書き skill は除外
+    const name = (content.match(/\nname: (.+)/) || [])[1] || slug;
+    return [{ slug, scope, flowId: m[1], name, path: path.relative(process.cwd(), path.join(base, slug, 'SKILL.md')) }];
+  });
+});
 // Wave 8 — 生成部品の登録庫（§H: 生成→収束→人が一度承認→cache・再利用）。workflows.json と同じ shared store パターン。
 const COMP_FILE = sp('components.json', path.join(HERE, '..', 'mcp', 'components.json'));
 const readComponents = () => { try { return JSON.parse(fs.readFileSync(COMP_FILE, 'utf8')); } catch { return []; } };
@@ -1467,6 +1481,8 @@ const server = http.createServer((req, res) => {
       return { id: w.id, name: w.name, summary: w.summary || '', lastRun: w.lastRun || null, visibility: w.visibility || 'private', hasPending: !!pending, handoffId: pending ? pending.id : null, runId: run ? run.id : null };
     }));
   }
+  if (req.method === 'GET' && p === '/api/shenron/skills')   // DX-1: 生成済み SKILL.md を一覧（list_skills）。repo + ~/.claude/skills の両方からマーカー付きを拾う。
+    return json(res, 200, listGeneratedSkills());
   { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: get artifact UI code for a workflow
     if (um && req.method === 'GET') { const w = readWorkflows().find((w) => w.id === decodeURIComponent(um[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${um[1]}"` }); } }
   if (req.method === 'GET' && p === '/api/shenron/components') {                           // Wave 8: 生成部品の登録庫。?id= で full code、無しは token-light refs（pending は人ゲート待ち）
@@ -1720,13 +1736,23 @@ const server = http.createServer((req, res) => {
         try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }   // §5 Wave3 fence: audit 記録（実 Langflow 登録は既存 /api/langflow/import = Wave 6）
         catch (e) { return json(res, 400, { error: e.message }); }
       }
-      if (p === '/api/shenron/skill') {                                                // 神龍 Wave 7: 保存済み flow → Claude Code SKILL.md（run_workflow を呼ぶ薄ラッパ）。local agent に flow を skill 化。
+      if (p === '/api/shenron/skill') {                                                // 神龍 Wave 7: 保存済み flow → Claude Code SKILL.md（run_workflow を呼ぶ薄ラッパ）。DX-1: scope で出力先を選ぶ。
         const wf = readWorkflows().find((w) => w.id === j.id); if (!wf) return json(res, 404, { error: `no workflow "${j.id}"` });
+        const scope = j.scope === 'user' ? 'user' : 'repo';                            // DX-1: 'user'=~/.claude/skills（全リポジトリ横断）/ 'repo'=この project（既定・後方互換）
         const { slug, content } = flowSkill(wf);                                        // slug は [a-z0-9-] のみ＝下の join で path 外に出られない
-        const dir = path.join(HERE, '..', '..', '.claude', 'skills', slug);            // repo-root .claude/skills = この project の skill
+        const dir = path.join(skillsDir(scope), slug);
         fs.mkdirSync(dir, { recursive: true }); const file = path.join(dir, 'SKILL.md'); fs.writeFileSync(file, content);
-        trail('flow-skill', { id: wf.id, slug });
-        return json(res, 200, { slug, path: path.relative(process.cwd(), file), content });
+        trail('flow-skill', { id: wf.id, slug, scope });
+        return json(res, 200, { slug, scope, path: path.relative(process.cwd(), file), content });
+      }
+      if (p === '/api/shenron/skills/delete') {                                         // DX-1: 生成 skill を削除。slug 検証＋マーカー必須で手書き skill を誤殺しない。
+        const slug = String(j.slug || ''); const scope = j.scope === 'user' ? 'user' : 'repo';
+        if (!/^[a-z0-9-]+$/.test(slug)) return json(res, 400, { error: 'invalid slug' });   // path traversal 不能
+        const dir = path.join(skillsDir(scope), slug); const file = path.join(dir, 'SKILL.md');
+        let content; try { content = fs.readFileSync(file, 'utf8'); } catch { return json(res, 404, { error: `no skill "${slug}" in ${scope}` }); }
+        if (!/<!-- shenron-flow:/.test(content)) return json(res, 400, { error: 'refusing to delete a non-神龍 skill (no shenron-flow marker)' });
+        fs.rmSync(dir, { recursive: true, force: true }); trail('flow-skill-delete', { slug, scope });
+        return json(res, 200, { deleted: slug, scope });
       }
       if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
       // Wave I: Credential vault

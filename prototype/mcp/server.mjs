@@ -227,7 +227,9 @@ async function callTool(name, args = {}) {
     case 'approve_component': return await hub('/api/shenron/components/approve', { id: args.id });
     case 'get_permissions': return await hub('/api/permissions');
     case 'set_permission': return await hub('/api/permissions', { tool: args.tool, domain: args.domain });
-    case 'make_skill': return await hub('/api/shenron/skill', { id: args.id });
+    case 'make_skill': return await hub('/api/shenron/skill', { id: args.id, scope: args.scope });
+    case 'list_skills': return await hub('/api/shenron/skills');                                  // DX-1: 生成 skill 一覧（repo + ~/.claude/skills）
+    case 'delete_skill': return await hub('/api/shenron/skills/delete', { slug: args.slug, scope: args.scope });   // DX-1: マーカー付きのみ削除（hub 側で手書き skill を拒否）
     // Wave H: Push通知
     case 'set_notify': return await hub('/api/integrations', { id: args.id || (args.format === 'slack' ? 'slack-notify' : 'webhook-notify'), label: args.label || 'Webhook通知', kind: 'notify', url: args.url, format: args.format || 'json', token: args.token || '', enabled: args.enabled !== false, tools: [] });
     // Wave I: Credential vault

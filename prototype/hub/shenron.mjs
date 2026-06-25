@@ -252,7 +252,9 @@ When this skill fires, call the \`run_workflow\` MCP tool with:
 Flow: ${chain}
 
 The hub runs the DAG (same executor as the cockpit ▶ Run), firewalls the input, and audits the call (hash-chain), then returns the flow's output. Prerequisite: the 神龍 MCP server must be connected so \`run_workflow\` is available.
-`;
+
+<!-- shenron-flow: ${wf.id} -->
+`;   // 機械可読マーカー: list_skills が神龍生成だけを拾い・delete_skill が手書き skill を誤殺せず・将来の逆同期で元 flow を辿る（DX-1）
   return { slug, content };
 }
 

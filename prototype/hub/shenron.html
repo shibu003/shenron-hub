@@ -281,6 +281,30 @@
             </div>
           </template>
         </div>
+
+        <!-- DX-1: 生成済みスキル（flow→SKILL.md export の lifecycle 管理・全リポジトリで発火） -->
+        <div x-show="skills.length" class="pt-4 mt-2 border-t border-[#182d3e]">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-[#cfe0ee]">生成済みスキル</h3>
+              <p class="text-xs text-[#6d8aa0] mt-0.5">flow を Claude Code の SKILL.md に書き出したもの。<code class="text-[#6fb1d8]">~/.claude/skills</code> 行は全リポジトリで発火（ライブラリ配布の代替）。</p>
+            </div>
+            <button @click="loadSkills()" class="text-sm text-[#6fb1d8] hover:underline">↻ 更新</button>
+          </div>
+          <div class="space-y-1.5">
+            <template x-for="s in skills" :key="s.scope + ':' + s.slug">
+              <div class="flex items-center gap-3 bg-[#0c1822] rounded-lg border border-[#213e56] px-3 py-2">
+                <span class="text-xs font-medium px-1.5 py-0.5 rounded border"
+                  :class="s.scope === 'user' ? 'border-emerald-400/40 text-emerald-400' : 'border-[#213e56] text-[#7e9bb0]'"
+                  x-text="s.scope === 'user' ? '~/ 全リポジトリ' : 'repo'"></span>
+                <code class="text-xs text-[#cfe0ee] truncate" x-text="s.slug"></code>
+                <span class="text-xs text-[#6d8aa0] truncate flex-1" x-text="s.name"></span>
+                <button @click="deleteSkill(s)" title="スキルを削除"
+                  class="shrink-0 px-2 py-1 text-xs border border-[#213e56] rounded-lg text-[#7e9bb0] hover:border-[#a8455a] hover:text-[#d8788c] transition-colors inline-flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+              </div>
+            </template>
+          </div>
+        </div>
       </div>
 
       <!-- ====== 庫（共有エージェント庫・A1）====== -->
@@ -556,6 +580,7 @@
 
         // Data
         workflows: [],
+        skills: [],   // DX-1: 生成済み SKILL.md（list_skills）
         shared: [],
         runs: [],
         handoffs: [],
@@ -629,7 +654,7 @@
         },
 
         onTabChange(t) {
-          if (t === 'workflows')   this.loadWorkflows();
+          if (t === 'workflows')   { this.loadWorkflows(); this.loadSkills(); }
           if (t === 'garage')      this.loadShared();
           if (t === 'deployments') this.loadDeployments();
         },
@@ -746,11 +771,22 @@
           } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
         },
 
-        async makeSkill(id) {
+        async makeSkill(id) {   // DX-1: 既定 user scope（~/.claude/skills）＝全リポジトリで発火＝lib 配布の代替。repo scope は MCP make_skill {scope:'repo'} で（legacy 既定）。
           try {
-            const r = await this.api('POST', '/api/shenron/skill', { id });
-            this.showToast('Skill 作成: ' + (r && r.path || ''));
+            const r = await this.api('POST', '/api/shenron/skill', { id, scope: 'user' });
+            await this.loadSkills();
+            this.showToast('Skill を ~/.claude/skills に作成（全リポジトリで発火）: ' + (r && r.slug || ''));
           } catch (e) { this.showToast('Skill エラー: ' + e.message, false); }
+        },
+        async loadSkills() {   // DX-1: 生成済み skill 一覧（repo + ~ 両 scope・マーカー付きのみ）
+          try { this.skills = await this.api('GET', '/api/shenron/skills') || []; } catch { this.skills = []; }
+        },
+        async deleteSkill(s) {   // DX-1: 生成 skill 削除（hub 側でマーカー必須＝手書き skill は誤殺しない）
+          try {
+            await this.api('POST', '/api/shenron/skills/delete', { slug: s.slug, scope: s.scope });
+            await this.loadSkills();
+            this.showToast('Skill 削除: ' + s.slug);
+          } catch (e) { this.showToast('削除エラー: ' + e.message, false); }
         },
 
         async cloneWorkflow(id) {   // Wave Remix-1: fork → 編集可能なコピー（元は不変・別フローに sub-flow として再利用可）
