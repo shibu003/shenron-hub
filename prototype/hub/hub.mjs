@@ -240,7 +240,7 @@ function schedule(h) {
 }
 function runLocal(h) {
   if (running.has(h.id)) return; running.add(h.id);
-  const lc = agent(h.to).local; const vendor = h.vendor || EXEC_VENDOR || lc.vendor || 'stub';   // Wave G: per-node 明示 > 全体 EXEC_VENDOR > agent 既定
+  const lc = agent(h.to).local; const { vendor } = resolveVendor({ explicit: { vendor: h.vendor }, fallback: { vendor: lc.vendor } });   // Wave G/B3: 明示 > EXEC_VENDOR > agent 既定
   if (h.skill !== lc.skillId) { running.delete(h.id); return void postResult(h.id, { error: `agent ${h.to} does not serve skill "${h.skill}"` }); }
   touch(h, 'running', 'hub'); save();
   console.log(`▶ [hub] running ${h.id} (${h.skill}) for ${h.to} — ${vendor}${h.model ? ' / ' + h.model : ''}`);
@@ -563,6 +563,12 @@ const tierRoute = (tier) => {
   if (tier === 'strong') return { vendor: process.env.SHENRON_STRONG_VENDOR || (r.strong && r.strong.vendor) || null, model: process.env.SHENRON_MODEL_STRONG || (r.strong && r.strong.model) || 'claude-opus-4-8' };
   return { vendor: null, model: undefined };
 };
+// Wave G/B3: vendor/model 解決の単一の正本。優先順位 = explicit(node 明示) > tier route > EXEC_VENDOR(--vendor) > fallback(agent 既定) > 'stub'。
+// model は fallback.model を呼び側が渡した時だけ参照（runLocal handoff は lc.model を fallback しない非対称を保存）。consensus は EXEC_VENDOR 最優先の逆契約ゆえ対象外。
+const resolveVendor = ({ explicit = {}, tier, fallback = {} } = {}) => {
+  const route = tier ? tierRoute(tier) : { vendor: null, model: undefined };
+  return { vendor: explicit.vendor || route.vendor || EXEC_VENDOR || fallback.vendor || 'stub', model: explicit.model || route.model || fallback.model };
+};
 function firePromptNode(run, node, input, from) {
   const c = node.config || {};
   const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'prompt', skill: 'prompt',
@@ -578,9 +584,7 @@ async function runPrompt(h) {
   if (running.has(h.id)) return; running.add(h.id);
   try {
     const p = h.prompt || {};
-    const route = tierRoute(p.tier);                                  // Wave G: tier→{vendor,model}（cheap は env で ollama に＝無料化可）
-    const vendor = p.vendor || route.vendor || EXEC_VENDOR || 'stub'; // node 明示 > tier route > 全体 EXEC_VENDOR > stub
-    const model = p.model || route.model;                             // node 明示 > tier route（未指定なら runner 既定）
+    const { vendor, model } = resolveVendor({ explicit: { vendor: p.vendor, model: p.model }, tier: p.tier });   // Wave G/B3: 明示 > tier route > EXEC_VENDOR > stub
     const tmpl = String(h.prompt.template || '{input}').split('{input}').join(h.input || '');
     const stub = `[prompt:stub] ${tmpl.slice(0, 120)}`;
     touch(h, 'running', 'hub'); save();
@@ -588,10 +592,10 @@ async function runPrompt(h) {
     let result = await runVendorAsync(vendor, tmpl, stub, { model });
     // 失敗 sentinel = runner が必ず付ける `→ stub]` 接頭辞（成功テキストには出ない）。cheap が落ちたら strong に上げる。
     if (escalateOn(p) && result.startsWith('[') && result.includes('→ stub]')) {
-      const s = tierRoute('strong'); const sv = s.vendor || EXEC_VENDOR || 'stub';
-      if (sv !== vendor || s.model !== model) {                       // 同じ宛先に上げ直しても無意味なので差がある時だけ
+      const { vendor: sv, model: sm } = resolveVendor({ tier: 'strong' });   // Wave G/B3: strong route > EXEC_VENDOR > stub
+      if (sv !== vendor || sm !== model) {                           // 同じ宛先に上げ直しても無意味なので差がある時だけ
         console.log(`⤴ [hub] prompt ${h.id} escalate cheap→strong (${vendor}→${sv})`);
-        const r2 = await runVendorAsync(sv, tmpl, stub, { model: s.model });
+        const r2 = await runVendorAsync(sv, tmpl, stub, { model: sm });
         if (r2.startsWith('[') && r2.includes('→ stub]')) { /* strong も失敗 → cheap の理由を残す */ } else result = r2;
       }
     }
@@ -1147,11 +1151,11 @@ function removeAgent(name) {
 async function runAgentSync(name, input) {
   const a = state.agents[name];
   if (!a || !a.local) throw new Error(`no local agent "${name}"`);
-  const lc = a.local; const vendor = EXEC_VENDOR || lc.vendor || 'stub';
+  const lc = a.local; const { vendor, model } = resolveVendor({ fallback: { vendor: lc.vendor, model: lc.model } });   // Wave G/B3: EXEC_VENDOR > agent 既定 > stub
   const mem = relevantMemories(input || '', 3);   // Wave S: セッション横断メモリをグローバル注入（該当無しなら空配列＝プロンプト不変）
   const memBlock = mem.length ? `関連する記憶:\n${mem.map((r) => `- ${r.text}`).join('\n')}\n\n` : '';
   const prompt = `${memBlock}${lc.systemPrompt}\n\n--- INPUT ---\n${input || ''}\n--- END INPUT ---`;   // Wave S: memBlock を systemPrompt の前に前置
-  const result = await runVendorAsync(vendor, prompt, lc.stub, { model: lc.model });
+  const result = await runVendorAsync(vendor, prompt, lc.stub, { model });
   trail('agent-run', { agent: name, vendor, bytes: (result || '').length });
   return { agent: name, vendor, result };
 }
