@@ -330,7 +330,7 @@ async function loadAutomations(){
   let list=[]; try{ list=await api('/api/automations'); }catch{}
   $('#automations').innerHTML = list.length ? list.map(a=>`
     <div class="ig">
-      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(triggerLabel(a.trigger))}</span></div>
+      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(triggerLabel(a.trigger))}${a.pausedReason==='drift'?' · <span style="color:var(--amber)">⚠ drift で自動停止（再開はトグル）</span>':''}</span></div>
       <label class="sw"><input type="checkbox" data-auto="${esc(a.id)}" ${a.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
     </div>`).join('') : `<div class="note">保存されたオートメーションはありません。</div>`;
   $('#automations').querySelectorAll('[data-auto]').forEach(el=>el.onchange=async()=>{
@@ -475,7 +475,7 @@ async function loadDrift(){
   let list=[]; try{ const r=await api('/api/drift-alerts'); list=Array.isArray(r)?r:[]; }catch{}
   if(list.length){
     $('#driftAlerts').innerHTML = list.slice(-5).reverse().map(a=>`
-      <div class="ig"><div class="nm"><b><span style="color:var(--amber)">●</span> ${esc(a.automationId||'')}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
+      <div class="ig"><div class="nm"><b><span style="color:var(--amber)">●</span> ${esc(a.automationId||'')}${a.action==='paused'?' <span style="color:var(--amber);font-weight:400">[自動停止]</span>':''}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
   } else $('#driftAlerts').innerHTML='<p class="sub">ドリフトは検出されていません。</p>';
 }
 
