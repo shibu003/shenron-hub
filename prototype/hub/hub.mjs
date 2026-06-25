@@ -51,6 +51,7 @@ const writeCfg = (obj) => writeJsonAtomic(CFG_PATH, obj);
   set('OPENAI_MODEL', p.openai && p.openai.model); set('ANTHROPIC_MODEL', p.anthropic && p.anthropic.model);
 })(liveCfg());
 const schedulerOn = () => process.env.SHENRON_NO_SCHEDULER == null && liveCfg().scheduler !== false;   // env hard-off > config(live)
+const driftAutoPauseOn = () => process.env.SHENRON_NO_DRIFT_AUTOPAUSE == null && liveCfg().driftAutoPause !== false;   // drift→auto-pause: 既定 ON・env hard-off > config（schedulerOn と同型）
 const mergeCfg = (patch) => { const c = liveCfg(); const n = { ...c, ...patch, providers: { ...(c.providers || {}), ...(patch.providers || {}) }, routing: { ...(c.routing || {}), ...(patch.routing || {}) } }; delete n.providers.keyEnv; return n; };
 function configStatus() {   // 1か所の設定 + 初期設定 hint（secret は値でなく在否のみ）
   const cfg = liveCfg(), env = process.env, needs = [];
@@ -448,11 +449,16 @@ function checkDrift(run, autoId, currentSig, currentPassed) {
   if (!consecutiveFail && !structShift) return;
   run.driftAlert = true;
   const kind = consecutiveFail ? 'consecutive_fail' : 'structure_shift';
-  const alert = { id: randomUUID().slice(0, 8), automationId: autoId, runId: run.id, kind, at: new Date().toISOString() };
+  // drift→auto-pause: consecutive_fail（明確に壊れている）だけ自己防衛停止。structure_shift は pass 継続中の正当な変化があり得るので止めない。
+  let paused = false;
+  if (consecutiveFail && driftAutoPauseOn()) {
+    try { toggleAutomation(autoId, false, 'drift'); paused = true; } catch {}   // enabled=false → scheduler が以後この automation を発火しない（可逆: toggle on で再開）
+  }
+  const alert = { id: randomUUID().slice(0, 8), automationId: autoId, runId: run.id, kind, action: paused ? 'paused' : 'alert', at: new Date().toISOString() };
   (state.driftAlerts ||= []).push(alert);
   if (state.driftAlerts.length > 50) state.driftAlerts = state.driftAlerts.slice(-50);
-  emitRunNotify(run, 'drift_detected');
-  trail('drift-detected', { automationId: autoId, runId: run.id, kind });
+  emitRunNotify(run, paused ? 'automation_paused' : 'drift_detected');
+  trail(paused ? 'automation-autopaused' : 'drift-detected', { automationId: autoId, runId: run.id, kind });
 }
 
 async function checkOutcome(run) {
@@ -868,13 +874,13 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   if (!workflowId) throw new Error('workflow id (or nodes/edges) required');
   id = id || (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'auto-' + randomUUID().slice(0, 4);
   const arr = readAutomations(); const i = arr.findIndex((a) => a.id === id);
-  const m = { id, name: name || id, summary: summary || '', tags: tags || [], trigger, workflow: workflowId, input: input || '', enabled: enabled !== false, ...(i >= 0 && arr[i].expect ? { expect: arr[i].expect } : {}) };   // Wave R-1: canvas 再保存で setCheck の expect を消さない（既存を持ち越し）
+  const m = { id, name: name || id, summary: summary || '', tags: tags || [], trigger, workflow: workflowId, input: input || '', enabled: enabled !== false, ...(i >= 0 && arr[i].expect ? { expect: arr[i].expect } : {}), ...(i >= 0 && arr[i].pausedReason ? { pausedReason: arr[i].pausedReason, enabled: false } : {}) };   // Wave R-1: 再保存で expect を消さない / drift→auto-pause: 停止理由と disabled も持ち越す（再保存で勝手に再開しない）
   if (i >= 0) arr[i] = m; else arr.push(m);
   writeJsonAtomic(AUTO_FILE, arr);
   return trigger.type === 'schedule' ? { ...m, note: schedulerNote() } : m;   // Wave: be honest about the "fires only while hub up" limit at creation time
 }
 // pause/resume a saved automation without deleting it — scheduler & fireEvent both honor enabled (read fresh, no restart). Mirrors toggleIntegration.
-function toggleAutomation(id, on) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; writeJsonAtomic(AUTO_FILE, arr); return { id: it.id, name: it.name, enabled: it.enabled }; }
+function toggleAutomation(id, on, reason) { const arr = readAutomations(); const it = arr.find((x) => x.id === id); if (!it) throw new Error(`no automation "${id}"`); it.enabled = on !== false; if (it.enabled) delete it.pausedReason; else if (reason) it.pausedReason = reason; writeJsonAtomic(AUTO_FILE, arr); return { id: it.id, name: it.name, enabled: it.enabled, ...(it.pausedReason ? { pausedReason: it.pausedReason } : {}) }; }   // drift→auto-pause: reason='drift' で停止理由を刻む / 手動 on で消す（手動 off は reason 無し）
 // Wave R-1: automation に成果検証(expect)を付与/解除。toggleAutomation と同型（read-modify-write・他フィールド保持）。
 function setCheck(id, expect) {
   const arr = readAutomations(); const a = arr.find((x) => x.id === id); if (!a) throw new Error(`no automation "${id}"`);
@@ -1456,7 +1462,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, readComponents().map((c) => ({ id: c.id, what: c.what, iters: c.iters, approved: c.approved, credentials: c.credentials || [], createdAt: c.createdAt })));   // credentials=BYO-credential 名のみ（値は持たない）→ panel の 🔑 バッジ
   }
   if (req.method === 'GET' && p === '/api/automations')
-    return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false, ...(m.expect ? { expect: m.expect } : {}) })));   // UI-Compat-2: expect を surface（成果検証 UI が「設定済み」を表示）
+    return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false, ...(m.expect ? { expect: m.expect } : {}), ...(m.pausedReason ? { pausedReason: m.pausedReason } : {}) })));   // UI-Compat-2: expect を surface / drift→auto-pause: pausedReason を surface（UI が「drift 停止」を表示）
   if (req.method === 'GET' && p === '/api/integrations')         // connected MCP servers (Wave F.2)
     return json(res, 200, readIntegrations());
   if (req.method === 'GET' && p === '/api/integrations/search')  // clean-mcp token-light index: SMALL refs (id/label/kind/enabled/toolCount/tags)
