@@ -1,0 +1,442 @@
+{
+  "card:agent-1": "<div class=\"name\"><span class=\"dot on\"></span><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><circle cx=\"12\" cy=\"8\" r=\"3.4\"/><path d=\"M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7\"/></svg> agent-1</div><div class=\"co\"><span class=\"kindchip ag\">エージェント</span>Acme · task</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:agent-1": "<div class=\"ins-h\">agent-1 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>会社</label><div class=\"v\">Acme</div></div><div class=\"field\"><label>skill</label><div class=\"v\">task</div></div><div class=\"field\"><label>presence</label><div class=\"v\">オンライン</div></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ キャンバスから外す</button>",
+  "card:trigger-1": "<div class=\"name\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M13 2L4 14h7l-1 8 9-12h-7z\"/></svg> トリガー</div><div class=\"co\">「レビューが完了した」のとき実行 · 結果: OK（成功）</div><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:trigger-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M13 2L4 14h7l-1 8 9-12h-7z\"/></svg></span>トリガー <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">何が起きた?</label><select class=\"nf nkind\" data-trig=\"trigger-1\" data-trigfield=\"event\"><option value=\"\" >— カスタム（JSON を表示）</option></select></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ automation を削除</button>",
+  "card:mcp-1": "<div class=\"name\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 8V3M15 8V3\"/><path d=\"M7 8h10v3a5 5 0 0 1-10 0z\"/><path d=\"M12 16v5\"/></svg> do_thing</div><div class=\"co\"><span class=\"kindchip mcp\">MCPツール</span>srv-a</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:mcp-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 8V3M15 8V3\"/><path d=\"M7 8h10v3a5 5 0 0 1-10 0z\"/><path d=\"M12 16v5\"/></svg></span>do_thing <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">server（接続先）</label><select class=\"nf nkind\" data-mcpnf=\"mcp-1\" data-mcpserver=\"1\"><option value=\"\" >— server を選択 —</option><option value=\"srv-a\" selected>Server A · 1 tools</option></select></div><div class=\"nfrow\"><label class=\"nflabel\">tool（外部アクション）</label><select class=\"nf nkind\" data-mcpnf=\"mcp-1\" data-mcptool=\"1\" ><option value=\"\" >— tool を選択 —</option><option value=\"do_thing\" selected>do_thing</option></select></div><label class=\"nfbool\"><input type=\"checkbox\" class=\"nf\" data-mcpnf=\"mcp-1\" data-mcpauto=\"1\" checked> auto — 承認なしで実呼び出し</label><div class=\"nfrow\"><label class=\"nflabel\">引数（JSON・任意）</label><textarea class=\"nf\" data-mcpnf=\"mcp-1\" data-mcpargs=\"1\" rows=\"3\">{&quot;k&quot;:&quot;v&quot;}</textarea><div class=\"mini\">上流の出力は input として渡されます。to / subject / channel 等はここで追加。</div></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:note-1": "<div class=\"notebody\"><b style=\"font-size:15px\">note</b><br><b>bold</b></div>",
+  "insp:note-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M5 3h10l4 4v14H5z\"/><path d=\"M15 3v4h4\"/><path d=\"M8 12h7M8 16h5\"/></svg></span>メモ <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><textarea class=\"nf\" data-noteid=\"note-1\" data-notefield=\"text\" rows=\"5\" placeholder=\"メモ（Markdown 可）\"># note\n**bold**</textarea><div class=\"nfrow\"><label class=\"nflabel\">色</label><select class=\"nf\" data-noteid=\"note-1\" data-notefield=\"color\"><option value=\"amber\" >amber</option><option value=\"blue\" selected>blue</option><option value=\"green\" >green</option><option value=\"grey\" >grey</option></select></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13\"/></svg> 削除</button>",
+  "card:input-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z\"/><path d=\"M7.5 8.8l2.2 2.2-2.2 2.2\"/><path d=\"M12.2 13.2h4.6\"/></svg> Chat Input</div><div class=\"co\"><span class=\"kindchip comp\">Chat Input</span>フローの入力テキスト</div><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:input-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z\"/><path d=\"M7.5 8.8l2.2 2.2-2.2 2.2\"/><path d=\"M12.2 13.2h4.6\"/></svg></span>Chat Input <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"input-1\" data-kindsel=\"1\"><option value=\"input\" selected>Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">フローの入力テキスト</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"input-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"input-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">text</label><textarea class=\"nf\" data-nf=\"input-1\" data-fk=\"text\" rows=\"2\" placeholder=\"(空 → Run の入力を使う)\">hi</textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:prompt-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M5 3h10l4 4v14H5z\"/><path d=\"M15 3v4h4\"/><path d=\"M8 12h7M8 16h5\"/></svg> Prompt</div><div class=\"co\"><span class=\"kindchip comp\">Prompt</span>テンプレートで文面を組む（{input}=前段の出力）</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:prompt-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M5 3h10l4 4v14H5z\"/><path d=\"M15 3v4h4\"/><path d=\"M8 12h7M8 16h5\"/></svg></span>Prompt <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"prompt-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" selected>Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">テンプレートで文面を組む（{input}=前段の出力）</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"prompt-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"prompt-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">template — {input} = upstream</label><textarea class=\"nf\" data-nf=\"prompt-1\" data-fk=\"template\" rows=\"2\" placeholder=\"\">{input}</textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:consensus-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M3 12l4 4 7-9\"/><path d=\"M11 14l3 3 7-9\"/></svg> Consensus</div><div class=\"co\"><span class=\"kindchip comp\">Consensus</span>複数 vendor の合意を取る</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:consensus-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M3 12l4 4 7-9\"/><path d=\"M11 14l3 3 7-9\"/></svg></span>Consensus <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"consensus-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" selected>Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">複数 vendor の合意を取る</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"consensus-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"consensus-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">vendors (comma-sep)</label><input class=\"nf\" data-nf=\"consensus-1\" data-fk=\"vendors\" value=\"claude,codex\" placeholder=\"\"></div><div class=\"nfrow\"><label class=\"nflabel\">task ({input} appended)</label><textarea class=\"nf\" data-nf=\"consensus-1\" data-fk=\"prompt\" rows=\"2\" placeholder=\"\">go</textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:output-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z\"/><path d=\"M7 9.3h10\"/><path d=\"M7 12.4h6\"/></svg> Chat Output</div><div class=\"co\"><span class=\"kindchip comp\">Chat Output</span>最終結果を表示</div><span class=\"port in\" data-port=\"in\"></span>",
+  "insp:output-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z\"/><path d=\"M7 9.3h10\"/><path d=\"M7 12.4h6\"/></svg></span>Chat Output <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"output-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" selected>Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">最終結果を表示</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"output-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"output-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:languagemodel-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1.2\"/><rect x=\"3.5\" y=\"3.5\" width=\"17\" height=\"17\" rx=\"2.5\"/><path d=\"M10 3.5V1M14 3.5V1M10 23v-2.5M14 23v-2.5M3.5 10H1M3.5 14H1M23 10h-2.5M23 14h-2.5\"/></svg> Language Model</div><div class=\"co\"><span class=\"kindchip comp\">Language Model</span>LLM 呼び出し（system + 入力）</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:languagemodel-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1.2\"/><rect x=\"3.5\" y=\"3.5\" width=\"17\" height=\"17\" rx=\"2.5\"/><path d=\"M10 3.5V1M14 3.5V1M10 23v-2.5M14 23v-2.5M3.5 10H1M3.5 14H1M23 10h-2.5M23 14h-2.5\"/></svg></span>Language Model <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"languagemodel-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" selected>Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">LLM 呼び出し（system + 入力）</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"languagemodel-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"languagemodel-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">model</label><select class=\"nf\" data-nf=\"languagemodel-1\" data-fk=\"model\"><option selected>claude</option><option >codex</option><option >gemini</option><option >stub</option></select></div><div class=\"nfrow\"><label class=\"nflabel\">system message</label><textarea class=\"nf\" data-nf=\"languagemodel-1\" data-fk=\"system\" rows=\"2\" placeholder=\"\">sys</textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:structured-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M8 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3\"/><path d=\"M16 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3\"/></svg> Structured Output</div><div class=\"co\"><span class=\"kindchip comp\">Structured Output</span>LLM に JSON 構造で出させる</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:structured-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M8 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3\"/><path d=\"M16 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3\"/></svg></span>Structured Output <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"structured-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" selected>Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">LLM に JSON 構造で出させる</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"structured-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"structured-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">fields (comma-sep)</label><input class=\"nf\" data-nf=\"structured-1\" data-fk=\"schema\" value=\"a,b\" placeholder=\"\"></div><div class=\"nfrow\"><label class=\"nflabel\">instructions</label><textarea class=\"nf\" data-nf=\"structured-1\" data-fk=\"instructions\" rows=\"2\" placeholder=\"\">ins</textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:parser-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 7h11M4 12h7M4 17h11\"/><path d=\"M18 9l2.5 3-2.5 3\"/></svg> Parser</div><div class=\"co\"><span class=\"kindchip comp\">Parser</span>文字列整形（LLM 不使用）</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:parser-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M4 7h11M4 12h7M4 17h11\"/><path d=\"M18 9l2.5 3-2.5 3\"/></svg></span>Parser <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"parser-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" selected>Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">文字列整形（LLM 不使用）</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"parser-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"parser-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">template — {input}</label><textarea class=\"nf\" data-nf=\"parser-1\" data-fk=\"pattern\" rows=\"2\" placeholder=\"\">{input}</textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:router-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M7 4v5a3 3 0 0 0 3 3h7\"/><path d=\"M14 9l3 3-3 3\"/><path d=\"M7 14v6\"/><circle cx=\"7\" cy=\"4\" r=\"1.4\"/></svg> Router</div><div class=\"co\"><span class=\"kindchip comp\">Router</span>条件で then/else に分岐</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:router-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M7 4v5a3 3 0 0 0 3 3h7\"/><path d=\"M14 9l3 3-3 3\"/><path d=\"M7 14v6\"/><circle cx=\"7\" cy=\"4\" r=\"1.4\"/></svg></span>Router <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"router-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" selected>Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">条件で then/else に分岐</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"router-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"router-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">route → then when…</label><select class=\"nf\" data-nf=\"router-1\" data-fk=\"predicate\"><option selected>redacted</option><option >clean</option><option >contains</option><option >always</option></select></div><div class=\"nfrow\"><label class=\"nflabel\">substring (for &quot;contains&quot;)</label><input class=\"nf\" data-nf=\"router-1\" data-fk=\"value\" value=\"\" placeholder=\"\"></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:workflow-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z\"/><path d=\"M3.5 7.5L12 12l8.5-4.5M12 12v9\"/></svg> Sub</div><div class=\"co\"><span class=\"kindchip comp\">Sub-flow</span>保存済みフローを1ノードとして実行</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:workflow-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z\"/><path d=\"M3.5 7.5L12 12l8.5-4.5M12 12v9\"/></svg></span>Sub-flow <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"workflow-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" selected>Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" >Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">保存済みフローを1ノードとして実行</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"workflow-1\" data-fk=\"name\" value=\"Sub\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"workflow-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><div class=\"nfrow\"><label class=\"nflabel\">which workflow</label><select class=\"nf\" data-nf=\"workflow-1\" data-fk=\"ref\" data-rerender=\"1\"><option value=\"\" >保存済み workflow なし — 先に 保存</option></select></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "card:langflow-1": "<div class=\"name\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg> Langflow</div><div class=\"co\"><span class=\"kindchip comp\">Langflow</span>Langflow 由来コンポーネント</div><span class=\"port in\" data-port=\"in\"></span><span class=\"port out\" data-port=\"out\"></span>",
+  "insp:langflow-1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>Langflow <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"nfrow\"><label class=\"nflabel\">種類</label><select class=\"nf nkind\" data-nf=\"langflow-1\" data-kindsel=\"1\"><option value=\"input\" >Chat Input — フローの入力テキスト</option><option value=\"prompt\" >Prompt — テンプレートで文面を組む（{input}=前段の出力）</option><option value=\"consensus\" >Consensus — 複数 vendor の合意を取る</option><option value=\"output\" >Chat Output — 最終結果を表示</option><option value=\"languagemodel\" >Language Model — LLM 呼び出し（system + 入力）</option><option value=\"structured\" >Structured Output — LLM に JSON 構造で出させる</option><option value=\"parser\" >Parser — 文字列整形（LLM 不使用）</option><option value=\"router\" >Router — 条件で then/else に分岐</option><option value=\"workflow\" >Sub-flow — 保存済みフローを1ノードとして実行</option><option value=\"langflow\" selected>Langflow — Langflow 由来コンポーネント</option></select><div class=\"mini\">Langflow 由来コンポーネント</div></div><div class=\"nfrow\"><label class=\"nflabel\">名前（任意）</label><input class=\"nf\" data-nf=\"langflow-1\" data-fk=\"name\" value=\"\" placeholder=\"この部品の呼び名…\"></div><div class=\"nfrow\"><label class=\"nflabel\">説明（任意）</label><textarea class=\"nf\" data-nf=\"langflow-1\" data-fk=\"desc\" rows=\"2\" placeholder=\"この部品が何をするか…\"></textarea></div><button class=\"ibtn danger\" onclick=\"deleteSelected()\">✕ ノード削除</button>",
+  "inspEdge:e1": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">input-1 <b>→</b> prompt-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e2": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">prompt-1 <b>→</b> consensus-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e3": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">consensus-1 <b>→</b> output-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e4": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">router-1 <b>→</b> parser-1</div></div><div class=\"field\"><label>ルーター分岐</label><select class=\"cin\" id=\"edBranch\">\n      <option value=\"then\" selected>then（条件が真）</option>\n      <option value=\"else\" >else（条件が偽）</option></select></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e5": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">router-1 <b>→</b> structured-1</div></div><div class=\"field\"><label>ルーター分岐</label><select class=\"cin\" id=\"edBranch\">\n      <option value=\"then\" >then（条件が真）</option>\n      <option value=\"else\" selected>else（条件が偽）</option></select></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e6": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">trigger-1 <b>→</b> agent-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e7": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">agent-1 <b>→</b> mcp-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e8": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">mcp-1 <b>→</b> languagemodel-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e9": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">languagemodel-1 <b>→</b> workflow-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "inspEdge:e10": "<div class=\"ins-h\"><span style=\"display:inline-flex;color:var(--blue);margin-right:7px\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M9 15l6-6\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/></svg></span>配線 <span class=\"back\" onclick=\"deselect()\">閉じる ✕</span></div><div class=\"field\"><label>接続</label><div class=\"v\">workflow-1 <b>→</b> langflow-1</div></div><button class=\"ibtn danger\" id=\"edDel\">✕ 配線を削除</button>",
+  "buildFlow": {
+    "nodes": [
+      {
+        "id": "input-1",
+        "kind": "input",
+        "config": {
+          "text": "hi"
+        },
+        "x": 200,
+        "y": 40
+      },
+      {
+        "id": "prompt-1",
+        "kind": "prompt",
+        "config": {
+          "template": "{input}"
+        },
+        "x": 280,
+        "y": 40
+      },
+      {
+        "id": "consensus-1",
+        "kind": "consensus",
+        "config": {
+          "vendors": "claude,codex",
+          "prompt": "go"
+        },
+        "x": 360,
+        "y": 40
+      },
+      {
+        "id": "output-1",
+        "kind": "output",
+        "config": {},
+        "x": 440,
+        "y": 40
+      },
+      {
+        "id": "router-1",
+        "kind": "router",
+        "config": {
+          "predicate": "redacted",
+          "value": ""
+        },
+        "x": 760,
+        "y": 40
+      },
+      {
+        "id": "parser-1",
+        "kind": "parser",
+        "config": {
+          "pattern": "{input}"
+        },
+        "x": 680,
+        "y": 40
+      },
+      {
+        "id": "structured-1",
+        "kind": "structured",
+        "config": {
+          "schema": "a,b",
+          "instructions": "ins"
+        },
+        "x": 600,
+        "y": 40
+      },
+      {
+        "id": "trigger-1",
+        "kind": "trigger",
+        "trigger": {
+          "type": "build_state",
+          "match": {
+            "event": "review_completed",
+            "status": "green"
+          }
+        },
+        "x": 40,
+        "y": 120
+      },
+      {
+        "id": "agent-1",
+        "kind": "agent",
+        "agent": "agent-1",
+        "skill": "task",
+        "x": 40,
+        "y": 40
+      },
+      {
+        "id": "mcp-1",
+        "kind": "mcp",
+        "server": "srv-a",
+        "tool": "do_thing",
+        "config": {
+          "k": "v"
+        },
+        "auto": true,
+        "x": 40,
+        "y": 200
+      },
+      {
+        "id": "languagemodel-1",
+        "kind": "languagemodel",
+        "config": {
+          "model": "claude",
+          "system": "sys"
+        },
+        "x": 520,
+        "y": 40
+      },
+      {
+        "id": "workflow-1",
+        "kind": "workflow",
+        "ref": "wf-xyz",
+        "config": {
+          "ref": "wf-xyz",
+          "name": "Sub"
+        },
+        "x": 840,
+        "y": 40
+      },
+      {
+        "id": "langflow-1",
+        "kind": "langflow",
+        "config": {
+          "_lfType": "Custom"
+        },
+        "x": 920,
+        "y": 40
+      },
+      {
+        "id": "note-1",
+        "kind": "note",
+        "text": "# note\n**bold**",
+        "color": "blue",
+        "x": 40,
+        "y": 280
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "input-1",
+        "target": "prompt-1"
+      },
+      {
+        "id": "e2",
+        "source": "prompt-1",
+        "target": "consensus-1"
+      },
+      {
+        "id": "e3",
+        "source": "consensus-1",
+        "target": "output-1",
+        "share": {
+          "never": [
+            "secret"
+          ],
+          "classes": [
+            "pii"
+          ]
+        }
+      },
+      {
+        "id": "e4",
+        "source": "router-1",
+        "target": "parser-1",
+        "branch": "then"
+      },
+      {
+        "id": "e5",
+        "source": "router-1",
+        "target": "structured-1",
+        "branch": "else"
+      },
+      {
+        "id": "e6",
+        "source": "trigger-1",
+        "target": "agent-1"
+      },
+      {
+        "id": "e7",
+        "source": "agent-1",
+        "target": "mcp-1"
+      },
+      {
+        "id": "e8",
+        "source": "mcp-1",
+        "target": "languagemodel-1"
+      },
+      {
+        "id": "e9",
+        "source": "languagemodel-1",
+        "target": "workflow-1"
+      },
+      {
+        "id": "e10",
+        "source": "workflow-1",
+        "target": "langflow-1"
+      }
+    ]
+  },
+  "buildFlow_afterUndo": {
+    "nodes": [
+      {
+        "id": "input-1",
+        "kind": "input",
+        "config": {
+          "text": "hi"
+        },
+        "x": 200,
+        "y": 40
+      },
+      {
+        "id": "prompt-1",
+        "kind": "prompt",
+        "config": {
+          "template": "{input}"
+        },
+        "x": 280,
+        "y": 40
+      },
+      {
+        "id": "consensus-1",
+        "kind": "consensus",
+        "config": {
+          "vendors": "claude,codex",
+          "prompt": "go"
+        },
+        "x": 360,
+        "y": 40
+      },
+      {
+        "id": "output-1",
+        "kind": "output",
+        "config": {},
+        "x": 440,
+        "y": 40
+      },
+      {
+        "id": "router-1",
+        "kind": "router",
+        "config": {
+          "predicate": "redacted",
+          "value": ""
+        },
+        "x": 760,
+        "y": 40
+      },
+      {
+        "id": "parser-1",
+        "kind": "parser",
+        "config": {
+          "pattern": "{input}"
+        },
+        "x": 680,
+        "y": 40
+      },
+      {
+        "id": "structured-1",
+        "kind": "structured",
+        "config": {
+          "schema": "a,b",
+          "instructions": "ins"
+        },
+        "x": 600,
+        "y": 40
+      },
+      {
+        "id": "trigger-1",
+        "kind": "trigger",
+        "trigger": {
+          "type": "build_state",
+          "match": {
+            "event": "review_completed",
+            "status": "green"
+          }
+        },
+        "x": 40,
+        "y": 120
+      },
+      {
+        "id": "agent-1",
+        "kind": "agent",
+        "agent": "agent-1",
+        "skill": "task",
+        "x": 40,
+        "y": 40
+      },
+      {
+        "id": "mcp-1",
+        "kind": "mcp",
+        "server": "srv-a",
+        "tool": "do_thing",
+        "config": {
+          "k": "v"
+        },
+        "auto": true,
+        "x": 40,
+        "y": 200
+      },
+      {
+        "id": "languagemodel-1",
+        "kind": "languagemodel",
+        "config": {
+          "model": "claude",
+          "system": "sys"
+        },
+        "x": 520,
+        "y": 40
+      },
+      {
+        "id": "workflow-1",
+        "kind": "workflow",
+        "ref": "wf-xyz",
+        "config": {
+          "ref": "wf-xyz",
+          "name": "Sub"
+        },
+        "x": 840,
+        "y": 40
+      },
+      {
+        "id": "langflow-1",
+        "kind": "langflow",
+        "config": {
+          "_lfType": "Custom"
+        },
+        "x": 920,
+        "y": 40
+      },
+      {
+        "id": "note-1",
+        "kind": "note",
+        "text": "# note\n**bold**",
+        "color": "blue",
+        "x": 40,
+        "y": 280
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "input-1",
+        "target": "prompt-1"
+      },
+      {
+        "id": "e2",
+        "source": "prompt-1",
+        "target": "consensus-1"
+      },
+      {
+        "id": "e3",
+        "source": "consensus-1",
+        "target": "output-1",
+        "share": {
+          "never": [
+            "secret"
+          ],
+          "classes": [
+            "pii"
+          ]
+        }
+      },
+      {
+        "id": "e4",
+        "source": "router-1",
+        "target": "parser-1",
+        "branch": "then"
+      },
+      {
+        "id": "e5",
+        "source": "router-1",
+        "target": "structured-1",
+        "branch": "else"
+      },
+      {
+        "id": "e6",
+        "source": "trigger-1",
+        "target": "agent-1"
+      },
+      {
+        "id": "e7",
+        "source": "agent-1",
+        "target": "mcp-1"
+      },
+      {
+        "id": "e8",
+        "source": "mcp-1",
+        "target": "languagemodel-1"
+      },
+      {
+        "id": "e9",
+        "source": "languagemodel-1",
+        "target": "workflow-1"
+      },
+      {
+        "id": "e10",
+        "source": "workflow-1",
+        "target": "langflow-1"
+      }
+    ]
+  }
+}
