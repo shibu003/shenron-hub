@@ -111,6 +111,9 @@
   .node.note .notebody b { color:#fff; }
   .port { position:absolute; width:15px; height:15px; border-radius:50%; background:#0a121b; border:2px solid var(--blue); top:50%; transform:translateY(-50%); cursor:crosshair; z-index:4; transition:transform .1s, box-shadow .12s; box-shadow:0 0 0 2px var(--panel); }
   .port.in { left:-11px; } .port.out { right:-11px; } .port:hover { transform:translateY(-50%) scale(1.2); box-shadow:0 0 0 4px rgba(230,237,243,.24); }
+  /* S1 (n8n化): input port = rounded rectangle tab (left); output port keeps the round dot (right) */
+  .port.in { width:7px; height:16px; border-radius:3px; left:-7px; background:var(--line); cursor:crosshair; }
+  .port.in:hover { transform:translateY(-50%) scale(1.15); }
   .portlabel { position:absolute; top:50%; transform:translateY(-50%); color:#9cbdd6; font-size:9px; line-height:1; letter-spacing:.06em; background:#0a121b; border:1px solid #213e56; border-radius:999px; padding:2px 5px; pointer-events:none; z-index:4; }
   .portlabel.in { right:calc(100% + 7px); left:auto; } .portlabel.out { left:calc(100% + 7px); right:auto; }
   .node.trigger .port.out { border-color:var(--amber); }
@@ -206,7 +209,7 @@
 
 <div id="main-wrap">
   <main id="canvas">
-    <div id="world"><svg class="links"><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
+    <div id="world"><svg class="links"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path></marker></defs><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
     <div id="hint">
       <div class="ec-h" style="display:flex;align-items:center;justify-content:center;gap:9px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="var(--blue)" stroke="none"/></svg>フローを作る</div>
       <div class="ec-b">右上の <b>＋ 追加</b> でノードを置き、ノードの縁から次のノードへドラッグして配線します。</div>
@@ -576,8 +579,10 @@ function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--
 /* Langflow-style: color handles + edges by data type (stable hash → palette; "*"/unknown → gray). */
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
 function typeColor(tp){ if(!tp||tp==='*') return '#9ca3af'; let h=0; for(let i=0;i<tp.length;i++) h=(h*31+tp.charCodeAt(i))>>>0; return TYPE_PALETTE[h%TYPE_PALETTE.length]; }
-// C1 — floating connections: no fixed left-in / right-out port dots. Wires ride the node border toward the
-// other end (borderPoint); a wire is started by dragging from a node's edge.
+// S1 (n8n化) — fixed I/O ports: output dot on the node's RIGHT edge, input tab on its LEFT edge; wires run
+// right→left with an arrowhead at the target (drawLinks marker-end). Reverses the old C1 "floating" design
+// (borderPoint) which had no fixed side. borderPoint is kept only for the in-drag temp-wire preview, and the
+// rim-drag wiring (nearRim) stays as a backward-compatible fallback — but the OUT port is now the primary start.
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ui2: left palette + tutorial coach removed — nodes come from the ＋ menu, click a node to edit it. */
@@ -656,6 +661,10 @@ function inlineField(c,f){ const id=esc(c.id), k=esc(f.key), val=c.config?.[f.ke
 // loadFlow/addComp seed COLLAPSED so freshly-loaded nodes stay folded (cards now show title + summary only)
 let COLLAPSED = new Set(JSON.parse(localStorage.getItem('bh_collapsed')||'[]'));
 let noteEdit = null;   // id of the note in inline-edit mode (double-click to enter)
+// S1 (n8n化): fixed I/O port markup — IN tab on the left, OUT dot on the right. Appended to a node's innerHTML;
+// each .node is position:absolute so it is its own containing block for these absolutely-positioned spans.
+const hasPort=(arr)=>(arr||['*']).length>0;
+const portHTML=(hasIn,hasOut)=>`${hasIn?'<span class="port in" data-port="in"></span>':''}${hasOut?'<span class="port out" data-port="out"></span>':''}`;
 function renderNodes(){
   const canvas=$('#world');
   $('#hint').style.display=(state.agents.filter(a=>!HIDDEN.has(a.id)).length+TRIGGERS.length+MCP_NODES.length+COMPONENTS.length+NOTES.length)?'none':'flex';
@@ -674,7 +683,8 @@ function renderNodes(){
     if(n.contains(document.activeElement)) continue;   // don't rebuild the card while a field inside it is focused
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
     n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${NI(NIC.agent,14)} ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`;
+      +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`
+      +portHTML(hasPort(a.accepts), hasPort(a.emits));
   }
   for(const tr of TRIGGERS){   // ui2: card = title + summary only; the event/status editor lives in the right panel
     const nid='n_'+cssid(tr.id); seen.add(nid);
@@ -682,7 +692,8 @@ function renderNodes(){
     if(!n){ n=document.createElement('div'); n.className='node trigger'; n.id=nid; n.dataset.id=tr.id; canvas.appendChild(n); attachNode(n,tr.id); }
     if(!POS[tr.id]) POS[tr.id]={x:tr.x||30,y:tr.y||30};
     n.style.left=POS[tr.id].x+'px'; n.style.top=POS[tr.id].y+'px'; n.classList.toggle('selected',selected===tr.id);
-    n.innerHTML=`<div class="name">${NI(NIC.trigger,14)} トリガー</div><div class="co">${esc(triggerSummary(tr.match))}</div>`;
+    n.innerHTML=`<div class="name">${NI(NIC.trigger,14)} トリガー</div><div class="co">${esc(triggerSummary(tr.match))}</div>`
+      +portHTML(false, true);   // trigger = start point: OUT only, no input
   }
   for(const mn of MCP_NODES){
     const nid='n_'+cssid(mn.id); seen.add(nid);
@@ -696,7 +707,8 @@ function renderNodes(){
     n.classList.toggle('busy',busy);
     const mset=!!(mn.server&&mn.tool);
     n.innerHTML=`<div class="name">${NI(NIC.mcp,14)} ${esc(mset?mn.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(mn.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`;
+      +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(mn.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`
+      +portHTML(hasPort(mn.accepts), hasPort(mn.emits));
   }
   for(const c of COMPONENTS){
     const nid='n_'+cssid(c.id); seen.add(nid);
@@ -708,7 +720,8 @@ function renderNodes(){
     const cname=(c.config?.name||'').trim()||meta.label||(isSet?c.kind:t('comp_unset'));
     const tierBadge=c.tier?`<span class="tier-badge ${c.tier}">${c.tier}</span>`:'';
     n.innerHTML=`<div class="name">${meta.svg||''} ${esc(cname)}${tierBadge}</div>`
-      +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||c.kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`;
+      +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||c.kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`
+      +portHTML(hasPort(c.accepts), hasPort(c.emits));   // input→OUT only, output→IN only (accepts/emits driven)
   }
   for(const nt of NOTES){   // (b) annotation cards — colored, markdown, no ports
     const nid='n_'+cssid(nt.id); seen.add(nid);
@@ -730,9 +743,13 @@ function renderNodes(){
 const WIRE_EDGE=13;   // px-from-border zone that starts a wire instead of a move
 function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
-    if(e.button!==0||e.target.closest('input,textarea,select,label,button,.nf,.ntoggle'))return;   // widgets handle themselves
-    // C1 — drag from ANY of the node's 4 edges to start a wire; the rendered wire floats to whichever border
-    // faces the target. Top rim is thin (7px) so the header title stays grabbable for moving the node.
+    if(e.button!==0)return;
+    // S1 (n8n化): the OUT port (right dot) is the primary wire start; the IN port (left tab) is a drop target only.
+    if(!wiring && e.target.closest('.port.out') && !noteOf(id)) return startWire(e, id);
+    if(e.target.closest('.port.in')) return;   // input ports don't start a drag (drop zone is the whole node, L810)
+    if(e.target.closest('input,textarea,select,label,button,.nf,.ntoggle'))return;   // widgets handle themselves
+    // rim-drag fallback (backward compatible): drag from any of the node's 4 edges to start a wire; the temp-wire
+    // floats to whichever border faces the target. Top rim is thin (7px) so the header title stays grabbable.
     const r=n.getBoundingClientRect();
     const nearRim = (e.clientY-r.top<7)||(r.bottom-e.clientY<WIRE_EDGE)||(e.clientX-r.left<WIRE_EDGE)||(r.right-e.clientX<WIRE_EDGE);
     if(!wiring && nearRim && !noteOf(id)) return startWire(e, id);
@@ -768,9 +785,18 @@ function borderPoint(id, tx, ty){ const r=nodeRect(id); if(!r)return null;
   const dx=tx-r.cx, dy=ty-r.cy; if(!dx&&!dy) return { x:r.cx, y:r.cy };
   const s=Math.min(dx?(r.w/2)/Math.abs(dx):Infinity, dy?(r.h/2)/Math.abs(dy):Infinity);
   return { x:r.cx+dx*s, y:r.cy+dy*s }; }
-// an edge endpoint floats to the node border facing the other end (no fixed side).
-function endpointPos(e, end){ const id=end==='src'?e.source:e.target, oc=center(end==='src'?e.target:e.source);
-  return oc?borderPoint(id, oc.x, oc.y):center(id); }
+// S1: fixed ports — source end exits the RIGHT edge mid-height, target end enters the LEFT edge mid-height.
+// A router source splits its outgoing edges into two lanes on the right edge: then=upper / else=lower (e.branch).
+function endpointPos(e, end){
+  const id = end==='src' ? e.source : e.target;
+  const r = nodeRect(id); if(!r) return center(id);
+  if(end==='src'){
+    const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;   // same router test as drawLinks
+    const fy = br ? (br==='else'?0.72:0.28) : 0.5;                            // then=upper lane / else=lower lane
+    return { x:r.x+r.w, y:r.y+r.h*fy };
+  }
+  return { x:r.x, y:r.y+r.h/2 };
+}
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
 function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
 function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger'||tn.kind==='note'||noteOf(src))return false;
@@ -830,8 +856,8 @@ function drawLinks(){
     const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;                     // Wave E2: router branch label
     const lbl=(br?(br+': '):'')+(fenced?(''+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
-    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
-      +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0a121b" stroke="${col}" stroke-width="2"/><circle cx="${b.x}" cy="${b.y}" r="4" fill="${col}"/>`
+    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85" marker-end="url(#arrow)"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+      +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0a121b" stroke="${col}" stroke-width="2"/>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0a121b" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
