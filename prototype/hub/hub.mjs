@@ -263,6 +263,28 @@ function sweep() {
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
     else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
   }
+  reconcileRuns();                                          // Wave Reliable-1: handoff resume 後、駆動も生存 child も無い running run（ゾンビ）を回収
+}
+
+// Wave Reliable-1 — crash 後の reconcile: フロー run は running→completed/cancelled しか遷移しないため、
+// 駆動 handoff も生存 child も無い running run は永久ゾンビになる（sweep は handoff だけ resume）。boot で interrupted 確定。
+const HANDOFF_LIVE = new Set(['submitted', 'approved', 'awaiting_approval', 'running']);   // awaiting_approval = 人の承認待ち run はゾンビでない（誤殺しない）
+function reconcileRuns() {
+  let changed = true;
+  // ponytail: fixpoint while-loop（O(n²)）— runs は ring-buffer で小。子→親へ収束（child を interrupted 化した次パスで親も対象に）。
+  while (changed) {
+    changed = false;
+    for (const run of Object.values(state.runs)) {
+      if (run.status !== 'running') continue;
+      const liveHandoff = state.handoffs.some((h) => h.runId === run.id && HANDOFF_LIVE.has(h.status));
+      const liveChild = Object.values(state.runs).some((r) => r.parent && r.parent.runId === run.id && r.status === 'running');
+      if (liveHandoff || liveChild) continue;
+      run.status = 'interrupted'; run.error = 'interrupted by restart'; run.stoppedAt = now();
+      emitRunNotify(run, 'interrupted'); emitRunEvent(run.id, { type: 'done', status: 'interrupted' }); closeRunListeners(run.id);
+      trail('run-reconciled', { runId: run.id, flowId: run.flowId || null });   // trail は save() 込み（回収ゼロなら呼ばれず＝既存挙動）
+      changed = true;
+    }
+  }
 }
 
 // ---------- flow engine (Wave B2): save a wired DAG, run it topologically via the executor above ----------
