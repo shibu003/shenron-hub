@@ -403,6 +403,12 @@ function cloneWorkflow(id, name) {
     ...(src.ui != null ? { ui: src.ui } : {}),  // carry the attached artifact UI so the fork still renders
   });   // lastRun intentionally not copied (per-copy); automations bind by id in automations.json → fork starts unbound to any trigger
 }
+// pure helpers (B2): trigger/note stripping + cross-company test — shared across runFlow/trustPreview/saveAutomation/fenceEdge so each rule lives in one place
+const filterTriggers = (nodes, edges, notes) => {   // strip trigger (+note when notes) markers and any edge touching them — neither is executable
+  const strip = new Set(nodes.filter((n) => n.kind === 'trigger' || (notes && n.kind === 'note')).map((n) => n.id));
+  return { nodes: nodes.filter((n) => !strip.has(n.id)), edges: edges.filter((e) => !strip.has(e.source) && !strip.has(e.target)) };
+};
+const isCrossCompany = (sc, tc) => !!sc && !!tc && sc !== tc;   // trust boundary: both sides known AND different companies
 function runFlow({ id, nodes, edges, input, parent, fromAutomation }) {
   if (id && (!nodes || !edges)) { const w = readWorkflows().find((w) => w.id === id); if (!w) throw new Error(`no workflow "${id}"`); nodes = w.nodes; edges = w.edges; }
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] (or a saved id) required');
@@ -410,8 +416,7 @@ function runFlow({ id, nodes, edges, input, parent, fromAutomation }) {
   if (lf) throw new Error(`flow has a Langflow component (${(lf.config && lf.config._lfType) || '🔗'}) — run via POST /api/langflow/run with flowId ${(lf.config && lf.config._lfFlowId) || '(missing — re-import the flow)'}`);
   const depth = parent ? ((state.runs[parent.runId]?.depth || 0) + 1) : 0;   // 📦 sub-flow nesting — bound it so a self-referential flow can't loop forever
   if (depth > 8) throw new Error('sub-flow nesting too deep (>8)');
-  const trg = new Set(nodes.filter((n) => n.kind === 'trigger' || n.kind === 'note').map((n) => n.id));   // triggers = entry markers, notes = annotations — neither is executable
-  if (trg.size) { nodes = nodes.filter((n) => !trg.has(n.id)); edges = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)); }
+  ({ nodes, edges } = filterTriggers(nodes, edges, true));   // triggers = entry markers, notes = annotations — neither is executable
   edges.forEach((e, i) => { if (!e.id) e.id = 'e' + i; });   // Wave E2: dead-branch tracking keys on edge id
   const runId = randomUUID().slice(0, 8);
   const run = (state.runs[runId] = { id: runId, flowId: id || null, parent: parent || null, depth, nodes, edges, input: input || '', outputs: {}, dead: [], skipped: [], routerPick: {}, status: 'running', createdAt: now(), fromAutomation: fromAutomation || null, check: null });   // Wave R-1: fromAutomation = which automation launched this (null = manual/sub-flow → outcome-check no-op); check = result of outcome-check
@@ -709,15 +714,14 @@ function setPassport(id, { caps, share }) {                   // Wave H/B: edit 
 // runtime, so their outgoing edges report the wire POLICY (fenced categories) instead of counts — honest, no overclaim.
 function trustPreview({ nodes, edges, input }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
-  const trg = new Set(nodes.filter((n) => n.kind === 'trigger' || n.kind === 'note').map((n) => n.id));
-  const N = nodes.filter((n) => !trg.has(n.id)), E = edges.filter((e) => !trg.has(e.source) && !trg.has(e.target));
+  const { nodes: N, edges: E } = filterTriggers(nodes, edges, true);
   const byId = new Map(N.map((n) => [n.id, n]));
   const companyOfNode = (n) => { const a = n && n.agent && state.agents[n.agent]; return a ? (a.company || null) : null; };
   const known = new Map();                                   // node id -> text the firewall can evaluate concretely (input nodes + flow input)
   for (const n of N) if (n.kind === 'input') known.set(n.id, (n.config && n.config.text) || input || '');
   const wires = E.map((e) => {
     const s = byId.get(e.source), t = byId.get(e.target);
-    const sc = companyOfNode(s), tc = companyOfNode(t), cross = !!sc && !!tc && sc !== tc;
+    const sc = companyOfNode(s), tc = companyOfNode(t), cross = isCrossCompany(sc, tc);
     const never = (e.share && Array.isArray(e.share.never)) ? e.share.never : [];
     const fences = ['secrets/PII'].concat(never.length ? [`never:${never.join(',')}`] : []).concat(cross ? ['cross-company'] : []);
     const up = known.has(e.source) ? known.get(e.source) : undefined;   // concrete only when upstream emits known text
@@ -772,7 +776,7 @@ const companyOf = (run, nodeId) => { const n = nodeById(run, nodeId); const a = 
 function fenceEdge(run, edge, value) {
   const never = (edge && edge.share && Array.isArray(edge.share.never)) ? edge.share.never : [];
   const sc = companyOf(run, edge.source), tc = companyOf(run, edge.target);
-  const cross = !!sc && !!tc && sc !== tc;
+  const cross = isCrossCompany(sc, tc);
   const fw = redact(value, { never });
   if (fw.removed.length) trail('redact', { runId: run.id, edge: edge.id || `${edge.source}→${edge.target}`, from: edge.source, to: edge.target, crossCompany: cross || undefined, removed: fw.removed });
   return fw.text;
@@ -887,8 +891,8 @@ function saveAutomation({ id, name, summary, tags, trigger, nodes, edges, workfl
   if (!trigger || !trigger.type) throw new Error('trigger {type} required');
   let workflowId = workflow;
   if (Array.isArray(nodes) && Array.isArray(edges)) {      // save the wired agent chain (triggers stripped) as a workflow, ref it
-    const trg = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));
-    const wf = saveWorkflow({ name: (name || 'automation') + ' flow', nodes: nodes.filter((n) => !trg.has(n.id)), edges: edges.filter((e) => !trg.has(e.source) && !trg.has(e.target)) });
+    const stripped = filterTriggers(nodes, edges, false);
+    const wf = saveWorkflow({ name: (name || 'automation') + ' flow', nodes: stripped.nodes, edges: stripped.edges });
     workflowId = wf.id;
   }
   if (!workflowId) throw new Error('workflow id (or nodes/edges) required');
