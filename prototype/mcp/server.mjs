@@ -106,7 +106,7 @@ async function a2aSend(agentUrl, skill, inputText) {
   if (j.error) throw new Error(`${agentUrl} RPC ${j.error.code}: ${j.error.message}`);
   return (j.result?.parts || []).find((p) => p.kind === 'text')?.text || '';
 }
-// run a workflow's chained handoffs (legacy a2a); steps[] no longer saved by hub (B1) → empty/no-op for DAG flows, which run via hub /api/runflow
+// run a workflow's chained handoffs (legacy a2a, non-DAG only); DAG flows (incl. run_automation/fire_event) run via hub runFlow. steps[] no longer saved by hub (B1)
 async function execWorkflow(w, input) {
   let payload = input; const trace = [];
   for (const step of (w.steps || [])) {
@@ -117,7 +117,7 @@ async function execWorkflow(w, input) {
   }
   return { result: payload, trace };
 }
-const planOf = (w) => (w.steps || []).map((s, i) => `${i + 1}. ${AGENTS[s.agent]?.company || s.agent} · ${s.skill}`);
+const planOf = (w) => (w.nodes || []).map((n, i) => `${i + 1}. ${n.kind}${n.config?.tool ? ' · ' + n.config.tool : ''}`);   // B-fix: DAG nodes ベース（B1 で steps 撤去後 dryRun plan が空になる副作用を回収）
 
 // ---------- durable inbox (hub proxy: prototype/hub) ----------
 async function hub(p, body) {
@@ -185,7 +185,7 @@ async function callTool(name, args = {}) {
       const input = args.input ?? m.input ?? '';
       if (!shouldExec(args.confirm, true)) return { dryRun: true, automation: m.id, trigger: m.trigger, workflow: w.id, plan: planOf(w), input, note: 'call again with confirm:true (or run server --unattended) to fire' };
       assertToken();
-      return { automation: m.id, ...(await execWorkflow(w, input)) };
+      return { automation: m.id, ...(await hub('/api/runflow', { id: w.id, input, fromAutomation: m.id })) };   // B-fix: DAG executor 経由（hub runFlow・fromAutomation thread で checkOutcome 連動）。旧 execWorkflow(legacy a2a) は DAG フローで no-op だった
     }
     case 'fire_event': {
       const event = args.event || {};
@@ -194,14 +194,7 @@ async function callTool(name, args = {}) {
       if (!shouldExec(args.confirm, true)) return { event, matched: refs,
         note: matched.length ? 'call again with confirm:true (or run server --unattended) to fire matched automations' : 'no enabled automation matched this event' };
       assertToken();
-      const fired = [];
-      for (const m of matched) {                                  // one bad agent must not abort the other matched automations
-        const w = WORKFLOWS.find((x) => x.id === m.workflow);
-        if (!w) { fired.push({ automation: m.id, error: `unknown workflow "${m.workflow}"` }); continue; }
-        try { fired.push({ automation: m.id, ...(await execWorkflow(w, args.input ?? m.input ?? '')) }); }
-        catch (e) { fired.push({ automation: m.id, error: e.message }); }
-      }
-      return { event, fired };
+      return await hub('/api/fire', { event, input: args.input });   // B-fix: hub fireEvent 経由（matching→runFlow→fromAutomation を hub に一本化）。旧 execWorkflow ループ（legacy a2a）は DAG フローで no-op だった
     }
     case 'send_handoff': return hRef(await hub('/api/handoffs', { to: args.to, skill: args.skill, input: args.input || '', from: args.from || 'mcp' }));
     case 'list_handoffs': {
