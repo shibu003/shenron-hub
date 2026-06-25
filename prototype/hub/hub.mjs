@@ -167,7 +167,7 @@ function create({ from, to, skill, input }) {
   // (do NOT auto-register `from` — flow-run entry handoffs carry the flow id / "cockpit" / "mcp" as
   //  from, and registering those would spawn phantom agents that clutter the canvas)
   const fw = redact(input || '', a.passport?.share || {});   // Wave H data firewall: secrets/PII never reach the recipient
-  const h = { id: randomUUID().slice(0, 8), from: from || '?', to, skill, input: fw.text, status: 'submitted',
+  const h = { id: randomUUID().slice(0, 8), kind: 'agent', from: from || '?', to, skill, input: fw.text, status: 'submitted',
     result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [], redacted: fw.removed.length ? fw.removed : undefined };
   touch(h, 'submitted', from || '?');
   state.handoffs.push(h);
@@ -215,7 +215,7 @@ function approve(id) {
     return h;   // ⛔ no runMcp/schedule — the remote worker owns execution (touch('running') is not re-claimable by poll)
   }
   if (h.status !== 'awaiting_approval') throw new Error(`handoff ${id} is ${h.status}, not awaiting_approval`);
-  touch(h, 'approved', 'human'); trail('approve', { handoff: id, to: h.to, skill: h.skill }); save(); if (h.mcp) runMcp(h); else schedule(h); return h;
+  touch(h, 'approved', 'human'); trail('approve', { handoff: id, to: h.to, skill: h.skill }); save(); if (hkind(h) === 'mcp') runMcp(h); else schedule(h); return h;
 }
 function decline(id) {
   const h = find(id);
@@ -251,17 +251,21 @@ function runLocal(h) {
 }
 // crash recovery: on boot, resume local handoffs left mid-flight (running) or unprocessed (submitted/approved)
 setImmediate(sweep);                                       // defer to after module init (sweep → runMcp → readIntegrations const)
+// B4: handoff の型判別子。新 handoff は `kind` を持つ／旧 inbox.json は payload marker から fallback。
+// recovery を「marker の有無」という脆い判定から解放（marker は payload 運搬役として温存）。
+const hkind = (h) => h.kind || (h.mcp ? 'mcp' : h.prompt ? 'prompt' : h.consensus ? 'consensus' : 'agent');
 function sweep() {
   for (const h of state.handoffs) {
     if (runCancelled(h)) continue;                          // ⏹ never resume a handoff whose run was stopped
-    if (h.mcp) {                                            // external side-effect node (Wave G)
+    const k = hkind(h);
+    if (k === 'mcp') {                                       // external side-effect node (Wave G)
       if (h.status === 'approved') runMcp(h);               // approved but never sent → safe to run
       else if (h.status === 'running')                      // sent-or-sending when we died → do NOT auto-resend (not idempotent)
         postResult(h.id, { error: 'interrupted on restart — external side-effect not auto-resent; re-run the flow' }, 'hub');
       continue;                                             // awaiting_approval → leave for the human
     }
-    if (h.prompt) { if (h.status === 'running' || h.status === 'approved') runPrompt(h); continue; }   // Wave K prompt = internal compute → safe to re-run
-    if (h.consensus) { if (h.status === 'running' || h.status === 'approved') runConsensus(h); continue; }   // Wave I consensus = internal compute → safe to re-run
+    if (k === 'prompt') { if (h.status === 'running' || h.status === 'approved') runPrompt(h); continue; }   // Wave K prompt = internal compute → safe to re-run
+    if (k === 'consensus') { if (h.status === 'running' || h.status === 'approved') runConsensus(h); continue; }   // Wave I consensus = internal compute → safe to re-run
     const a = state.agents[h.to]; if (!a || !a.local || !autorunOn(a)) continue;
     if (h.status === 'submitted' || h.status === 'approved') schedule(h);
     else if (h.status === 'running') runLocal(h);          // exec was lost on restart → re-run (advanceRun resumes its DAG)
@@ -571,7 +575,7 @@ const resolveVendor = ({ explicit = {}, tier, fallback = {} } = {}) => {
 };
 function firePromptNode(run, node, input, from) {
   const c = node.config || {};
-  const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'prompt', skill: 'prompt',
+  const h = { id: randomUUID().slice(0, 8), kind: 'prompt', from: from || run.flowId || 'flow', to: 'prompt', skill: 'prompt',
     input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
     history: [], prompt: { template: c.template || '{input}', vendor: c.vendor, model: c.model, tier: c.tier }, runId: run.id, node: node.id };   // Wave G: per-node vendor/model/tier を持ち越す
   touch(h, 'approved', 'auto'); state.handoffs.push(h); save();
@@ -624,7 +628,7 @@ const routingCtx = () => ({ cost: liveCfg().cost === 'paid_ok' ? 'paid_ok' : 'fr
 function fireConsensusNode(run, node, input, from) {
   const vendors = String((node.config && node.config.vendors) || defaultConsensusVendors()).split(',').map((s) => s.trim()).filter(Boolean);
   const task = `${(node.config && node.config.prompt) || ''}\n${input || ''}`.trim();
-  const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: 'consensus', skill: 'consensus', input: task,
+  const h = { id: randomUUID().slice(0, 8), kind: 'consensus', from: from || run.flowId || 'flow', to: 'consensus', skill: 'consensus', input: task,
     status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [], consensus: { vendors }, runId: run.id, node: node.id };
   touch(h, 'approved', 'auto'); state.handoffs.push(h); save(); runConsensus(h);
 }
@@ -662,7 +666,7 @@ function fireRouterNode(run, node, input, from) {
 // human approval by DEFAULT; node.auto opts in (still killed by the global autorun master).
 function fireMcpNode(run, node, input, from) {
   const integ = readIntegrations().find((x) => x.id === node.server);
-  const h = { id: randomUUID().slice(0, 8), from: from || run.flowId || 'flow', to: node.server || 'mcp', skill: node.tool || '?',
+  const h = { id: randomUUID().slice(0, 8), kind: 'mcp', from: from || run.flowId || 'flow', to: node.server || 'mcp', skill: node.tool || '?',
     input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
     history: [], mcp: { server: node.server, tool: node.tool, config: node.config || {} }, runId: run.id, node: node.id };
   touch(h, 'submitted', h.from); state.handoffs.push(h);
