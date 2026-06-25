@@ -14,6 +14,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
+    /* Netdive Blue: color 未指定の文字を一括で可読化（黒残り防止。他 UI と同じく body 既定色を持たせる）— docs/THEME.md */
+    body{color:#cfe0ee;}
     /* Netdive Blue: bg 未指定の入力欄を一括でダーク化（白残り防止）— docs/THEME.md */
     input[type=text],input[type=email],input[type=password],input[type=number],textarea,select{
       background:#0f1f2c;color:#cfe0ee;border-color:#213e56;
@@ -90,6 +92,9 @@
       </a>
       <a href="/ui2" title="キャンバス" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M9 9v11"/></svg>
+      </a>
+      <a href="/artifacts" title="成果物" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       </a>
       <a href="/settings" title="設定（フル）" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v4M4 12v8M12 4v8M12 16v4M20 4v10M20 18v2"/><circle cx="4" cy="10" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="20" cy="16" r="2"/></svg>
@@ -938,6 +943,7 @@
     {label:'玄関',      desc:'ランチャー',           path:'/'},
     {label:'神龍',      desc:'会話でフローを叶える',  path:'/shenron'},
     {label:'キャンバス', desc:'ビジュアルエディタ',    path:'/ui2'},
+    {label:'成果物',     desc:'作った道具を操作',      path:'/artifacts'},
     {label:'設定',      desc:'経路・連携・保管庫・通知', path:'/settings'}
   ];
   var here=(location.pathname.replace(/\/+$/,'')||'/');
