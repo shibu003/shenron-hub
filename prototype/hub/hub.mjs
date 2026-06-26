@@ -1320,8 +1320,9 @@ function availableSummary() {
 }
 
 // PC1: 神龍が「計画できる状態か」を一目で（PC0 相補 — plan が偽フローでなく mode:'unavailable' を返す前に予防的に可視化）。
-// CLI probe は spawnSync＝同期でイベントループを塞ぐ。CLI 在否はプロセス内で変わらないので一度だけ走らせて memo（badge poll 毎に再 spawn すると hub がフリーズする）。
-let _cliProbe = null;   // ponytail: per-process memo — re-probing on every readiness call would block the hub up to 3s each time
+// CLI probe は spawnSync＝同期でイベントループを塞ぐ。初回 readiness 呼び出しは claude+codex の 2 回 spawn（各 3s timeout＝最大 ~6s 塞ぐ）が、
+// CLI 在否はプロセス内で変わらないので一度だけ走らせて memo＝以降の readiness は無料（badge poll 毎に再 spawn すると hub が毎回フリーズする）。
+let _cliProbe = null;   // ponytail: per-process memo — first readiness call blocks the loop once for up to ~6s (2 spawnSync probes, 3s timeout each); memoized so subsequent calls are free
 function plannerReadiness() {
   const v = EXEC_VENDOR;
   const hasKey = !!process.env.ANTHROPIC_API_KEY;
