@@ -84,6 +84,20 @@
   .kindchip.ag { border-color:#3a4250; color:#aab8c6; }
   .kindchip.mcp { border-color:#2ea043; color:#3fb950; }
   .kindchip.comp { border-color:#6f42c1; color:#a371f7; }
+  /* W2: icon color tile + per-kind accent — 種別をタイル色で即認識（icon は currentColor 駆動ゆえ tile の color で再着色） */
+  .icontile { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:7px; flex:none; }
+  .icontile svg { width:18px; height:18px; }   /* 14→18 拡大は CSS で（NI 呼び出しは触らない＝Haiku-safe） */
+  .node.agent .icontile { background:rgba(194,214,230,.14); color:#c2d6e6; }
+  .node.trigger .icontile { background:rgba(199,147,56,.20); color:#e0a93a; }
+  .node.mcp .icontile { background:rgba(46,160,67,.18); color:#3fb950; }
+  .node.comp .icontile { background:rgba(137,87,229,.16); color:#a371f7; }   /* default comp（unset 含む） */
+  .node.comp[data-kind="input"] .icontile, .node.comp[data-kind="output"] .icontile { background:rgba(0,179,179,.16); color:#22b3b3; }
+  .node.comp[data-kind="model"]   .icontile { background:rgba(163,113,247,.18); color:#a371f7; }
+  .node.comp[data-kind="parser"]  .icontile { background:rgba(63,174,122,.18); color:#3fae7a; }
+  .node.comp[data-kind="router"]  .icontile { background:rgba(217,119,30,.20); color:#d9771e; }
+  .node.comp[data-kind="workflow"] .icontile { background:rgba(79,70,229,.20); color:#7c7cf0; }
+  .node.comp[data-kind="langflow"] .icontile { background:rgba(236,72,153,.18); color:#ec4899; }
+  .node.trigger { border-top-left-radius:24px; border-bottom-left-radius:24px; }   /* W2: D字シルエット＝自動起点を形で認識 */
   .node .badge { margin-left:auto; background:#0a121b; border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; }
   .node .pol { font-size:10px; color:var(--dim); margin-top:6px; padding:0 12px; } .node .pol.auto { color:var(--amber); }
   .node.trigger { min-width:204px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
@@ -705,13 +719,13 @@ function renderNode(node, canvas){
     n.classList.toggle('busy',busy); n.classList.toggle('collapsed',COLLAPSED.has(a.id));
     if(n.contains(document.activeElement)) return;   // don't rebuild the card while a field inside it is focused
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
-    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span>${NI(NIC.agent,14)} ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+    n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span><span class="icontile">${NI(NIC.agent,14)}</span> ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`
       +portHTML(hasPort(a.accepts), hasPort(a.emits));
     return;
   }
   if(kind==='trigger'){   // ui2: card = title + summary only; the event/status editor lives in the right panel
-    n.innerHTML=`<div class="name">${NI(NIC.trigger,14)} トリガー</div><div class="co">${esc(triggerSummary(node.match))}</div>`
+    n.innerHTML=`<div class="name"><span class="icontile">${NI(NIC.trigger,14)}</span> トリガー</div><div class="co">${esc(triggerSummary(node.match))}</div>`
       +portHTML(false, true);   // trigger = start point: OUT only, no input
     return;
   }
@@ -721,7 +735,7 @@ function renderNode(node, canvas){
     const awaiting=mine.some(h=>h.status==='awaiting_approval'); const busy=mine.some(h=>h.status==='running'||h.status==='approved');
     n.classList.toggle('busy',busy);
     const mset=!!(node.server&&node.tool);
-    n.innerHTML=`<div class="name">${NI(NIC.mcp,14)} ${esc(mset?node.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
+    n.innerHTML=`<div class="name"><span class="icontile">${NI(NIC.mcp,14)}</span> ${esc(mset?node.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(node.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`
       +portHTML(hasPort(node.accepts), hasPort(node.emits));
     return;
@@ -741,7 +755,8 @@ function renderNode(node, canvas){
   const meta=COMP[kind]||{}; const isSet=!!COMP[kind]; const res=kind==='output'?lastOutput(id):null;
   const cname=(node.config?.name||'').trim()||meta.label||(isSet?kind:t('comp_unset'));
   const tierBadge=node.tier?`<span class="tier-badge ${node.tier}">${node.tier}</span>`:'';
-  n.innerHTML=`<div class="name">${meta.svg||''} ${esc(cname)}${tierBadge}</div>`
+  n.dataset.kind=kind;   // W2: per-kind accent tile（CSS `.node.comp[data-kind=…]`）— input/model/output/parser/router/workflow/langflow/unset
+  n.innerHTML=`<div class="name"><span class="icontile">${meta.svg||''}</span> ${esc(cname)}${tierBadge}</div>`
     +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`
     +portHTML(hasPort(node.accepts), hasPort(node.emits));   // input→OUT only, output→IN only (accepts/emits driven)
 }
