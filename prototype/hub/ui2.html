@@ -233,7 +233,7 @@
       <div class="ec-h" style="display:flex;align-items:center;justify-content:center;gap:9px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="var(--blue)" stroke="none"/></svg>フローを作る</div>
       <div class="ec-b">右上の <b>＋ 追加</b> でノードを置き、ノードの縁から次のノードへドラッグして配線します。</div>
       <div class="ec-act">
-        <button class="tb primary" onclick="openAddMenu()">＋ ノードを追加</button>
+        <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ ノードを追加</button>
         <button class="tb" onclick="showFlows()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> 保存済みを開く</button>
       </div>
     </div><div id="wireTip"></div>
@@ -488,7 +488,6 @@ function fitView(){ const ns=[...$('#world').querySelectorAll('.node')]; if(!ns.
   setView(z, pad-x0*z, pad-y0*z); }
 function restoreView(){ try{ const v=JSON.parse(localStorage.getItem('bh_view')||'{}'); if(v.ZOOM){ ZOOM=clampZoom(v.ZOOM); PANX=v.PANX||0; PANY=v.PANY||0; } }catch{} applyView(); }
 function applyChrome(){ document.documentElement.lang = LANG; }   // ui2: toolbar labels + empty-card are static JA in the HTML
-function openAddMenu(){ document.querySelectorAll('.menu-pop.open').forEach(m=>m.classList.remove('open')); const m=$('#addMenu'); if(m) m.classList.add('open'); }
 
 /* ---------- state + helpers ---------- */
 const $ = (s, r=document) => r.querySelector(s);
