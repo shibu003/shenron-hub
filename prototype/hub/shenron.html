@@ -128,6 +128,12 @@
       <div x-show="tab === 'wish'" class="max-w-2xl mx-auto p-6 space-y-5">
         <h1 class="text-2xl font-bold text-[#cfe0ee]">何を叶えたいですか？</h1>
 
+        <!-- PC1: 計画モデル可否バッジ（🔴 のとき plan は偽フローでなく mode:unavailable を返す＝PC0 相補） -->
+        <div x-show="readiness" class="text-xs">
+          <span x-show="readiness && readiness.model" class="inline-flex items-center gap-1 text-green-400">🟢 計画できます<span class="text-[#5e84a0]" x-text="'（' + (readiness?.vendor || 'claude') + '）'"></span></span>
+          <span x-show="readiness && !readiness.model" class="inline-flex items-center gap-1 text-red-400" :title="(readiness?.fix || []).join(' / ')">🔴 計画モデル未接続 — <span class="text-[#a9c4d8]" x-text="readiness?.fix?.[0] || ''"></span></span>
+        </div>
+
         <!-- Input card -->
         <div class="bg-[#0c1822] rounded-2xl shadow-sm border border-[#213e56] p-5 space-y-4">
           <textarea x-model="goal" @keydown.meta.enter.prevent="submitWish()" rows="4"
@@ -587,6 +593,7 @@
         integrations: [],
         automations: [],
         components: [],
+        readiness: null,   // PC1: 計画モデル可否（GET /api/shenron/readiness）
 
         // Deployments form
         showAddInt: false,
@@ -618,7 +625,13 @@
           });
           this.onTabChange(this.tab);
           this.poll();
+          this.loadReadiness();   // PC1: 計画モデル可否を一度取得（プロセス内で不変なので poll 不要）
           setInterval(() => this.poll(), 3000);
+        },
+
+        // PC1: 計画できる状態かを取得（model:false なら WISH 画面に 🔴+直し方＝PC0 相補）
+        async loadReadiness() {
+          try { this.readiness = await this.api('GET', '/api/shenron/readiness'); } catch { /* hub offline */ }
         },
 
         async checkAuth() {

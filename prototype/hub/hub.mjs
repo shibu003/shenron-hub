@@ -20,7 +20,7 @@ import path from 'node:path';
 import url from 'node:url';
 import os from 'node:os';   // DX-1: user-level skill 出力先 ~/.claude/skills
 import { randomUUID, generateKeyPairSync, createPrivateKey, createPublicKey, createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';   // spawnSync: PC1 plannerReadiness の CLI probe（一度だけ・memo）
 import { runVendorAsync } from '../runner.mjs';
 import { callMcpTool, safeEnv } from '../mcp/mcp-client.mjs';
 import { langflowRun, langflowImport } from './langflow.mjs';
@@ -1304,6 +1304,26 @@ function availableSummary() {
   };
 }
 
+// PC1: 神龍が「計画できる状態か」を一目で（PC0 相補 — plan が偽フローでなく mode:'unavailable' を返す前に予防的に可視化）。
+// CLI probe は spawnSync＝同期でイベントループを塞ぐ。CLI 在否はプロセス内で変わらないので一度だけ走らせて memo（badge poll 毎に再 spawn すると hub がフリーズする）。
+let _cliProbe = null;   // ponytail: per-process memo — re-probing on every readiness call would block the hub up to 3s each time
+function plannerReadiness() {
+  const v = EXEC_VENDOR;
+  const hasKey = !!process.env.ANTHROPIC_API_KEY;
+  if (!_cliProbe) {
+    const cli = (c) => { try { return spawnSync(c, ['--version'], { timeout: 3000 }).status === 0; } catch { return false; } };
+    _cliProbe = { claude: cli('claude'), codex: cli('codex') };
+  }
+  // --vendor stub は常に偽（テスト/未接続）。それ以外は API キー or 対応 CLI が在れば計画可。
+  const model = v === 'stub' ? false : (hasKey || ((!v || v === 'claude') && _cliProbe.claude) || (v === 'codex' && _cliProbe.codex));
+  return {
+    model, vendor: v || 'claude', hasKey,
+    fix: model ? [] : ['hub の env に ANTHROPIC_API_KEY を設定', 'または hub から claude / codex CLI を使える状態に（本人サブスク＝従量0）', 'または起動時に --vendor を指定'],
+    integrations: readIntegrations().filter((it) => it.enabled !== false).length,
+    credentials: listCredentials().length,
+  };
+}
+
 // Wave B③: server.mjs と hub remote-MCP で同一の「実 plan」エントリ。HTTP /api/shenron/plan と mcpDispatch(plan_flow) の両方が呼ぶ。
 async function planFlow({ goal, save, gap, context, cost }) {
   const agents = publicAgents().map((a) => ({ id: a.id, skill: a.skill }));
@@ -1463,6 +1483,9 @@ const server = http.createServer((req, res) => {
   // この handler は非 async（POST は内側 async cb で処理）→ 外側 sync スコープでは await 不可。Promise を直接返す。
   if (req.method === 'GET' && p === '/api/doctor')
     return runDoctor(PORT).then((d) => json(res, 200, d), (e) => json(res, 500, { error: e.message }));
+  // PC1: 計画モデル可否 — 認証不要（health/doctor 同様の診断・秘密値は返さず boolean と件数のみ）。ログイン前でも 🔴 を出せる＝接続前から honest。
+  if (req.method === 'GET' && p === '/api/shenron/readiness')
+    return json(res, 200, plannerReadiness());
   // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
   if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
   if (req.method === 'GET' && p === '/api/state')

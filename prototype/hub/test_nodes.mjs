@@ -99,6 +99,14 @@ const runAndWait = async (nodes, edges, input) => {
 try {
   await waitUp();
 
+  // PC1: readiness — --vendor stub では計画モデル不可 → model:false + 直し方(fix) を返す（plan が偽フローを返す前の予防的可視化・PC0 相補）
+  const rd = await get('/api/shenron/readiness');
+  assert.equal(rd.model, false, 'readiness: --vendor stub → model:false');
+  assert.equal(rd.vendor, 'stub', 'readiness: vendor=stub を反映');
+  assert.ok(Array.isArray(rd.fix) && rd.fix.length > 0, 'readiness: model 不可なら fix を列挙');
+  assert.equal(typeof rd.integrations, 'number', 'readiness: 接続 integration 数を返す');
+  console.log('OK readiness (--vendor stub → model:false + fix)');
+
   // input → output（baked text の素通り・同期）
   let run = await runAndWait([{ id: 'i', kind: 'input', config: { text: 'hello' } }, { id: 'o', kind: 'output' }], [{ source: 'i', target: 'o' }]);
   assert.equal(run.status, 'completed', 'input/output run 完了');

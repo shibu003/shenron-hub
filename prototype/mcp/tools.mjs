@@ -38,6 +38,8 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: {} } },
   { name: 'hub_doctor', description: '神龍の初回セットアップ診断 — Node バージョン・Playwright Chromium インストール・ポート競合・A2A_SHARED_TOKEN・ユーザー登録状態を確認し、問題があれば修正コマンドを返す。詰まったらまずここを呼ぶ。',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'shenron_readiness', description: '神龍が計画できる状態か（計画モデル接続=model true/false・vendor・接続済み integration 数・credential 数）を一目で。model:false なら fix に直し方を返す。plan_flow が偽フローでなく mode:"unavailable" を返す前に確認できる（PC0 相補）。認証不要。',
+    inputSchema: { type: 'object', properties: {} } },
   { name: 'get_config', description: 'Read 神龍\'s settings in one place (cost / scheduler / per-tier routing vendor+model / providers) + initial-setup hints (needs) + whether API keys are present. Secrets are never returned (presence only).',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'set_config', description: 'Update 神龍\'s settings from natural language or structured input (takes effect immediately, no restart). e.g. {cost:"paid_ok"} / {scheduler:false} / {routing:{cheap:{vendor:"ollama",model:"llama3.2"}}}. API keys CANNOT be set here (env/.dev.vars only). Returns the full updated settings.',
@@ -193,6 +195,7 @@ export const TOOLS = [
 const enc = encodeURIComponent;
 export const PROXY = {
   hub_doctor:         () => ({ method: 'GET',  path: '/api/doctor' }),
+  shenron_readiness:  () => ({ method: 'GET',  path: '/api/shenron/readiness' }),
   toggle_automation: (a) => ({ method: 'POST', path: `/api/automations/${enc(a.id)}/toggle`, body: { on: a.on } }),
   list_components:   (a) => ({ method: 'GET',  path: a.id ? `/api/shenron/components?id=${enc(a.id)}` : '/api/shenron/components' }),
   list_shared:       (a) => ({ method: 'GET',  path: a.kind ? `/api/shared?kind=${enc(a.kind)}` : '/api/shared' }),

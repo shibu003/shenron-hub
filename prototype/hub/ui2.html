@@ -21,6 +21,10 @@
   .tb.stop { border-color:var(--red); color:var(--red); } .tb.stop:hover { border-color:var(--red); background:rgba(248,81,73,.08); }
   #ckptBadge { display:none; border:1px solid var(--amber); color:var(--amber); background:rgba(210,153,34,.12); border-radius:7px; padding:5px 11px; cursor:pointer; font:inherit; font-size:13px; white-space:nowrap; }
   #ckptBadge:hover { background:rgba(210,153,34,.22); }
+  /* PC1: 計画モデル可否バッジ（🔴=plan が mode:unavailable になる＝PC0 相補） */
+  #planBadge { display:none; align-items:center; border:1px solid var(--line); color:var(--dim); background:transparent; border-radius:7px; padding:5px 11px; cursor:default; font:inherit; font-size:13px; white-space:nowrap; }
+  #planBadge.ok  { border-color:#3fb950; color:#3fb950; }
+  #planBadge.bad { border-color:#f85149; color:#f85149; background:rgba(248,81,73,.12); }
   .tb.collapse { border-color:#8957e5; color:#a371f7; } .tb.collapse:hover { border-color:#a371f7; background:rgba(137,87,229,.1); }
   .flowgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; max-height:58vh; overflow:auto; }
   .flowcard { text-align:left; padding:10px; cursor:pointer; position:relative; } .flowcard:hover { border-color:var(--blue); } .fc-name { font-weight:600; margin-bottom:3px; }
@@ -183,6 +187,7 @@
     <button class="tb go" id="btnRun" onclick="runFlow()">▶ 実行</button>
     <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none">■ 停止</button>
     <button id="ckptBadge" onclick="openApprovals()"></button>
+    <span id="planBadge" title=""></span>
     <button class="tb" onclick="undo()" title="元に戻す (⌘Z)">↩</button>
     <button class="tb" onclick="redo()" title="やり直す (⇧⌘Z)">↪</button>
     <div class="menu">
@@ -1225,7 +1230,13 @@ document.addEventListener('keydown', e=>{
 });
 function deleteSelected(){ const id=selected; if(!id)return; undoSnap();
   if(ag(id)){ HIDDEN.add(id); EDGES=EDGES.filter(e=>e.source!==id&&e.target!==id); deselect(); } else removeNode(id); }
-applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{});
+applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations(); fetchWorkflows(); loadReadiness(); api('/api/buildstate').then(b=>BUILDSTATE=b).catch(()=>{});
+// PC1: 計画モデル可否を一度取得して topbar バッジに反映（プロセス内で不変なので poll 不要・PC0 相補）
+async function loadReadiness(){ try{ const r=await api('/api/shenron/readiness'); const b=document.getElementById('planBadge'); if(!b) return;
+  b.style.display='inline-flex';
+  if(r.model){ b.className='ok'; b.textContent='🟢 計画可'; b.title='計画モデル接続済み（'+(r.vendor||'claude')+'）'; }
+  else { b.className='bad'; b.textContent='🔴 モデル未接続'; b.title=(r.fix||[]).join(' / '); }
+}catch{} }
 // Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「編集」の着地点）。showFlows の click と同処理。
 (async()=>{ const fid=new URLSearchParams(location.search).get('flow'); if(!fid) return;
   const w=await api('/api/workflows?id='+encodeURIComponent(fid)); if(w&&w.nodes){ $('#flowName').value=w.id; SAVED_ID=w.id; FLOW_VIS=w.visibility||'private'; renderShareBtn(); loadFlow(w); toast(w.name||w.id); } else toast(t('flows_none')); })();
