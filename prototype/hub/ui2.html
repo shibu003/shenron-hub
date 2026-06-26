@@ -735,7 +735,7 @@ function renderNode(node, canvas){
     } else n.innerHTML=`<div class="notebody">${mdLite(node.text||'')}</div>`;
     return;
   }
-  // comp (COMP-driven): input/prompt/consensus/output/languagemodel/structured/parser/router/workflow/langflow/unset
+  // comp (COMP-driven): input/model/output/parser/router/workflow/langflow/unset（R1: 旧 prompt/languagemodel/structured/consensus は model+mode に統合）
   const meta=COMP[kind]||{}; const isSet=!!COMP[kind]; const res=kind==='output'?lastOutput(id):null;
   const cname=(node.config?.name||'').trim()||meta.label||(isSet?kind:t('comp_unset'));
   const tierBadge=node.tier?`<span class="tier-badge ${node.tier}">${node.tier}</span>`:'';
