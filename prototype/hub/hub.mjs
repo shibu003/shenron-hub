@@ -530,31 +530,41 @@ async function repairRun(run) {
     console.error('[repairRun]', run.id, e.message);
   }
 }
-function fireNode(run, node, input) {
-  const inc = run.edges.filter((e) => e.target === node.id);
-  const from = inc[0] ? (nodeById(run, inc[0].source)?.agent || inc[0].source) : (run.flowId || 'flow');
-  if (node.kind === 'input')  { run.outputs[node.id] = (node.config && node.config.text) || input || ''; save(); return advanceFrom(run, node.id); }  // Wave K Chat Input: emit baked text or the run input
-  if (node.kind === 'output') { run.outputs[node.id] = input || ''; save(); return advanceFrom(run, node.id); }                                       // Wave K Chat Output: terminal display
-  if (node.kind === 'prompt') return firePromptNode(run, node, input, from);   // Wave K: inline LLM template (in-process vendor, no approval)
-  if (node.kind === 'consensus') return fireConsensusNode(run, node, input, from);   // Wave I: fan to N vendors → agree
-  if (node.kind === 'router') return fireRouterNode(run, node, input, from);   // Wave E2: trust-router — fire only the chosen branch
-  if (node.kind === 'mcp') return fireMcpNode(run, node, input, from);   // Wave G: real external side-effect (approval-gated)
-  if (node.kind === 'workflow') return fireWorkflowNode(run, node, input, from);   // 📦 sub-flow: run the referenced flow as a nested run
-  if (node.kind === 'parser') { run.outputs[node.id] = parseFmt((node.config && node.config.pattern) || '{input}', input); save(); return advanceFrom(run, node.id); }   // Langflow-style Parser: pure string format (no LLM)
-  if (node.kind === 'languagemodel') return firePromptNode(run, { ...node, config: { template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from);   // = prompt + system preamble (in-process vendor)
-  if (node.kind === 'structured') return firePromptNode(run, { ...node, config: { template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from);   // structured-output ≈ prompt asking for JSON
-  if (node.kind === 'model') {   // R1: 統合 LLM ノード。config.mode で旧 prompt/languagemodel/structured/consensus の実体に委譲。旧 if も温存（後方互換）。dispatch table 化は R2/B6。
+// Wave R2-B6 — kind→handler の単一 dispatch 表。11連 if を1つの「大きな部品」に集約。
+// 各 handler は (run, node, input, from) 統一シグネチャ（input/output/parser は from 不使用）。
+// 委譲系（prompt/consensus/router/mcp/workflow）は fireXNode を直値マップ。変換系（languagemodel/structured/model）だけ arrow で node を変形してから委譲。
+// 旧 kind も表に残す＝旧 workflows.json を実行可（R1 整合・後方互換）。model は config.mode で旧4種の実体へ（KIND_ALIAS と同表）。未知 kind→__agent（外部 agent handoff）。
+// 不変条件＝挙動 byte 等価（save() の JSON 列順を変えない）。各 body は旧 if から1ビットも変えず移送。
+const RUN = {
+  input:  (run, node, input) => { run.outputs[node.id] = (node.config && node.config.text) || input || ''; save(); return advanceFrom(run, node.id); },   // Wave K Chat Input: baked text or run input
+  output: (run, node, input) => { run.outputs[node.id] = input || ''; save(); return advanceFrom(run, node.id); },                                        // Wave K Chat Output: terminal display
+  prompt: firePromptNode,        // Wave K: inline LLM template (in-process vendor, no approval)
+  consensus: fireConsensusNode,  // Wave I: fan to N vendors → agree
+  router: fireRouterNode,        // Wave E2: trust-router — fire only the chosen branch
+  mcp: fireMcpNode,              // Wave G: real external side-effect (approval-gated)
+  workflow: fireWorkflowNode,    // 📦 sub-flow: run the referenced flow as a nested run
+  parser: (run, node, input) => { run.outputs[node.id] = parseFmt((node.config && node.config.pattern) || '{input}', input); save(); return advanceFrom(run, node.id); },   // Langflow-style Parser: pure string format (no LLM)
+  languagemodel: (run, node, input, from) => firePromptNode(run, { ...node, config: { template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from),   // = prompt + system preamble
+  structured: (run, node, input, from) => firePromptNode(run, { ...node, config: { template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from),   // structured-output ≈ prompt asking for JSON
+  model: (run, node, input, from) => {   // R1: 統合 LLM ノード。config.mode で旧 prompt/languagemodel/structured/consensus の実体に委譲（spread は kind 版と非対称ゆえ保存）。
     const mode = (node.config && node.config.mode) || 'plain';
     if (mode === 'consensus') return fireConsensusNode(run, node, input, from);
     if (mode === 'system') return firePromptNode(run, { ...node, config: { ...node.config, template: ((node.config && node.config.system) ? node.config.system + '\n\n' : '') + '{input}' } }, input, from);
     if (mode === 'structured') return firePromptNode(run, { ...node, config: { ...node.config, template: `Return JSON${(node.config && node.config.schema) ? ` with fields: ${node.config.schema}` : ''}.\n${(node.config && node.config.instructions) || ''}\n--- INPUT ---\n{input}` } }, input, from);
     return firePromptNode(run, node, input, from);   // plain = config.template（vendor/model/tier も尊重）
-  }
-  const h = create({ from, to: node.agent, skill: node.skill, input });
-  h.runId = run.id; h.node = node.id;
-  const nv = node.vendor || (node.config && node.config.vendor); if (nv) h.vendor = nv;   // Wave G: per-node vendor on an agent node（flow で「この step は別 AI」）
-  const nm = node.model || (node.config && node.config.model); if (nm) h.model = nm;      // per-node model（同上）
-  save();
+  },
+  __agent: (run, node, input, from) => {   // fallthrough = 外部 agent handoff（runner 要・承認ゲートは runner 側）
+    const h = create({ from, to: node.agent, skill: node.skill, input });
+    h.runId = run.id; h.node = node.id;
+    const nv = node.vendor || (node.config && node.config.vendor); if (nv) h.vendor = nv;   // Wave G: per-node vendor on an agent node（flow で「この step は別 AI」）
+    const nm = node.model || (node.config && node.config.model); if (nm) h.model = nm;      // per-node model（同上）
+    save();
+  },
+};
+function fireNode(run, node, input) {
+  const inc = run.edges.filter((e) => e.target === node.id);
+  const from = inc[0] ? (nodeById(run, inc[0].source)?.agent || inc[0].source) : (run.flowId || 'flow');
+  return (RUN[node.kind] || RUN.__agent)(run, node, input, from);   // R2-B6: 単一 dispatch（未知 kind→agent fallthrough）
 }
 // Wave K — a prompt component is INTERNAL compute (an inline LLM template), not an external side-effect:
 // it runs in-process via the vendor with NO approval fence (mirrors an auto agent). Reuses the run-handoff
