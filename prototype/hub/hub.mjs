@@ -1442,154 +1442,138 @@ async function mcpDispatch(name, args) {
 
 // ---------- HTTP ----------
 const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(obj)); };   // Wave C: CORS so claude.ai Artifacts (sandbox origin ≠ claude.ai) can fetch /api/runflow etc. OPTIONS preflight already handled. ponytail: '*' fits self-host/ngrok; gate act routes with bearer when public.
-const server = http.createServer((req, res) => {
-  const u = new URL(req.url, `http://localhost:${PORT}`);
-  const p = u.pathname;
-  if (req.method === 'GET' && p === '/') {                          // Wave Cockpit-1: / は玄関 launcher（旧 cockpit は /ui-old へ退避）
+// ---------- HTTP route table (B8) ----------
+// 旧「位置依存の面ゲート」(GET/POST の /api/* && !bearerOk→401) を route 個別の auth 列に変換：
+//   'open'   公開（認証なし）
+//   'bearer' /api 面 — bearerOk か 401（POST は旧ゲート同様 Bearer hint を付ける）
+//   'admin'  isAdmin か 403（唯一＝POST /api/auth/role）
+//   'self'   handler が自前の bespoke 認証を持つ（/mcp* の OAuth challenge・auth/me の session cookie）
+// dispatch：完全一致 ROUTES['METHOD path'] → RX 正規表現を登録順。GET/ANY は同期相、POST は body パース後。
+// handler 署名は (req,res,{u,p,j,m}) の大きな1つに統一（u=URL,p=pathname,j=body,m=regex match）。
+const gate = (auth, req, res, method) => {
+  if (auth === 'bearer' && !bearerOk(req)) { json(res, 401, method === 'POST' ? { error: 'unauthorized', hint: 'Authorization: Bearer <A2A_SHARED_TOKEN or OAuth access token>' } : { error: 'unauthorized' }); return true; }
+  if (auth === 'admin' && !isAdmin(req)) { json(res, 403, { error: 'admin only' }); return true; }
+  return false;   // open / self は素通り（self は handler が自前で弾く）
+};
+const ROUTES = {
+  // ── 静的 HTML / PWA（公開・/api 接頭辞でないのでゲート対象外）──
+  'GET /': { a: 'open', h: (req, res) => {                          // Wave Cockpit-1: / は玄関 launcher（旧 cockpit は /ui-old へ退避）
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(INDEX_FILE)); }
     catch { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Shenron hub</h1><p>玄関 UI not installed yet (prototype/hub/index.html). JSON API under /api/*.</p>'); }
-  }
-  if (req.method === 'GET' && p === '/ui-old') {                    // Wave Cockpit-1: 旧 cockpit（ui.html）退避先
+  } },
+  'GET /ui-old': { a: 'open', h: (req, res) => {                    // Wave Cockpit-1: 旧 cockpit（ui.html）退避先
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI_FILE)); }
     catch { return json(res, 404, { error: 'ui.html not found' }); }
-  }
-  if (req.method === 'GET' && p === '/ui2') {
+  } },
+  'GET /ui2': { a: 'open', h: (req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(UI2_FILE)); }
     catch { return json(res, 404, { error: 'ui2.html not found' }); }
-  }
-  if (req.method === 'GET' && p === '/settings') {
+  } },
+  'GET /settings': { a: 'open', h: (req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SETTINGS_FILE)); }
     catch { return json(res, 404, { error: 'settings.html not found' }); }
-  }
-  if (req.method === 'GET' && p === '/shenron') {
+  } },
+  'GET /shenron': { a: 'open', h: (req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
-  }
-  if (req.method === 'GET' && p === '/artifacts') {   // Wave Canvas-1: 成果物ギャラリー
+  } },
+  'GET /artifacts': { a: 'open', h: (req, res) => {   // Wave Canvas-1: 成果物ギャラリー
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(CANVAS_FILE)); }
     catch { return json(res, 404, { error: 'canvas.html not found' }); }
-  }
-  if (req.method === 'GET' && p === '/manifest.json') {
+  } },
+  'GET /manifest.json': { a: 'open', h: (req, res) => {
     try { res.writeHead(200, { 'content-type': 'application/manifest+json', 'access-control-allow-origin': '*' }); return res.end(fs.readFileSync(MANIFEST_FILE)); }
     catch { return json(res, 404, { error: 'manifest.json not found' }); }
-  }
-  if (req.method === 'GET' && p === '/sw.js') {
+  } },
+  'GET /sw.js': { a: 'open', h: (req, res) => {
     // SW は root から配信 → scope='/' で /shenron も /api/* も網羅（Service-Worker-Allowed 不要）。
     try { res.writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-cache' }); return res.end(fs.readFileSync(SW_FILE)); }
     catch { return json(res, 404, { error: 'sw.js not found' }); }
-  }
-  // Wave L: Auth — public GET routes (no auth required)
-  if (req.method === 'GET' && p === '/api/auth/verify') {
+  } },
+  // ── 公開 GET（旧 GET 面ゲートより上の例外）──
+  'GET /api/auth/verify': { a: 'open', h: (req, res, { u }) => {   // Wave L: メール認証（公開・token は query）
     const tok = u.searchParams.get('token'); if (!tok) return json(res, 400, { error: 'token required' });
     try { return json(res, 200, verifyEmail(tok)); } catch (e) { return json(res, 400, { error: e.message }); }
-  }
-  if (req.method === 'GET' && p === '/api/auth/me') {
+  } },
+  'GET /api/auth/me': { a: 'self', h: (req, res) => {             // 自前 session cookie（bearer 不可＝「今の Web セッションは誰か」）
     const s = checkSession(cookieSession(req)); if (!s) return json(res, 401, { error: 'not logged in' });
     return json(res, 200, { userId: s.userId, email: s.email });
-  }
-  if (req.method === 'GET' && p === '/api/auth/users') {
-    if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
-    return json(res, 200, listUsers());
-  }
-  // Wave O-3: health check — no auth (external cron / watchdog can call this)
-  if (req.method === 'GET' && p === '/api/health')
-    return json(res, 200, { ok: true, uptime: Math.round(process.uptime()), scheduler: schedulerOn(), version: HUB_VERSION });
-  // Wave N-3: doctor — no auth (初回セットアップ診断・問題を抱えている状態でも呼べる)
-  // この handler は非 async（POST は内側 async cb で処理）→ 外側 sync スコープでは await 不可。Promise を直接返す。
-  if (req.method === 'GET' && p === '/api/doctor')
-    return runDoctor(PORT).then((d) => json(res, 200, d), (e) => json(res, 500, { error: e.message }));
-  // PC1: 計画モデル可否 — 認証不要（health/doctor 同様の診断・秘密値は返さず boolean と件数のみ）。ログイン前でも 🔴 を出せる＝接続前から honest。
-  if (req.method === 'GET' && p === '/api/shenron/readiness')
-    return json(res, 200, plannerReadiness());
-  // Gate: protect all /api/* GET routes when auth is configured (A2A_SHARED_TOKEN set or OAuth issued)
-  if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
-  if (req.method === 'GET' && p === '/api/state')
-    return json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } });   // Wave R: reputation. + scheduler 状態（live）
-  if (req.method === 'GET' && p === '/api/check-results')   // Wave R-1: 直近の成果検証結果（list_check_results）
-    return json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
-  if (req.method === 'GET' && p === '/api/drift-alerts')    // Wave R-3: drift 検出アラート（list_drift_alerts）
-    return json(res, 200, (state.driftAlerts || []).slice(-(Number(u.searchParams.get('limit')) || 20)));
-  if (req.method === 'GET' && p === '/api/shared')          // Wave A1: 共有エージェント庫（list_shared の HTTP 面・MCP は PROXY 経由で同ルートを叩く＝単一実装）
-    return json(res, 200, listShared(u.searchParams.get('kind') || undefined));
-  if (req.method === 'GET' && p === '/api/runs')  // M-2: last 20 runs (token-light)
-    return json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs })));
-  if (req.method === 'GET') { const sm = p.match(/^\/api\/runs\/([^/]+)\/stream$/);   // O1: SSE live run stream (inherits the bearerOk gate above)
-    if (sm) {
-      const run = state.runs[sm[1]];
-      if (!run) return json(res, 404, { error: `no run "${sm[1]}"` });
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive', 'access-control-allow-origin': '*' });
-      for (const [node, output] of Object.entries(run.outputs)) res.write(`data: ${JSON.stringify({ type: 'node', node, output, status: run.status })}\n\n`);   // snapshot of progress so far
-      if (run.status !== 'running') { res.write(`data: ${JSON.stringify({ type: 'done', status: run.status })}\n\n`); return res.end(); }   // already terminal → no live tail needed
-      let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(res);
-      req.on('close', () => { const s = runListeners.get(run.id); if (s) { s.delete(res); if (!s.size) runListeners.delete(run.id); } });
-      return;
-    }
-  }
-  if (req.method === 'GET') { const rm = p.match(/^\/api\/runs\/([^/]+)$/);   // M-2: full run by id
-    if (rm) { const r = state.runs[rm[1]]; return r ? json(res, 200, r) : json(res, 404, { error: `no run "${rm[1]}"` }); } }
-  if (req.method === 'GET' && p === '/api/templates')   // Wave O2: 同梱テンプレ refs（id/name/summary/requires/nodeCount）＋未設定 gap 警告
-    return json(res, 200, readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) })));
-  if (req.method === 'GET' && p === '/api/workflows') {
-    const wid = u.searchParams.get('id');                                                 // ?id= → full flow (🗂 overview opens on click); else token-light counts
+  } },
+  'GET /api/auth/users': { a: 'bearer', h: (req, res) => json(res, 200, listUsers()) },   // 旧：自前 bearerOk → 表の bearer 列に昇格（同値 401）
+  'GET /api/health': { a: 'open', h: (req, res) =>               // Wave O-3: health check — no auth (external cron / watchdog can call this)
+    json(res, 200, { ok: true, uptime: Math.round(process.uptime()), scheduler: schedulerOn(), version: HUB_VERSION }) },
+  'GET /api/doctor': { a: 'open', h: (req, res) =>               // Wave N-3: doctor — no auth（初回セットアップ診断・問題を抱えた状態でも呼べる）。Promise を直接返す。
+    runDoctor(PORT).then((d) => json(res, 200, d), (e) => json(res, 500, { error: e.message })) },
+  'GET /api/shenron/readiness': { a: 'open', h: (req, res) =>    // PC1: 計画モデル可否 — 認証不要（秘密値は返さず boolean と件数のみ）
+    json(res, 200, plannerReadiness()) },
+  // ── /api/* GET（旧 GET 面ゲート L1505 = bearer 列に変換）──
+  'GET /api/state': { a: 'bearer', h: (req, res) =>
+    json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } }) },   // Wave R: reputation + scheduler 状態（live）
+  'GET /api/check-results': { a: 'bearer', h: (req, res, { u }) =>   // Wave R-1: 直近の成果検証結果（list_check_results）
+    json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20))) },
+  'GET /api/drift-alerts': { a: 'bearer', h: (req, res, { u }) =>    // Wave R-3: drift 検出アラート（list_drift_alerts）
+    json(res, 200, (state.driftAlerts || []).slice(-(Number(u.searchParams.get('limit')) || 20))) },
+  'GET /api/shared': { a: 'bearer', h: (req, res, { u }) =>          // Wave A1: 共有エージェント庫（list_shared の HTTP 面）
+    json(res, 200, listShared(u.searchParams.get('kind') || undefined)) },
+  'GET /api/runs': { a: 'bearer', h: (req, res) =>  // M-2: last 20 runs (token-light)
+    json(res, 200, Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs }))) },
+  'GET /api/templates': { a: 'bearer', h: (req, res) =>   // Wave O2: 同梱テンプレ refs ＋未設定 gap 警告
+    json(res, 200, readTemplates().map((t) => ({ id: t.id, name: t.name, summary: t.summary || '', requires: t.requires || [], nodes: (t.nodes || []).length, warnings: templateGaps(t) }))) },
+  'GET /api/workflows': { a: 'bearer', h: (req, res, { u }) => {
+    const wid = u.searchParams.get('id');                                                 // ?id= → full flow（🗂 overview opens on click）; else token-light counts
     if (wid) { const w = readWorkflows().find((w) => w.id === wid); return w ? json(res, 200, w) : json(res, 404, { error: `no workflow "${wid}"` }); }
     return json(res, 200, readWorkflows().filter((w) => visibleTo(w, sessionUid(req))).map((w) => ({ id: w.id, name: w.name, summary: w.summary || '', nodes: (w.nodes || []).length, edges: (w.edges || []).length, lastRun: w.lastRun || null, hasUi: !!w.ui, owner: w.owner ?? null, visibility: w.visibility || 'private' })));   // T-0: seat 可視性 filter + UI トグル用 owner/visibility
-  }
-  if (req.method === 'GET' && p === '/api/artifacts') {   // Wave Canvas-1: 成果物ギャラリーの裏（list_artifacts）。UI 付き flow + 今すぐ操作できる pending handoff を同定。token-light（コードは get_flow_ui で個別取得）。
+  } },
+  'GET /api/artifacts': { a: 'bearer', h: (req, res) => {   // Wave Canvas-1: 成果物ギャラリーの裏（list_artifacts）。token-light。
     const uid = sessionUid(req);
     return json(res, 200, readWorkflows().filter((w) => w.ui && visibleTo(w, uid)).map((w) => {
-      const run = Object.values(state.runs).filter((r) => r.flowId === w.id && r.status === 'running').slice(-1)[0];   // 最新の running run（interrupted/cancelled は除外＝Reliable-1 整合）
+      const run = Object.values(state.runs).filter((r) => r.flowId === w.id && r.status === 'running').slice(-1)[0];   // 最新の running run
       const pending = run ? state.handoffs.find((h) => h.runId === run.id && h.checkpoint && h.checkpoint.decided === null) : null;   // 人在ループ checkpoint
       return { id: w.id, name: w.name, summary: w.summary || '', lastRun: w.lastRun || null, visibility: w.visibility || 'private', hasPending: !!pending, handoffId: pending ? pending.id : null, runId: run ? run.id : null };
     }));
-  }
-  if (req.method === 'GET' && p === '/api/shenron/skills')   // DX-1: 生成済み SKILL.md を一覧（list_skills）。repo + ~/.claude/skills の両方からマーカー付きを拾う。
-    return json(res, 200, listGeneratedSkills());
-  { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: get artifact UI code for a workflow
-    if (um && req.method === 'GET') { const w = readWorkflows().find((w) => w.id === decodeURIComponent(um[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${um[1]}"` }); } }
-  if (req.method === 'GET' && p === '/api/shenron/components') {                           // Wave 8: 生成部品の登録庫。?id= で full code、無しは token-light refs（pending は人ゲート待ち）
+  } },
+  'GET /api/shenron/skills': { a: 'bearer', h: (req, res) =>   // DX-1: 生成済み SKILL.md 一覧（list_skills）
+    json(res, 200, listGeneratedSkills()) },
+  'GET /api/shenron/components': { a: 'bearer', h: (req, res, { u }) => {   // Wave 8: 生成部品の登録庫。?id= で full code、無しは token-light refs
     const cid = u.searchParams.get('id');
     if (cid) { const c = readComponents().find((c) => c.id === cid); return c ? json(res, 200, c) : json(res, 404, { error: `no component "${cid}"` }); }
-    return json(res, 200, readComponents().map((c) => ({ id: c.id, what: c.what, iters: c.iters, approved: c.approved, credentials: c.credentials || [], createdAt: c.createdAt })));   // credentials=BYO-credential 名のみ（値は持たない）→ panel の 🔑 バッジ
-  }
-  if (req.method === 'GET' && p === '/api/automations')
-    return json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false, ...(m.expect ? { expect: m.expect } : {}), ...(m.pausedReason ? { pausedReason: m.pausedReason } : {}) })));   // UI-Compat-2: expect を surface / drift→auto-pause: pausedReason を surface（UI が「drift 停止」を表示）
-  if (req.method === 'GET' && p === '/api/integrations')         // connected MCP servers (Wave F.2)
-    return json(res, 200, readIntegrations());
-  if (req.method === 'GET' && p === '/api/integrations/search')  // clean-mcp token-light index: SMALL refs (id/label/kind/enabled/toolCount/tags)
-    return json(res, 200, searchIntegrationsRefs(u.searchParams.get('q') || '', Number(u.searchParams.get('limit')) || 999));
-  if (req.method === 'GET') { const im = p.match(/^\/api\/integrations\/([^/]+)$/);   // get ONE integration's full tool list on demand
-    if (im) { const it = readIntegrations().find((x) => x.id === decodeURIComponent(im[1])); return it ? json(res, 200, it) : json(res, 404, { error: `no integration "${im[1]}"` }); } }
-  if (req.method === 'GET' && p === '/api/audit')                // Wave H: tamper-evident trust trail + chain verification
-    return json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) });
-  if (req.method === 'GET' && p === '/api/permissions') return json(res, 200, readPermissions());   // Wave 11b: browser-control allow/ask/deny ruleset (worker fetches to classify)
-  if (req.method === 'GET' && p === '/api/login-status') { const s = readLoginState(); const dom = u.searchParams.get('domain'); return json(res, 200, dom ? { domain: dom, ...(s[dom] || { needsLogin: false }) } : { logins: s }); }   // Wave Login-1: ログイン生存状態（domain 指定 or 全件）
-  if (req.method === 'GET' && p === '/api/suggestions') { const st = u.searchParams.get('status') || 'open'; const all = readSuggestions(); return json(res, 200, { suggestions: st === 'all' ? all : all.filter((s) => s.status === st) }); }   // Ambient-1
-  if (req.method === 'GET' && p === '/api/goals') return json(res, 200, { goals: readGoals().map(goalView) });   // Wave Goals-1: ゴール一覧（進捗率付き）
-  if (req.method === 'GET' && p.startsWith('/api/goals/')) { const id = decodeURIComponent(p.slice('/api/goals/'.length)); const g = readGoals().find((x) => x.id === id); return g ? json(res, 200, goalView(g)) : json(res, 404, { error: `no goal "${id}"` }); }
-  if (req.method === 'GET' && p === '/api/receipt') {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
-    try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } }
-  if (req.method === 'GET' && p === '/api/pubkey') {             // the hub's ed25519 public key as raw PEM — `curl .../api/pubkey > hub.pem`, pin it, verify receipts with NO hub
-    res.writeHead(200, { 'content-type': 'application/x-pem-file' }); return res.end(HUB_KEY.publicKeyPem); }   // was JSON-wrapped: broke verify-receipt.mjs --pubkey (the pinned, stronger-than-TOFU path)
-  if (req.method === 'GET' && p === '/api/buildstate')           // Wave J: the build-state IR vocabulary + match operators
-    return json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) });
-  if (req.method === 'GET' && p === '/api/capvocab')             // Wave B: the capability-passport vocabulary (drives the passport editor)
-    return json(res, 200, CAP_VOCAB);
-  if (req.method === 'GET' && p === '/api/mcp')                  // how to connect Shenron's MCP server (for "copy MCP call")
-    return json(res, 200, { name: 'shenron-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' });
-  if (req.method === 'GET' && p === '/api/config') return json(res, 200, configStatus());   // Wave: 全設定を1か所で読む（初期設定 hint 付き・secret は在否のみ）
-  if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization' }); return res.end(); }
-  // OAuth 2.1 discovery + auto-approve authorize
-  if (p === '/.well-known/oauth-protected-resource') { const b = reqBase(req); return json(res, 200, { resource: b, authorization_servers: [b] }); }
-  if (p === '/.well-known/oauth-authorization-server') { const b = reqBase(req); return json(res, 200, { issuer: b, registration_endpoint: `${b}/oauth/register`, authorization_endpoint: `${b}/oauth/authorize`, token_endpoint: `${b}/oauth/token`, response_types_supported: ['code'], grant_types_supported: ['authorization_code'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] }); }
-  if (p === '/oauth/authorize') {  // auto-approve: generate code and redirect immediately
+    return json(res, 200, readComponents().map((c) => ({ id: c.id, what: c.what, iters: c.iters, approved: c.approved, credentials: c.credentials || [], createdAt: c.createdAt })));   // credentials=BYO-credential 名のみ（値は持たない）
+  } },
+  'GET /api/automations': { a: 'bearer', h: (req, res) =>
+    json(res, 200, readAutomations().map((m) => ({ id: m.id, name: m.name, trigger: m.trigger, workflow: m.workflow, enabled: m.enabled !== false, ...(m.expect ? { expect: m.expect } : {}), ...(m.pausedReason ? { pausedReason: m.pausedReason } : {}) }))) },   // UI-Compat-2: expect / drift→auto-pause pausedReason を surface
+  'GET /api/integrations': { a: 'bearer', h: (req, res) =>         // connected MCP servers (Wave F.2)
+    json(res, 200, readIntegrations()) },
+  'GET /api/integrations/search': { a: 'bearer', h: (req, res, { u }) =>  // clean-mcp token-light index
+    json(res, 200, searchIntegrationsRefs(u.searchParams.get('q') || '', Number(u.searchParams.get('limit')) || 999)) },
+  'GET /api/audit': { a: 'bearer', h: (req, res) =>                // Wave H: tamper-evident trust trail + chain verification
+    json(res, 200, { entries: state.audit, verify: auditVerify(state.audit) }) },
+  'GET /api/permissions': { a: 'bearer', h: (req, res) => json(res, 200, readPermissions()) },   // Wave 11b: browser-control allow/ask/deny ruleset
+  'GET /api/login-status': { a: 'bearer', h: (req, res, { u }) => { const s = readLoginState(); const dom = u.searchParams.get('domain'); return json(res, 200, dom ? { domain: dom, ...(s[dom] || { needsLogin: false }) } : { logins: s }); } },   // Wave Login-1
+  'GET /api/suggestions': { a: 'bearer', h: (req, res, { u }) => { const st = u.searchParams.get('status') || 'open'; const all = readSuggestions(); return json(res, 200, { suggestions: st === 'all' ? all : all.filter((s) => s.status === st) }); } },   // Ambient-1
+  'GET /api/goals': { a: 'bearer', h: (req, res) => json(res, 200, { goals: readGoals().map(goalView) }) },   // Wave Goals-1: ゴール一覧（進捗率付き）
+  'GET /api/receipt': { a: 'bearer', h: (req, res, { u }) => {            // Wave ③: signed, offline-verifiable per-run Trust Receipt
+    try { return json(res, 200, receiptFor(u.searchParams.get('runId'))); } catch (e) { return json(res, 400, { error: e.message }); } } },
+  'GET /api/pubkey': { a: 'bearer', h: (req, res) => {             // the hub's ed25519 public key as raw PEM
+    res.writeHead(200, { 'content-type': 'application/x-pem-file' }); return res.end(HUB_KEY.publicKeyPem); } },   // was JSON-wrapped: broke verify-receipt.mjs --pubkey
+  'GET /api/buildstate': { a: 'bearer', h: (req, res) =>           // Wave J: the build-state IR vocabulary + match operators
+    json(res, 200, { events: BUILD_EVENTS, operators: Object.keys(MATCH_OPS) }) },
+  'GET /api/capvocab': { a: 'bearer', h: (req, res) =>            // Wave B: the capability-passport vocabulary
+    json(res, 200, CAP_VOCAB) },
+  'GET /api/mcp': { a: 'bearer', h: (req, res) =>                 // how to connect Shenron's MCP server
+    json(res, 200, { name: 'shenron-mcp', command: 'node', args: [path.resolve(HERE, '..', 'mcp', 'server.mjs')], hub: `http://localhost:${PORT}`, tokenEnv: 'A2A_SHARED_TOKEN' }) },
+  'GET /api/config': { a: 'bearer', h: (req, res) => json(res, 200, configStatus()) },   // Wave: 全設定を1か所で読む（secret は在否のみ）
+  // ── 非 /api（面ゲート素通り・method 不問）。OAuth discovery / authorize は公開、mcp/sse は自前 bearerOk ──
+  'ANY /.well-known/oauth-protected-resource': { a: 'open', h: (req, res) => { const b = reqBase(req); return json(res, 200, { resource: b, authorization_servers: [b] }); } },
+  'ANY /.well-known/oauth-authorization-server': { a: 'open', h: (req, res) => { const b = reqBase(req); return json(res, 200, { issuer: b, registration_endpoint: `${b}/oauth/register`, authorization_endpoint: `${b}/oauth/authorize`, token_endpoint: `${b}/oauth/token`, response_types_supported: ['code'], grant_types_supported: ['authorization_code'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] }); } },
+  'ANY /oauth/authorize': { a: 'open', h: (req, res, { u }) => {  // auto-approve: generate code and redirect immediately
     const code = randomUUID().replace(/-/g, '');
     oauthCodes.set(code, { client_id: u.searchParams.get('client_id'), code_challenge: u.searchParams.get('code_challenge') });
     const loc = new URL(u.searchParams.get('redirect_uri') || 'http://localhost');
     loc.searchParams.set('code', code);
     if (u.searchParams.get('state')) loc.searchParams.set('state', u.searchParams.get('state'));
     res.writeHead(302, { location: loc.toString(), 'access-control-allow-origin': '*' }); return res.end();
-  }
-  if (p === '/mcp/sse') {  // Remote MCP: Claude.ai connects here
+  } },
+  'ANY /mcp/sse': { a: 'self', h: (req, res) => {  // Remote MCP: Claude.ai connects here（自前 bearerOk → 失敗時 OAuth 401 challenge）
     if (!bearerOk(req)) { const b = reqBase(req); res.writeHead(401, { 'www-authenticate': `Bearer realm="${b}", resource_metadata="${b}/.well-known/oauth-protected-resource"`, 'access-control-allow-origin': '*' }); return res.end(); }
     const sid = randomUUID().slice(0, 8);
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive', 'access-control-allow-origin': '*' });
@@ -1598,14 +1582,271 @@ const server = http.createServer((req, res) => {
     req.on('close', () => { mcpSessions.delete(sid); console.log(`[mcp] session ${sid} closed`); });
     console.log(`[mcp] session ${sid} connected (${mcpSessions.size} active)`);
     return;
-  }
-  if (req.method !== 'POST') { if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' }); res.writeHead(404); return res.end(); }
+  } },
+  // ── 公開 POST（auth）──
+  'POST /api/auth/register': { a: 'open', h: (req, res, { j }) => {
+    try {
+      const { userId, email, verifyToken } = register(j.email, j.password);
+      const base = reqBase(req);
+      const link = `${base}/api/auth/verify?token=${verifyToken}`;
+      console.log(`\n🐉 [auth] メール認証リンク (${email}):\n  ${link}\n`);
+      trail('auth-register', { email });
+      return json(res, 201, { userId, email, note: 'verification link printed to hub terminal' });
+    } catch (e) { return json(res, 400, { error: e.message }); }
+  } },
+  'POST /api/auth/login': { a: 'open', h: (req, res, { j }) => {
+    try {
+      const result = login(j.email, j.password);
+      const cookie = `shenron_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${30 * 24 * 3600}`;
+      res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': cookie, 'access-control-allow-origin': '*' });
+      res.end(JSON.stringify({ email: result.email, userId: result.userId, expiresAt: result.expiresAt }));
+      trail('auth-login', { email: j.email });
+      return;
+    } catch (e) { return json(res, 401, { error: e.message }); }
+  } },
+  'POST /api/auth/logout': { a: 'open', h: (req, res) => {
+    const tok = cookieSession(req); if (tok) logout(tok);
+    res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'shenron_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0', 'access-control-allow-origin': '*' });
+    return res.end(JSON.stringify({ ok: true }));
+  } },
+  'POST /api/auth/reset-request': { a: 'open', h: (req, res, { j }) => {   // Wave M-1: password reset — public
+    try {
+      const r = resetRequest(j.email);
+      if (r.resetToken) { const base = reqBase(req); console.log(`\n🔑 [auth] パスワードリセットリンク (${r.email}):\n  ${base}/api/auth/reset?token=${r.resetToken}\n`); }
+      trail('auth-reset-request', { email: j.email || '?' });
+      return json(res, 200, { note: 'if registered, reset link printed to hub terminal' });
+    } catch (e) { return json(res, 400, { error: e.message }); }
+  } },
+  'POST /api/auth/reset': { a: 'open', h: (req, res, { j }) => {
+    try { return json(res, 200, resetPassword(j.token, j.password)); }
+    catch (e) { return json(res, 400, { error: e.message }); }
+  } },
+  // Wave B1: role 付替え（admin 専用）。set_role MCP(stdio) と settings.html admin が同ルートを叩く。
+  'POST /api/auth/role': { a: 'admin', h: (req, res, { j }) => {   // 旧：自前 isAdmin(403) → 表の admin 列に変換（同値）
+    try { return json(res, 200, setRole(j.userId, j.role)); }
+    catch (e) { return json(res, 400, { error: e.message }); }
+  } },
+  // OAuth POST endpoints
+  'POST /oauth/register': { a: 'open', h: (req, res, { j }) => { const client_id = randomUUID().replace(/-/g, ''); oauthClients.set(client_id, { name: j.client_name || 'client' }); return json(res, 201, { client_id, token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'] }); } },
+  'POST /oauth/token': { a: 'open', h: (req, res, { j }) => {
+    if (j.grant_type !== 'authorization_code') return json(res, 400, { error: 'unsupported_grant_type' });
+    const entry = oauthCodes.get(j.code);
+    if (!entry) return json(res, 400, { error: 'invalid_grant' });
+    if (entry.code_challenge && createHash('sha256').update(j.code_verifier || '').digest('base64url') !== entry.code_challenge) return json(res, 400, { error: 'invalid_grant' });
+    oauthCodes.delete(j.code);
+    const access_token = randomUUID().replace(/-/g, '');
+    oauthTokens.add(access_token); console.log(`[oauth] token issued (${oauthTokens.size} active)`);
+    return json(res, 200, { access_token, token_type: 'bearer', expires_in: 86400 * 365 });
+  } },
+  'POST /mcp/messages': { a: 'self', h: (req, res, { u, j }) => {  // Remote MCP: JSON-RPC 2.0 dispatch; response via SSE（自前 bearerOk）
+    if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
+    const sid = u.searchParams.get('sessionId');
+    const sse = sid && mcpSessions.get(sid);
+    const send = (obj) => { if (sse) sse.write(`event: message\ndata: ${JSON.stringify(obj)}\n\n`); };
+    json(res, 202, {});  // ack immediately; real response goes over SSE
+    const { id, method, params } = j;
+    if (method === 'initialize' || method === 'notifications/initialized') {
+      if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } });
+    } else if (method === 'tools/list') {
+      send({ jsonrpc: '2.0', id, result: { tools: [...REMOTE_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
+    } else if (method === 'tools/call') {
+      mcpDispatch((params || {}).name, (params || {}).arguments || {})
+        .then((r) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
+        .catch((e) => send({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } }));
+    } else {
+      send({ jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
+    }
+    return;
+  } },
+  // ── /api/* POST（旧 POST 面ゲート L1703 = bearer 列に変換）──
+  'POST /api/handoffs': { a: 'bearer', h: (req, res, { j }) => json(res, 200, ref(create(j))) },
+  'POST /api/poll': { a: 'bearer', h: (req, res, { j }) => json(res, 200, { runnable: poll(j.agent) }) },
+  'POST /api/audit': { a: 'bearer', h: (req, res, { j }) => json(res, 200, trail(j.type || 'note', j.detail || {})) },   // Wave 11: out-of-process worker が per-action trail を中央 audit に append
+  'POST /api/permissions': { a: 'bearer', h: (req, res, { j }) => { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); } },   // Wave 11b: 「常に許可」
+  'POST /api/login-detected': { a: 'bearer', h: (req, res, { j }) => { const s = recordLogin(j.domain, !!j.resolved); trail('login-detected', { domain: j.domain || null, resolved: !!j.resolved }); return json(res, 200, { ok: true, state: j.domain ? s[j.domain] : null }); } },   // Wave Login-1
+  'POST /api/artifact-llm': { a: 'bearer', h: (req, res, { j }) => {                  // Wave UI S1: artifact が api.anthropic.com に fetch → hub が server-side proxy（鍵は箱に残る）
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return json(res, 400, { error: 'ANTHROPIC_API_KEY not set — artifact LLM proxy unavailable' });
+    fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(j) })
+      .then((r) => r.json().then((d) => json(res, r.status, d)))
+      .catch((e) => json(res, 502, { error: e.message }));
+    return;
+  } },
+  'POST /api/goals': { a: 'bearer', h: (req, res, { j }) => json(res, 200, saveGoal(j || {})) },                                     // Wave Goals-1: ゴール作成/更新
+  'POST /api/workflows': { a: 'bearer', h: (req, res, { j }) => json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) })) },     // save wired DAG・T-0: 作成者=seat owner
+  'POST /api/runflow': { a: 'bearer', h: (req, res, { j }) => json(res, 200, runFlow(j)) },            // topo-run a DAG（draft nodes/edges, or saved id）
+  'POST /api/langflow/run': { a: 'bearer', h: (req, res, { j }) => { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; } },  // 🔗 delegate to /api/v1/run, fenced
+  'POST /api/langflow/import': { a: 'bearer', h: (req, res, { j }) => { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; } },  // ⤴ register a flow INTO Langflow
+  'POST /api/automations': { a: 'bearer', h: (req, res, { j }) => json(res, 200, saveAutomation(j)) }, // save trigger + wired workflow as an automation
+  'POST /api/check': { a: 'bearer', h: (req, res, { j }) => json(res, 200, setCheck(j.automation, j.expect)) },   // Wave R-1: set_check
+  'POST /api/fire': { a: 'bearer', h: (req, res, { j }) => json(res, 200, fireEvent(j.event || {}, j.input)) }, // build-state event → fire matching automations
+  'POST /api/tick': { a: 'bearer', h: (req, res) => { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: schedulerOn() }); } },
+  'POST /api/notify/test': { a: 'bearer', h: (req, res) => {   // M-3: ping all enabled notify integrations with a test payload
+    const notifiers = readIntegrations().filter((i) => i.enabled !== false && i.kind === 'notify');
+    const payload = JSON.stringify({ type: 'test', at: new Date().toISOString(), message: 'Shenron test notification' });
+    Promise.all(notifiers.map((n) => {
+      const headers = { 'content-type': 'application/json' };
+      if (n.token) headers['authorization'] = `Bearer ${n.token}`;
+      const body = n.format === 'slack' ? JSON.stringify({ text: '🧪 Shenron test notification' }) : payload;
+      return fetch(n.url, { method: 'POST', headers, body })
+        .then((r) => ({ id: n.id, url: n.url, ok: r.ok, status: r.status }))
+        .catch((e) => ({ id: n.id, url: n.url, ok: false, error: e.message }));
+    })).then((results) => json(res, 200, { sent: results.length, results }));
+    return;
+  } },   // Wave: 無料外部 cron が叩く seam＝now due な schedule automation を発火
+  'POST /api/config': { a: 'bearer', h: (req, res, { j }) => { writeCfg(mergeCfg(j)); trail('config-set', { keys: Object.keys(j) }); return json(res, 200, configStatus()); } },   // secret は受けない
+  'POST /api/fire/preview': { a: 'bearer', h: (req, res, { j }) => json(res, 200, firePreview(j.event || {})) }, // Wave 2: dry-run
+  'POST /api/autorun': { a: 'bearer', h: (req, res, { j }) => json(res, 200, setGlobalAutorun(j.on)) },         // global master autorun on/off
+  'POST /api/integrations': { a: 'bearer', h: (req, res, { j }) => json(res, 200, saveIntegration(j)) },        // add/update an MCP server integration
+  'POST /api/agents': { a: 'bearer', h: (req, res, { j }) => json(res, 200, createAgent(j)) },                  // create a (runnable, in-process) agent from a draft
+  'POST /api/shenron/plan': { a: 'bearer', h: (req, res, { j }) => {                                                 // 神龍 Wave 1: NL goal → plan IR（planFlow に集約＝remote-MCP と同一経路）
+    planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost, owner: sessionUid(req) })       // Wave 5: context で対話修正／gap 道具生成／T-0: plan→save に seat owner
+      .then((r) => json(res, 200, r))
+      .catch((e) => json(res, 400, { error: e.message }));
+    return;
+  } },
+  'POST /api/shenron/gen-artifact-ui': { a: 'bearer', h: (req, res, { j }) => {   // Wave UI S4: JSX 成果物 UI 生成
+    genArtifactUi({ what: j.what, vendor: EXEC_VENDOR || 'claude' })
+      .then((r) => { trail('gen-artifact-ui', { what: r.what, converged: r.converged }); json(res, 200, r); })
+      .catch((e) => json(res, 400, { error: e.message }));
+    return;
+  } },
+  'POST /api/shenron/gen-component': { a: 'bearer', h: (req, res, { j }) => {                                         // 神龍 Wave 4+8: gap "what" → 生成→サンドボックス収束→登録庫
+    const cached = matchComponent(readComponents(), j.what);                        // Wave 8: vetted 済みなら LLM+サンドボックスを skip（cache hit）
+    if (cached) { trail('gen-component', { what: cached.what, cached: true, id: cached.id }); return json(res, 200, { what: cached.what, code: cached.code, iters: 0, converged: true, output: cached.output, id: cached.id, approved: true, cached: true }); }
+    genComponent({ what: j.what, vendor: EXEC_VENDOR || 'claude', maxIters: j.maxIters || 3 })
+      .then((r) => {
+        const saved = r.converged ? saveComponent(r) : null;                       // 収束→pending(approved:false) で登録（§H 人ゲート）
+        trail('gen-component', { what: r.what, iters: r.iters, converged: r.converged, registered: saved ? saved.id : null });
+        json(res, 200, saved ? { ...r, id: saved.id, approved: false } : r);
+      })
+      .catch((e) => json(res, 400, { error: e.message }));
+    return;
+  } },
+  'POST /api/shenron/components/approve': { a: 'bearer', h: (req, res, { j }) => {                                  // Wave 9 人ゲート: 承認 → server.py 書出 + integration 登録 = ladder rejoin
+    const c = approveComponent(j.id);                                             // Wave 8: approved フラグ
+    const GEN_DIR = path.join(HERE, '..', 'mcp', 'generated');                    // command は REPO_ROOT 相対
+    fs.mkdirSync(GEN_DIR, { recursive: true }); fs.writeFileSync(path.join(GEN_DIR, c.id + '.py'), c.code);
+    const credentials = c.credentials && c.credentials.length ? c.credentials : neededCredentials(c.code);   // BYO-credential allowlist
+    const integ = saveIntegration({ id: c.id, label: c.what, kind: 'mcp', command: 'python3 prototype/mcp/generated/' + c.id + '.py', url: '', enabled: true, generated: true, credentials, tools: [{ name: 'run', accepts: ['*'], emits: ['*'] }] });
+    trail('component-approve', { id: c.id, integration: integ.id, credentials });   // 名前のみ・値は出さない
+    return json(res, 200, { ...c, integration: integ.id, credentials });
+  } },
+  'POST /api/shenron/build': { a: 'bearer', h: (req, res, { j }) => {                                                // 神龍 Wave 3: plan IR → Langflow flow JSON
+    try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }
+    catch (e) { return json(res, 400, { error: e.message }); }
+  } },
+  'POST /api/shenron/skill': { a: 'bearer', h: (req, res, { j }) => {                                                // 神龍 Wave 7: 保存済み flow → Claude Code SKILL.md
+    const wf = readWorkflows().find((w) => w.id === j.id); if (!wf) return json(res, 404, { error: `no workflow "${j.id}"` });
+    const scope = j.scope === 'user' ? 'user' : 'repo';                            // DX-1: 'user'=~/.claude/skills / 'repo'=この project（既定）
+    const { slug, content } = flowSkill(wf);                                        // slug は [a-z0-9-] のみ＝path 外に出られない
+    const dir = path.join(skillsDir(scope), slug);
+    fs.mkdirSync(dir, { recursive: true }); const file = path.join(dir, 'SKILL.md'); fs.writeFileSync(file, content);
+    trail('flow-skill', { id: wf.id, slug, scope });
+    return json(res, 200, { slug, scope, path: path.relative(process.cwd(), file), content });
+  } },
+  'POST /api/shenron/skills/delete': { a: 'bearer', h: (req, res, { j }) => {                                         // DX-1: 生成 skill を削除。slug 検証＋マーカー必須。
+    const slug = String(j.slug || ''); const scope = j.scope === 'user' ? 'user' : 'repo';
+    if (!/^[a-z0-9-]+$/.test(slug)) return json(res, 400, { error: 'invalid slug' });   // path traversal 不能
+    const dir = path.join(skillsDir(scope), slug); const file = path.join(dir, 'SKILL.md');
+    let content; try { content = fs.readFileSync(file, 'utf8'); } catch { return json(res, 404, { error: `no skill "${slug}" in ${scope}` }); }
+    if (!/<!-- shenron-flow:/.test(content)) return json(res, 400, { error: 'refusing to delete a non-神龍 skill (no shenron-flow marker)' });
+    fs.rmSync(dir, { recursive: true, force: true }); trail('flow-skill-delete', { slug, scope });
+    return json(res, 200, { deleted: slug, scope });
+  } },
+  'POST /api/trust/preview': { a: 'bearer', h: (req, res, { j }) => json(res, 200, trustPreview(j)) },   // Wave E1: dry-run the firewall + cap gates（read-only）
+  'POST /api/credentials': { a: 'bearer', h: (req, res, { j }) => {   // Wave I: Credential vault
+    if (j.action === 'set') return json(res, 200, setCredential(j.id, j.value));
+    if (j.action === 'get') return json(res, 200, { id: j.id, present: getCredential(j.id) !== null }); // 値は返さない — AI context に Secret を流さない
+    if (j.action === 'list') return json(res, 200, { ids: listCredentials() });
+    if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
+    return json(res, 400, { error: 'action required: set|get|list|delete' });
+  } },
+  'POST /api/memory': { a: 'bearer', h: (req, res, { j }) => {   // Wave S: セッション横断メモリ。bearer 列＝旧「gate の後ゆえ認証済み」を明示化（memory は secret でないが credentials と同じ保護面に置く）。
+    if (j.action === 'add') return json(res, 200, addMemory(j.text, j.tags || []));
+    if (j.action === 'list') return json(res, 200, { memories: listMemories() });
+    if (j.action === 'recall') return json(res, 200, { memories: relevantMemories(j.query || '', j.topN || (j.query ? 3 : 5)) });
+    if (j.action === 'delete') return json(res, 200, deleteMemory(j.id));
+    return json(res, 400, { error: 'action required: add|list|recall|delete' });
+  } },
+  'POST /api/components/export': { a: 'bearer', h: (req, res, { j }) => {   // Wave J: Skill共有
+    const c = readComponents().find((x) => x.id === j.id); if (!c) return json(res, 404, { error: `no component "${j.id}"` });
+    const { what, code, iters, output } = c;
+    return json(res, 200, { what, code, iters: iters || 0, output: output || '', shenron: '1', exportedAt: new Date().toISOString() });
+  } },
+  'POST /api/components/import': { a: 'bearer', h: (req, res, { j }) => {
+    if (!j.code || !j.what) return json(res, 400, { error: 'need code + what' });
+    const saved = saveComponent({ what: j.what, code: j.code, output: j.output || '', iters: j.iters || 0 });
+    trail('component-import', { id: saved.id, what: saved.what });
+    return json(res, 200, { ...saved, approved: false, note: 'imported — approve with approve_component to activate' });
+  } },
+};
+// RX：regex route（完全一致の後・登録順 first-match-wins）。method でフィルタ＝GET 群と POST 群は同一配列で順序保存。
+const RX = [
+  // GET（runs/:id/stream は runs/:id より先＝旧コード順）
+  [/^\/api\/runs\/([^/]+)\/stream$/, 'GET', 'bearer', (req, res, { m }) => {   // O1: SSE live run stream
+    const run = state.runs[m[1]];
+    if (!run) return json(res, 404, { error: `no run "${m[1]}"` });
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive', 'access-control-allow-origin': '*' });
+    for (const [node, output] of Object.entries(run.outputs)) res.write(`data: ${JSON.stringify({ type: 'node', node, output, status: run.status })}\n\n`);   // snapshot of progress so far
+    if (run.status !== 'running') { res.write(`data: ${JSON.stringify({ type: 'done', status: run.status })}\n\n`); return res.end(); }   // already terminal → no live tail
+    let set = runListeners.get(run.id); if (!set) runListeners.set(run.id, (set = new Set())); set.add(res);
+    req.on('close', () => { const s = runListeners.get(run.id); if (s) { s.delete(res); if (!s.size) runListeners.delete(run.id); } });
+    return;
+  }],
+  [/^\/api\/runs\/([^/]+)$/, 'GET', 'bearer', (req, res, { m }) => { const r = state.runs[m[1]]; return r ? json(res, 200, r) : json(res, 404, { error: `no run "${m[1]}"` }); }],   // M-2: full run by id
+  [/^\/api\/workflows\/([^/]+)\/ui$/, 'GET', 'bearer', (req, res, { m }) => { const w = readWorkflows().find((w) => w.id === decodeURIComponent(m[1])); return w ? json(res, 200, { id: w.id, ui: w.ui || null }) : json(res, 404, { error: `no workflow "${m[1]}"` }); }],   // Wave UI S3: get artifact UI code
+  [/^\/api\/integrations\/([^/]+)$/, 'GET', 'bearer', (req, res, { m }) => { const it = readIntegrations().find((x) => x.id === decodeURIComponent(m[1])); return it ? json(res, 200, it) : json(res, 404, { error: `no integration "${m[1]}"` }); }],   // get ONE integration's full tool list
+  [/^\/api\/goals\/(.*)$/, 'GET', 'bearer', (req, res, { m }) => { const id = decodeURIComponent(m[1]); const g = readGoals().find((x) => x.id === id); return g ? json(res, 200, goalView(g)) : json(res, 404, { error: `no goal "${id}"` }); }],
+  // POST（旧コード順）
+  [/^\/api\/suggestions\/(.+)\/dismiss$/, 'POST', 'bearer', (req, res, { m }) => { const id = decodeURIComponent(m[1]); return json(res, 200, dismissSuggestion(id)); }],   // Ambient-1
+  [/^\/api\/suggestions\/(.+)\/apply$/, 'POST', 'bearer', (req, res, { m }) => { const id = decodeURIComponent(m[1]); applySuggestion(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }],   // Ambient-1 + Goals-3.1
+  [/^\/api\/goals\/(.+)\/checkin$/, 'POST', 'bearer', (req, res, { j, m }) => { const id = decodeURIComponent(m[1]); return json(res, 200, goalCheckin(id, j.value, j.note)); }],   // 手動 checkin
+  [/^\/api\/goals\/(.+)\/delete$/, 'POST', 'bearer', (req, res, { m }) => { const id = decodeURIComponent(m[1]); return json(res, 200, deleteGoal(id)); }],
+  [/^\/api\/goals\/(.+)\/suggest$/, 'POST', 'bearer', (req, res, { m }) => { const id = decodeURIComponent(m[1]); goalSuggest(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }],   // Wave Goals-3
+  [/^\/api\/workflows\/([^/]+)\/ui$/, 'POST', 'bearer', (req, res, { j, m }) => { const wid = decodeURIComponent(m[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; writeJsonAtomic(WF_FILE, arr); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); }],   // Wave UI S3: set artifact UI code
+  [/^\/api\/workflows\/([^/]+)\/clone$/, 'POST', 'bearer', (req, res, { j, m }) => { try { return json(res, 200, cloneWorkflow(decodeURIComponent(m[1]), j.name)); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } }],   // Wave Remix-1
+  [/^\/api\/workflows\/([^/]+)\/(share|unshare)$/, 'POST', 'bearer', (req, res, { m }) => { try { return json(res, 200, setVisibility(decodeURIComponent(m[1]), m[2] === 'share' ? 'shared' : 'private')); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } }],   // T-0: 庫への共有/非共有トグル
+  [/^\/api\/templates\/([^/]+)\/install$/, 'POST', 'bearer', (req, res, { m }) => {   // Wave O2: ワンクリック install → saveWorkflow
+    const t = readTemplates().find((x) => x.id === decodeURIComponent(m[1])); if (!t) return json(res, 404, { error: `no template "${m[1]}"` });
+    const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges });
+    const warnings = templateGaps(t);
+    trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length });   // 値は出さない・件数のみ
+    return json(res, 200, { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings });
+  }],
+  [/^\/api\/runs\/([^/]+)\/stop$/, 'POST', 'bearer', (req, res, { m }) => json(res, 200, stopRun(m[1]))],   // ⏹ stop an in-flight DAG run
+  [/^\/api\/integrations\/([^/]+)\/toggle$/, 'POST', 'bearer', (req, res, { j, m }) => json(res, 200, toggleIntegration(m[1], j.on))],
+  [/^\/api\/integrations\/([^/]+)\/delete$/, 'POST', 'bearer', (req, res, { m }) => { const id = decodeURIComponent(m[1]); const arr = readIntegrations().filter((x) => x.id !== id); writeIntegrations(arr); trail('integration-delete', { id }); return json(res, 200, { id, deleted: true }); }],   // UI-Compat-1
+  [/^\/api\/automations\/([^/]+)\/toggle$/, 'POST', 'bearer', (req, res, { j, m }) => json(res, 200, toggleAutomation(m[1], j.on))],
+  [/^\/api\/handoffs\/([^/]+)\/(approve|decline|result|checkpoint)$/, 'POST', 'bearer', (req, res, { j, m }) => json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : m[2] === 'checkpoint' ? ref(checkpoint(m[1], j)) : ref(postResult(m[1], j)))],
+  [/^\/api\/agents\/([^/]+)\/policy$/, 'POST', 'bearer', (req, res, { j, m }) => json(res, 200, setPolicy(m[1], j))],
+  [/^\/api\/agents\/([^/]+)\/autorun$/, 'POST', 'bearer', (req, res, { j, m }) => json(res, 200, setAutorun(m[1], j.on))], // per-agent autorun on/off
+  [/^\/api\/agents\/([^/]+)\/passport$/, 'POST', 'bearer', (req, res, { j, m }) => json(res, 200, setPassport(m[1], j))],  // Wave H: edit capability passport
+  [/^\/api\/agents\/([^/]+)\/run$/, 'POST', 'bearer', (req, res, { j, m }) => { runAgentSync(m[1], j.input).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }],   // P-2
+  [/^\/api\/agents\/([^/]+)\/delete$/, 'POST', 'bearer', (req, res, { m }) => json(res, 200, removeAgent(m[1]))],   // P-1
+  [/^\/api\/agents\/([^/]+)\/export-mcp$/, 'POST', 'bearer', (req, res, { m }) => json(res, 200, exportAgentMcp(m[1]))],   // P-3: standalone MCP server を書出
+];
+const matchRx = (method, p) => { for (const [rx, rm, a, h] of RX) { if (rm !== method) continue; const m = p.match(rx); if (m) return { a, h, m }; } return null; };
 
+const server = http.createServer((req, res) => {
+  const u = new URL(req.url, `http://localhost:${PORT}`);
+  const p = u.pathname;
+  if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization' }); return res.end(); }
+  // 同期相：ANY-method route（OAuth/discovery/mcp-sse）＋ 非 POST の method route。POST は body パース後（下）。
+  let e = ROUTES['ANY ' + p] || (req.method !== 'POST' ? ROUTES[req.method + ' ' + p] : undefined) || null;
+  let m;
+  if (!e && req.method !== 'POST') { const r = matchRx(req.method, p); if (r) { e = r; m = r.m; } }
+  if (e) { if (gate(e.a, req, res, req.method)) return; return e.h(req, res, { u, p, m }); }
+  if (req.method !== 'POST') {
+    if (req.method === 'GET' && p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized' });   // 旧 GET 面ゲートを未マッチ /api にも適用（unknown も 401 を保つ）
+    if (p.startsWith('/api/')) return json(res, 405, { error: 'use POST' });
+    res.writeHead(404); return res.end();
+  }
   let body = ''; req.on('data', (c) => { body += c; if (body.length > 32 * 1024 * 1024) req.destroy(); });
   req.on('end', () => {
     let j = {}; try { if (body) { const ct = req.headers['content-type'] || ''; j = ct.includes('x-www-form-urlencoded') ? Object.fromEntries(new URLSearchParams(body)) : JSON.parse(body); } } catch { return json(res, 400, { error: 'bad json' }); }
     try {
-      // Streamable HTTP MCP transport (POST /mcp or POST / — Claude.ai 2025 protocol)
+      // Streamable HTTP MCP transport（POST /mcp、または POST / の jsonrpc）— body 依存ゆえ表に入れず inline・自前 bearerOk。
       if (p === '/mcp' || (p === '/' && j.jsonrpc === '2.0')) {
         if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
         const { id, method, params } = j;
@@ -1621,245 +1862,10 @@ const server = http.createServer((req, res) => {
         }
         return json(res, 200, { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
       }
-      // Wave L: Auth POST routes — public (no bearer required)
-      if (p === '/api/auth/register') {
-        try {
-          const { userId, email, verifyToken } = register(j.email, j.password);
-          const base = reqBase(req);
-          const link = `${base}/api/auth/verify?token=${verifyToken}`;
-          console.log(`\n🐉 [auth] メール認証リンク (${email}):\n  ${link}\n`);
-          trail('auth-register', { email });
-          return json(res, 201, { userId, email, note: 'verification link printed to hub terminal' });
-        } catch (e) { return json(res, 400, { error: e.message }); }
-      }
-      if (p === '/api/auth/login') {
-        try {
-          const result = login(j.email, j.password);
-          const cookie = `shenron_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${30 * 24 * 3600}`;
-          res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': cookie, 'access-control-allow-origin': '*' });
-          res.end(JSON.stringify({ email: result.email, userId: result.userId, expiresAt: result.expiresAt }));
-          trail('auth-login', { email: j.email });
-          return;
-        } catch (e) { return json(res, 401, { error: e.message }); }
-      }
-      if (p === '/api/auth/logout') {
-        const tok = cookieSession(req); if (tok) logout(tok);
-        res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'shenron_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0', 'access-control-allow-origin': '*' });
-        return res.end(JSON.stringify({ ok: true }));
-      }
-      // Wave M-1: password reset — public (no bearer required, same as register/login)
-      if (p === '/api/auth/reset-request') {
-        try {
-          const r = resetRequest(j.email);
-          if (r.resetToken) { const base = reqBase(req); console.log(`\n🔑 [auth] パスワードリセットリンク (${r.email}):\n  ${base}/api/auth/reset?token=${r.resetToken}\n`); }
-          trail('auth-reset-request', { email: j.email || '?' });
-          return json(res, 200, { note: 'if registered, reset link printed to hub terminal' });
-        } catch (e) { return json(res, 400, { error: e.message }); }
-      }
-      if (p === '/api/auth/reset') {
-        try { return json(res, 200, resetPassword(j.token, j.password)); }
-        catch (e) { return json(res, 400, { error: e.message }); }
-      }
-      // Wave B1: role 付替え（admin 専用）。set_role MCP(stdio) と settings.html admin が同ルートを叩く。
-      if (p === '/api/auth/role') {
-        if (!isAdmin(req)) return json(res, 403, { error: 'admin only' });
-        try { return json(res, 200, setRole(j.userId, j.role)); }
-        catch (e) { return json(res, 400, { error: e.message }); }
-      }
-      // OAuth POST endpoints
-      if (p === '/oauth/register') { const client_id = randomUUID().replace(/-/g, ''); oauthClients.set(client_id, { name: j.client_name || 'client' }); return json(res, 201, { client_id, token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'] }); }
-      if (p === '/oauth/token') {
-        if (j.grant_type !== 'authorization_code') return json(res, 400, { error: 'unsupported_grant_type' });
-        const entry = oauthCodes.get(j.code);
-        if (!entry) return json(res, 400, { error: 'invalid_grant' });
-        if (entry.code_challenge && createHash('sha256').update(j.code_verifier || '').digest('base64url') !== entry.code_challenge) return json(res, 400, { error: 'invalid_grant' });
-        oauthCodes.delete(j.code);
-        const access_token = randomUUID().replace(/-/g, '');
-        oauthTokens.add(access_token); console.log(`[oauth] token issued (${oauthTokens.size} active)`);
-        return json(res, 200, { access_token, token_type: 'bearer', expires_in: 86400 * 365 });
-      }
-      if (p === '/mcp/messages') {  // Remote MCP: JSON-RPC 2.0 dispatch; response via SSE
-        if (!bearerOk(req)) return json(res, 401, { error: 'unauthorized' });
-        const sid = u.searchParams.get('sessionId');
-        const sse = sid && mcpSessions.get(sid);
-        const send = (obj) => { if (sse) sse.write(`event: message\ndata: ${JSON.stringify(obj)}\n\n`); };
-        json(res, 202, {});  // ack immediately; real response goes over SSE
-        const { id, method, params } = j;
-        if (method === 'initialize' || method === 'notifications/initialized') {
-          if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'shenron', version: '1.0' } } });
-        } else if (method === 'tools/list') {
-          send({ jsonrpc: '2.0', id, result: { tools: [...REMOTE_TOOLS, ...agentTools()] } });   // P-2: 作成済み agent も tool として露出
-        } else if (method === 'tools/call') {
-          mcpDispatch((params || {}).name, (params || {}).arguments || {})
-            .then((r) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] } }))
-            .catch((e) => send({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } }));
-        } else {
-          send({ jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
-        }
-        return;
-      }
-      // Wave C: act routes (mutating /api/* POST) require the same auth as /mcp/* — OAuth bearer or A2A_SHARED_TOKEN.
-      // bearerOk is open when neither is configured (local dev). Reads (GET) stay open. /oauth/* and /mcp* handled above.
-      if (p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized', hint: 'Authorization: Bearer <A2A_SHARED_TOKEN or OAuth access token>' });
-      if (p === '/api/handoffs') return json(res, 200, ref(create(j)));
-      if (p === '/api/poll') return json(res, 200, { runnable: poll(j.agent) });
-      if (p === '/api/audit') return json(res, 200, trail(j.type || 'note', j.detail || {}));   // Wave 11: out-of-process worker (browser-control) appends its per-action trail to the central audit (it can't call trail() in-process)
-      if (p === '/api/permissions') { const rules = addAllowRule(readPermissions(), { tool: j.tool, domain: j.domain }); writePermissions(rules); trail('permission', { effect: 'allow', tool: j.tool || null, domain: j.domain || null, by: 'human' }); return json(res, 200, rules); }   // Wave 11b: 「常に許可」 — append an allow rule (audited)
-      if (p === '/api/login-detected') { const s = recordLogin(j.domain, !!j.resolved); trail('login-detected', { domain: j.domain || null, resolved: !!j.resolved }); return json(res, 200, { ok: true, state: j.domain ? s[j.domain] : null }); }   // Wave Login-1: worker → hub。ログイン要求の検出/解消を記録（audited・値は持たない）
-      if (p === '/api/artifact-llm') {                                              // Wave UI S1: artifact が api.anthropic.com に fetch → hub が server-side proxy（鍵は箱に残る）
-        const apiKey = process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) return json(res, 400, { error: 'ANTHROPIC_API_KEY not set — artifact LLM proxy unavailable' });
-        fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(j) })
-          .then((r) => r.json().then((d) => json(res, r.status, d)))
-          .catch((e) => json(res, 502, { error: e.message }));
-        return;
-      }
-      if (p.startsWith('/api/suggestions/') && p.endsWith('/dismiss')) { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/dismiss'.length)); return json(res, 200, dismissSuggestion(id)); }   // Ambient-1
-      if (p.startsWith('/api/suggestions/') && p.endsWith('/apply'))   { const id = decodeURIComponent(p.slice('/api/suggestions/'.length, -'/apply'.length)); applySuggestion(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Ambient-1 + Goals-3.1（goal 提案は save:true 実体化で async）
-      if (p === '/api/goals') return json(res, 200, saveGoal(j || {}));                                     // Wave Goals-1: ゴール作成/更新
-      if (p.startsWith('/api/goals/') && p.endsWith('/checkin')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/checkin'.length)); return json(res, 200, goalCheckin(id, j.value, j.note)); }   // 手動 checkin（最新値が現在値）
-      if (p.startsWith('/api/goals/') && p.endsWith('/delete')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/delete'.length)); return json(res, 200, deleteGoal(id)); }
-      if (p.startsWith('/api/goals/') && p.endsWith('/suggest')) { const id = decodeURIComponent(p.slice('/api/goals/'.length, -'/suggest'.length)); goalSuggest(id).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return; }   // Wave Goals-3: 次の手提案（planFlow async）
-      if (p === '/api/workflows') return json(res, 200, saveWorkflow({ ...j, owner: sessionUid(req) }));     // save wired DAG (nodes/edges canonical)・T-0: 作成者=seat owner
-      { const um = p.match(/^\/api\/workflows\/([^/]+)\/ui$/);   // Wave UI S3: set artifact UI code for a workflow
-        if (um) { const wid = decodeURIComponent(um[1]); const arr = readWorkflows(); const i = arr.findIndex((w) => w.id === wid); if (i < 0) return json(res, 404, { error: `no workflow "${wid}"` }); arr[i] = { ...arr[i], ui: j.code ?? null }; writeJsonAtomic(WF_FILE, arr); trail('workflow-ui-set', { id: wid }); return json(res, 200, { id: wid, ui: arr[i].ui }); } }
-      { const cm = p.match(/^\/api\/workflows\/([^/]+)\/clone$/);   // Wave Remix-1: fork a saved flow → new editable copy
-        if (cm) { try { return json(res, 200, cloneWorkflow(decodeURIComponent(cm[1]), j.name)); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
-      { const sm = p.match(/^\/api\/workflows\/([^/]+)\/(share|unshare)$/);   // T-0: 庫への共有/非共有トグル（visibility flip・owner 不変）。MCP の share_workflow と同じ setVisibility を cockpit にも露出
-        if (sm) { try { return json(res, 200, setVisibility(decodeURIComponent(sm[1]), sm[2] === 'share' ? 'shared' : 'private')); } catch (e) { return json(res, 404, { error: String(e.message || e) }); } } }
-      { const tm = p.match(/^\/api\/templates\/([^/]+)\/install$/);   // Wave O2: ワンクリック install → saveWorkflow（同梱テンプレを編集可能な workflow として複製）。local const = この行は `let m;`(後方宣言)より前
-        if (tm) {
-          const t = readTemplates().find((x) => x.id === decodeURIComponent(tm[1])); if (!t) return json(res, 404, { error: `no template "${tm[1]}"` });
-          const wf = saveWorkflow({ id: t.id, name: t.name, summary: t.summary || '', nodes: t.nodes, edges: t.edges });
-          const warnings = templateGaps(t);
-          trail('template-install', { id: t.id, workflow: wf.id, gaps: warnings.length });   // 値は出さない・件数のみ
-          return json(res, 200, { workflowId: wf.id, name: wf.name, requires: t.requires || [], warnings });
-        } }
-      if (p === '/api/runflow') return json(res, 200, runFlow(j));            // topo-run a DAG (draft nodes/edges, or saved id)
-      if (p === '/api/langflow/run') { langflowRun(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // 🔗 delegate an exotic Langflow flow to /api/v1/run, fenced (audit appended → persist)
-      if (p === '/api/langflow/import') { langflowImport(state.audit, j).then((r) => { save(); json(res, 200, r); }).catch((e) => { save(); json(res, 400, { error: e.message }); }); return; }  // ⤴ register a flow INTO Langflow (raw, verbatim) so /api/v1/run can run it
-      if (p === '/api/automations') return json(res, 200, saveAutomation(j)); // save trigger + wired workflow as an automation
-      if (p === '/api/check') return json(res, 200, setCheck(j.automation, j.expect));   // Wave R-1: set_check（automation に expect 付与/解除）
-      if (p === '/api/fire') return json(res, 200, fireEvent(j.event || {}, j.input)); // build-state event → fire matching automations
-      if (p === '/api/tick') { tickScheduler(); return json(res, 200, { ok: true, at: new Date().toISOString(), schedulerOn: schedulerOn() }); }
-      if (p === '/api/notify/test') {   // M-3: ping all enabled notify integrations with a test payload
-        const notifiers = readIntegrations().filter((i) => i.enabled !== false && i.kind === 'notify');
-        const payload = JSON.stringify({ type: 'test', at: new Date().toISOString(), message: 'Shenron test notification' });
-        Promise.all(notifiers.map((n) => {
-          const headers = { 'content-type': 'application/json' };
-          if (n.token) headers['authorization'] = `Bearer ${n.token}`;
-          const body = n.format === 'slack' ? JSON.stringify({ text: '🧪 Shenron test notification' }) : payload;
-          return fetch(n.url, { method: 'POST', headers, body })
-            .then((r) => ({ id: n.id, url: n.url, ok: r.ok, status: r.status }))
-            .catch((e) => ({ id: n.id, url: n.url, ok: false, error: e.message }));
-        })).then((results) => json(res, 200, { sent: results.length, results }));
-        return;
-      }   // Wave: 無料外部 cron(Cloudflare/cron-job.org 等)が叩く seam＝now due な schedule automation を発火（hub が起きてる時のみ届く）
-      if (p === '/api/config') { writeCfg(mergeCfg(j)); trail('config-set', { keys: Object.keys(j) }); return json(res, 200, configStatus()); }   // Wave: 設定を1か所で更新（MCP/NL set_config も here）。secret は受けない（keyEnv は剥がす）
-      if (p === '/api/fire/preview') return json(res, 200, firePreview(j.event || {})); // Wave 2: dry-run — what this event would fire (no run)
-      if (p === '/api/autorun') return json(res, 200, setGlobalAutorun(j.on));         // global master autorun on/off
-      if (p === '/api/integrations') return json(res, 200, saveIntegration(j));        // add/update an MCP server integration
-      if (p === '/api/agents') return json(res, 200, createAgent(j));                  // create a (runnable, in-process) agent from a draft
-      if (p === '/api/shenron/plan') {                                                 // 神龍 Wave 1: NL goal → plan IR（Wave B③: planFlow に集約＝remote-MCP と同一経路。have/missing は LLM-resolve §1.5-F、nodes/edges validate+layout、available も返す）
-        planFlow({ goal: j.goal, save: j.save, gap: j.gap, context: j.context, cost: j.cost, owner: sessionUid(req) })       // Wave 5: context で対話修正／gap 道具生成の枝／cost／T-0: plan→save に seat owner
-          .then((r) => json(res, 200, r))
-          .catch((e) => json(res, 400, { error: e.message }));
-        return;
-      }
-      if (p === '/api/shenron/gen-artifact-ui') {   // Wave UI S4: JSX 成果物 UI 生成
-        genArtifactUi({ what: j.what, vendor: EXEC_VENDOR || 'claude' })
-          .then((r) => { trail('gen-artifact-ui', { what: r.what, converged: r.converged }); json(res, 200, r); })
-          .catch((e) => json(res, 400, { error: e.message }));
-        return;
-      }
-      if (p === '/api/shenron/gen-component') {                                         // 神龍 Wave 4+8: gap "what" → 生成→使い捨てサンドボックス収束検証→登録庫。承認済みは再生成せず即返す（§H/§I）。
-        const cached = matchComponent(readComponents(), j.what);                        // Wave 8: vetted 済みなら LLM+サンドボックスを skip（cache hit）
-        if (cached) { trail('gen-component', { what: cached.what, cached: true, id: cached.id }); return json(res, 200, { what: cached.what, code: cached.code, iters: 0, converged: true, output: cached.output, id: cached.id, approved: true, cached: true }); }
-        genComponent({ what: j.what, vendor: EXEC_VENDOR || 'claude', maxIters: j.maxIters || 3 })
-          .then((r) => {
-            const saved = r.converged ? saveComponent(r) : null;                       // 収束→pending(approved:false) で登録。承認後に再利用される（§H 人ゲート）
-            trail('gen-component', { what: r.what, iters: r.iters, converged: r.converged, registered: saved ? saved.id : null });
-            json(res, 200, saved ? { ...r, id: saved.id, approved: false } : r);
-          })
-          .catch((e) => json(res, 400, { error: e.message }));
-        return;
-      }
-      if (p === '/api/shenron/components/approve') {                                  // Wave 9 人ゲート: 承認 → server.py 書出 + integration 登録 = ladder rejoin（生成部品が ladder 第1段に戻る・再生成不要・以降は実 mcp node として plan/run）
-        const c = approveComponent(j.id);                                             // Wave 8: approved フラグ（gen-component cache の再利用ゲート）
-        const GEN_DIR = path.join(HERE, '..', 'mcp', 'generated');                    // command は REPO_ROOT 相対 → runMcp が cwd:REPO_ROOT で spawn（echo と同形）
-        fs.mkdirSync(GEN_DIR, { recursive: true }); fs.writeFileSync(path.join(GEN_DIR, c.id + '.py'), c.code);
-        const credentials = c.credentials && c.credentials.length ? c.credentials : neededCredentials(c.code);   // BYO-credential allowlist（旧 component に未保存でも承認時に再 scan）
-        const integ = saveIntegration({ id: c.id, label: c.what, kind: 'mcp', command: 'python3 prototype/mcp/generated/' + c.id + '.py', url: '', enabled: true, generated: true, credentials, tools: [{ name: 'run', accepts: ['*'], emits: ['*'] }] });
-        trail('component-approve', { id: c.id, integration: integ.id, credentials });   // 名前のみ・値は出さない
-        return json(res, 200, { ...c, integration: integ.id, credentials });
-      }
-      if (p === '/api/shenron/build') {                                                // 神龍 Wave 3: plan IR → Langflow flow JSON (importLangflowFlow の逆)。cockpit が importLangflowFlow(flow) で描画。
-        try { const flow = toLangflowFlow(j.plan || j); trail('langflow-build', { nodes: flow.data.nodes.length, edges: flow.data.edges.length }); return json(res, 200, { flow }); }   // §5 Wave3 fence: audit 記録（実 Langflow 登録は既存 /api/langflow/import = Wave 6）
-        catch (e) { return json(res, 400, { error: e.message }); }
-      }
-      if (p === '/api/shenron/skill') {                                                // 神龍 Wave 7: 保存済み flow → Claude Code SKILL.md（run_workflow を呼ぶ薄ラッパ）。DX-1: scope で出力先を選ぶ。
-        const wf = readWorkflows().find((w) => w.id === j.id); if (!wf) return json(res, 404, { error: `no workflow "${j.id}"` });
-        const scope = j.scope === 'user' ? 'user' : 'repo';                            // DX-1: 'user'=~/.claude/skills（全リポジトリ横断）/ 'repo'=この project（既定・後方互換）
-        const { slug, content } = flowSkill(wf);                                        // slug は [a-z0-9-] のみ＝下の join で path 外に出られない
-        const dir = path.join(skillsDir(scope), slug);
-        fs.mkdirSync(dir, { recursive: true }); const file = path.join(dir, 'SKILL.md'); fs.writeFileSync(file, content);
-        trail('flow-skill', { id: wf.id, slug, scope });
-        return json(res, 200, { slug, scope, path: path.relative(process.cwd(), file), content });
-      }
-      if (p === '/api/shenron/skills/delete') {                                         // DX-1: 生成 skill を削除。slug 検証＋マーカー必須で手書き skill を誤殺しない。
-        const slug = String(j.slug || ''); const scope = j.scope === 'user' ? 'user' : 'repo';
-        if (!/^[a-z0-9-]+$/.test(slug)) return json(res, 400, { error: 'invalid slug' });   // path traversal 不能
-        const dir = path.join(skillsDir(scope), slug); const file = path.join(dir, 'SKILL.md');
-        let content; try { content = fs.readFileSync(file, 'utf8'); } catch { return json(res, 404, { error: `no skill "${slug}" in ${scope}` }); }
-        if (!/<!-- shenron-flow:/.test(content)) return json(res, 400, { error: 'refusing to delete a non-神龍 skill (no shenron-flow marker)' });
-        fs.rmSync(dir, { recursive: true, force: true }); trail('flow-skill-delete', { slug, scope });
-        return json(res, 200, { deleted: slug, scope });
-      }
-      if (p === '/api/trust/preview') return json(res, 200, trustPreview(j));   // Wave E1: dry-run the firewall + cap gates over a draft flow (read-only)
-      // Wave I: Credential vault
-      if (p === '/api/credentials') {
-        if (j.action === 'set') return json(res, 200, setCredential(j.id, j.value));
-        if (j.action === 'get') return json(res, 200, { id: j.id, present: getCredential(j.id) !== null }); // 値は返さない — AI context に Secret を流さない
-        if (j.action === 'list') return json(res, 200, { ids: listCredentials() });
-        if (j.action === 'delete') return json(res, 200, deleteCredential(j.id));
-        return json(res, 400, { error: 'action required: set|get|list|delete' });
-      }
-      // Wave S: セッション横断メモリ
-      if (p === '/api/memory') {
-        if (j.action === 'add') return json(res, 200, addMemory(j.text, j.tags || []));
-        if (j.action === 'list') return json(res, 200, { memories: listMemories() });
-        if (j.action === 'recall') return json(res, 200, { memories: relevantMemories(j.query || '', j.topN || (j.query ? 3 : 5)) });
-        if (j.action === 'delete') return json(res, 200, deleteMemory(j.id));
-        return json(res, 400, { error: 'action required: add|list|recall|delete' });
-      }
-      // 注: この block は p.startsWith('/api/') の bearerOk gate の後にあるため認証済み。memory は secret でないが credentials と同じ保護面に置く。
-      // Wave J: Skill共有
-      if (p === '/api/components/export') {
-        const c = readComponents().find((x) => x.id === j.id); if (!c) return json(res, 404, { error: `no component "${j.id}"` });
-        const { what, code, iters, output } = c;
-        return json(res, 200, { what, code, iters: iters || 0, output: output || '', shenron: '1', exportedAt: new Date().toISOString() });
-      }
-      if (p === '/api/components/import') {
-        if (!j.code || !j.what) return json(res, 400, { error: 'need code + what' });
-        const saved = saveComponent({ what: j.what, code: j.code, output: j.output || '', iters: j.iters || 0 });
-        trail('component-import', { id: saved.id, what: saved.what });
-        return json(res, 200, { ...saved, approved: false, note: 'imported — approve with approve_component to activate' });
-      }
-      let m;
-      if ((m = p.match(/^\/api\/runs\/([^/]+)\/stop$/))) return json(res, 200, stopRun(m[1]));   // ⏹ stop an in-flight DAG run
-      if ((m = p.match(/^\/api\/integrations\/([^/]+)\/toggle$/))) return json(res, 200, toggleIntegration(m[1], j.on));
-      if ((m = p.match(/^\/api\/integrations\/([^/]+)\/delete$/))) { const id = decodeURIComponent(m[1]); const arr = readIntegrations().filter((x) => x.id !== id); writeIntegrations(arr); trail('integration-delete', { id }); return json(res, 200, { id, deleted: true }); }   // UI-Compat-1: 誤登録の通知先/サーバーを削除（settings UI から）
-      if ((m = p.match(/^\/api\/automations\/([^/]+)\/toggle$/))) return json(res, 200, toggleAutomation(m[1], j.on));
-      if ((m = p.match(/^\/api\/handoffs\/([^/]+)\/(approve|decline|result|checkpoint)$/)))
-        return json(res, 200, m[2] === 'approve' ? ref(approve(m[1])) : m[2] === 'decline' ? ref(decline(m[1])) : m[2] === 'checkpoint' ? ref(checkpoint(m[1], j)) : ref(postResult(m[1], j)));
-      if ((m = p.match(/^\/api\/agents\/([^/]+)\/policy$/))) return json(res, 200, setPolicy(m[1], j));
-      if ((m = p.match(/^\/api\/agents\/([^/]+)\/autorun$/))) return json(res, 200, setAutorun(m[1], j.on)); // per-agent autorun on/off
-      if ((m = p.match(/^\/api\/agents\/([^/]+)\/passport$/))) return json(res, 200, setPassport(m[1], j));  // Wave H: edit capability passport
-      if ((m = p.match(/^\/api\/agents\/([^/]+)\/run$/))) {   // P-2: run a local agent synchronously, return its output
-        runAgentSync(m[1], j.input).then((r) => json(res, 200, r)).catch((e) => json(res, 400, { error: e.message })); return;
-      }
-      if ((m = p.match(/^\/api\/agents\/([^/]+)\/delete$/))) return json(res, 200, removeAgent(m[1]));   // P-1
-      if ((m = p.match(/^\/api\/agents\/([^/]+)\/export-mcp$/))) return json(res, 200, exportAgentMcp(m[1]));   // P-3: standalone MCP server を書出
+      let pe = ROUTES['POST ' + p], pm;
+      if (!pe) { const r = matchRx('POST', p); if (r) { pe = r; pm = r.m; } }
+      if (pe) { if (gate(pe.a, req, res, 'POST')) return; return pe.h(req, res, { u, p, j, m: pm }); }
+      if (p.startsWith('/api/') && !bearerOk(req)) return json(res, 401, { error: 'unauthorized', hint: 'Authorization: Bearer <A2A_SHARED_TOKEN or OAuth access token>' });   // 旧 POST 面ゲートを未マッチ /api にも適用
       return json(res, 404, { error: `unknown route ${p}` });
     } catch (e) { return json(res, 400, { error: e.message }); }
   });
