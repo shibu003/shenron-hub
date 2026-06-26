@@ -7,7 +7,7 @@
      Trust / run-history / settings live elsewhere. Zero-dep; the hub re-reads this file per GET. -->
 <style>
   :root { --bg:#0a0c10; --panel:#0c1822; --panel2:#0f1f2c; --line:#213e56; --txt:#c2d6e6; --dim:#6d8aa0;
-          --green:#3fae7a; --amber:#c79338; --blue:#5b9bd1; --red:#c2554f; --grey:#5e84a0; }
+          --green:#3fae7a; --amber:#c79338; --blue:#5b9bd1; --red:#c2554f; --grey:#5e84a0; --aiwire:#a371f7; }
   * { box-sizing:border-box; }
   body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); overflow:hidden; }
   button { font:inherit; }
@@ -593,6 +593,8 @@ function lastOutput(id){ const rs=state.runs||[]; for(let i=rs.length-1;i>=0;i--
 /* Langflow-style: color handles + edges by data type (stable hash → palette; "*"/unknown → gray). */
 const TYPE_PALETTE=['#4f46e5','#dc2626','#ec4899','#10b981','#c026d3','#00b3b3','#d29922','#7c3aed'];
 function typeColor(tp){ if(!tp||tp==='*') return '#9ca3af'; let h=0; for(let i=0;i<tp.length;i++) h=(h*31+tp.charCodeAt(i))>>>0; return TYPE_PALETTE[h%TYPE_PALETTE.length]; }
+const AI_AUX = new Set(['model','parser']);   // W1: R1 後の AI 補助 kind（model=LLM 統合・parser=唯一の非 LLM 整形）。両端どちらかに絡む edge を破線紫で描く（W4 で同じ集合を円＋◆に昇格）
+const isAiEdge = (e) => AI_AUX.has(comp(e.source)?.kind) || AI_AUX.has(comp(e.target)?.kind);   // comp() は trigger/mcp/note を弾く＝agent も undefined→false で安全（drawLinks の br 行と同一アクセサ）
 // S1 (n8n化) — fixed I/O ports: output dot on the node's RIGHT edge, input tab on its LEFT edge; wires run
 // right→left with an arrowhead at the target (drawLinks marker-end). Reverses the old C1 "floating" design
 // (borderPoint) which had no fixed side. borderPoint is kept only for the in-drag temp-wire preview, and the
@@ -857,9 +859,10 @@ function drawLinks(){
     const fenced = pw ? pw.fences.length>0 : !!(e.share&&((e.share.never||[]).length));        // Wave A/E1: this wire has a data-firewall policy
     const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
     const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;                     // Wave E2: router branch label
-    const lbl=(br?(br+': '):'')+(fenced?(''+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):typeColor(e.type);
+    const ai = !fenced && !br && isAiEdge(e);                                                    // W1: AI 補助 edge（fenced/router 分岐より下位＝可読性で分岐構造を勝たせる）
+    const lbl=(br?(br+': '):'')+(fenced?(''+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):ai?'var(--aiwire)':typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
-    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85" marker-end="url(#arrow)"${fenced?' stroke-dasharray="6 3"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85" marker-end="url(#arrow)"${fenced?' stroke-dasharray="6 3"':ai?' stroke-dasharray="5 5"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
       +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0a121b" stroke="${col}" stroke-width="2"/>`
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0a121b" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
