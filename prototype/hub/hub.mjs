@@ -735,6 +735,15 @@ function setPassport(id, { caps, share }) {                   // Wave H/B: edit 
 // structurally can't show (it has no trust model). Read-only — never mutates state, never sends. Concrete
 // strip counts are shown only where the upstream text is known (input nodes / flow input); agent outputs are
 // runtime, so their outgoing edges report the wire POLICY (fenced categories) instead of counts — honest, no overclaim.
+// Wave B7 — the per-edge fence shared by live (fenceEdge) and dry-run (trustPreview): extract edge.share.never,
+// run the always-on secret/PII + never firewall, and judge cross-company. PURE — no audit/trail here, so the
+// dry-run path stays strictly read-only; the live caller owns the trail('redact',…). sc/tc are passed IN because
+// callers derive company differently (run context vs raw node). redact tolerates undefined value (String(v??'')).
+function evaluateEdgeFence(edge, value, sc, tc) {
+  const never = (edge && edge.share && Array.isArray(edge.share.never)) ? edge.share.never : [];
+  const fw = redact(value, { never });
+  return { text: fw.text, removed: fw.removed, cross: isCrossCompany(sc, tc), never };
+}
 function trustPreview({ nodes, edges, input }) {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('nodes[] + edges[] required');
   const { nodes: N, edges: E } = filterTriggers(nodes, edges, true);
@@ -743,13 +752,11 @@ function trustPreview({ nodes, edges, input }) {
   const known = new Map();                                   // node id -> text the firewall can evaluate concretely (input nodes + flow input)
   for (const n of N) if (n.kind === 'input') known.set(n.id, (n.config && n.config.text) || input || '');
   const wires = E.map((e) => {
-    const s = byId.get(e.source), t = byId.get(e.target);
-    const sc = companyOfNode(s), tc = companyOfNode(t), cross = isCrossCompany(sc, tc);
-    const never = (e.share && Array.isArray(e.share.never)) ? e.share.never : [];
-    const fences = ['secrets/PII'].concat(never.length ? [`never:${never.join(',')}`] : []).concat(cross ? ['cross-company'] : []);
+    const sc = companyOfNode(byId.get(e.source)), tc = companyOfNode(byId.get(e.target));
     const up = known.has(e.source) ? known.get(e.source) : undefined;   // concrete only when upstream emits known text
-    const removed = up !== undefined ? redact(up, { never }).removed : null;
-    return { id: e.id || `${e.source}→${e.target}`, source: e.source, target: e.target, crossCompany: cross, fences, previewRemoved: removed, knownUpstream: up !== undefined };
+    const { removed, cross, never } = evaluateEdgeFence(e, up, sc, tc);
+    const fences = ['secrets/PII'].concat(never.length ? [`never:${never.join(',')}`] : []).concat(cross ? ['cross-company'] : []);
+    return { id: e.id || `${e.source}→${e.target}`, source: e.source, target: e.target, crossCompany: cross, fences, previewRemoved: up !== undefined ? removed : null, knownUpstream: up !== undefined };
   });
   const gates = [];
   for (const n of N) {
@@ -797,12 +804,10 @@ function stopRun(id) {
 // refinement — see docs/11 §2.6 #2). Every removal lands in the tamper-evident audit, tagged with the edge.
 const companyOf = (run, nodeId) => { const n = nodeById(run, nodeId); const a = n && n.agent && state.agents[n.agent]; return a ? (a.company || null) : null; };
 function fenceEdge(run, edge, value) {
-  const never = (edge && edge.share && Array.isArray(edge.share.never)) ? edge.share.never : [];
   const sc = companyOf(run, edge.source), tc = companyOf(run, edge.target);
-  const cross = isCrossCompany(sc, tc);
-  const fw = redact(value, { never });
-  if (fw.removed.length) trail('redact', { runId: run.id, edge: edge.id || `${edge.source}→${edge.target}`, from: edge.source, to: edge.target, crossCompany: cross || undefined, removed: fw.removed });
-  return fw.text;
+  const { text, removed, cross } = evaluateEdgeFence(edge, value, sc, tc);
+  if (removed.length) trail('redact', { runId: run.id, edge: edge.id || `${edge.source}→${edge.target}`, from: edge.source, to: edge.target, crossCompany: cross || undefined, removed });   // audit lives HERE (live only) — dry-run never trails
+  return text;
 }
 // Wave E2 — dataflow with dead-branch elimination (so a router can fire ONE branch). An edge is "dead" if it's
 // a router branch not taken (or feeds from a skipped node); a node is "skipped" if EVERY incoming edge is dead.
