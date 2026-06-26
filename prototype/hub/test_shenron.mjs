@@ -52,6 +52,35 @@ for (const sentinel of ['[stub] (no vendor "stub")', '[claude → stub] planner 
 const keptOnStub = await plan({ goal: 'x', context: { prev_plan: h, instruction: 'tweak' }, run: async () => '[stub] (no vendor "stub")' });
 assert.equal(keptOnStub, h, 'refine + stub-fail → keep exact prev_plan, not unavailable');
 
+// PC2 多ターン相談: clarify→choices→clarify→choices→plan で brief が蓄積し、確定要件が毎ターン planner に渡る（同じ質問を繰り返さない）
+{
+  const prompts = []; let turn = 0;
+  const run = async (_v, prompt) => { prompts.push(prompt); turn++;
+    if (turn === 1) return JSON.stringify({ clarify: [{ question: 'どのプラットフォーム?', options: ['X', 'Instagram'] }], assumptions: ['週次で投稿すると仮定'] });
+    if (turn === 2) return JSON.stringify({ clarify: [{ question: '投稿頻度は?', options: ['毎日', '週1'] }] });
+    return JSON.stringify({ plain_summary: 'X に週1投稿', steps: [{ action: 'draft a post', kind: 'prompt' }] });
+  };
+  const r1 = await plan({ goal: 'SNS を始めたい', run });
+  assert.equal(r1.mode, 'clarify', 'PC2 turn1: clarify');
+  assert.deepEqual(r1.brief.open, ['どのプラットフォーム?'], 'PC2 turn1: open = Q1');
+  assert.deepEqual(r1.brief.confirmed, [], 'PC2 turn1: nothing confirmed yet');
+  assert.deepEqual(r1.brief.assumptions, ['週次で投稿すると仮定'], 'PC2 turn1: planner assumption carried into brief');
+
+  const r2 = await plan({ goal: 'SNS を始めたい', context: { choices: [{ question: 'どのプラットフォーム?', answer: 'X' }], brief: r1.brief }, run });
+  assert.equal(r2.mode, 'clarify', 'PC2 turn2: clarify again');
+  assert.deepEqual(r2.brief.confirmed, ['どのプラットフォーム?: X'], 'PC2 turn2: Q1 answer accumulated into confirmed');
+  assert.deepEqual(r2.brief.open, ['投稿頻度は?'], 'PC2 turn2: open advances to Q2');
+  assert.deepEqual(r2.brief.assumptions, ['週次で投稿すると仮定'], 'PC2 turn2: assumption carried forward across turns');
+  assert.match(prompts[1], /どのプラットフォーム\?: X/, 'PC2 turn2 prompt sees the just-answered choice (via context.choices)');
+  assert.match(prompts[1], /週次で投稿すると仮定/, 'PC2 turn2 prompt re-injects the carried assumption (via context.brief)');
+
+  const r3 = await plan({ goal: 'SNS を始めたい', context: { choices: [{ question: '投稿頻度は?', answer: '週1' }], brief: r2.brief }, run });
+  assert.ok(r3.steps && r3.steps.length, 'PC2 turn3: enough context → proceeds to a plan');
+  assert.match(prompts[2], /どのプラットフォーム\?: X/, 'PC2 turn3 prompt carries Q1 confirmed (from brief, would be lost without it)');
+  assert.match(prompts[2], /投稿頻度は\?: 週1/, 'PC2 turn3 prompt carries the latest answer (from choices)');
+  console.log('  ✓ PC2 multi-turn brief accumulation (clarify→choices→clarify→choices→plan)');
+}
+
 // full node-type palette + router branching (planner designs kinds AND wires them)
 const br = buildPlanIR('if it has errors alert, else save', { plain_summary: 'p', steps: [
   { action: 'reformat', kind: 'parser' },                                          // deterministic, no LLM

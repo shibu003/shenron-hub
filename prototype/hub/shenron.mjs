@@ -29,7 +29,7 @@ export const matchComponent = (components, what) => {
   return (components || []).find((c) => c.approved && componentKey(c.what) === k) || null;
 };
 
-const PROMPT = (goal, inv, choices, cost) => `You plan an automation flow. Goal: "${goal}".${choices ? `\nThe user already answered these — use them and proceed to a plan:\n${choices}` : ''}
+const PROMPT = (goal, inv, choices, cost, brief) => `You plan an automation flow. Goal: "${goal}".${brief ? `\nRequirements settled so far in this conversation — honor them and do NOT re-ask what is already confirmed:\n${brief}` : ''}${choices ? `\nThe user already answered these — use them and proceed to a plan:\n${choices}` : ''}
 Inventory — tools/agents already registered here (use these exact ids in step.tool, or null):
 ${inv}
 Built-in: kind "prompt" (an LLM step, no tool) is always available. Agent "agent:browser-control" drives a REAL BROWSER with the user's own login (open/click/type/submit; outbound actions are human-approved at run time) — use it for a service that has a UI but NO usable API/MCP.
@@ -40,7 +40,7 @@ MINIMIZE COST always (even in paid_ok): pick the cheapest path that still works 
 
 DISCOVER FIRST (Wave: mandatory). Before planning, RESEARCH the goal (use web search if you have it) across EVERY way to do it — the registered tools above, public/free APIs, free MCP servers, external platforms (e.g. Google Apps Script for Google+schedule, Zapier), browser-control, or generating a new tool — AND check for BLOCKERS (no API exists; the service's ToS forbids automation; it needs a paid/registered account or a license; legal risk; the goal needs SCHEDULED/recurring runs — classify it: if the recurring work is API-only (no login/browser needed) it can run with NO always-on machine via a free serverless cron (e.g. Google Apps Script / Cloudflare Cron) — recommend that; if it needs the user's own login/browser (browser-control), it must run on the user's machine — the in-hub scheduler fires while the hub host is up and catches up missed runs on next boot, but a fully-off phone-only user can't run it, so surface that and offer "keep a cheap always-on box / wake the machine on schedule").
 If the goal is AMBIGUOUS (several services/platforms could satisfy it — e.g. "start a social media" → X vs Instagram vs Facebook), or multiple mechanisms are genuinely viable, or you found a blocker the user must weigh — DO NOT invent steps. Output ONLY:
-{"clarify":[{"question":"<ask the user>","options":["<opt>","<opt>"],"why":"<why it matters>"}],"blockers":["<blocker + the reason, e.g. ToS/license/no-API>"]}
+{"clarify":[{"question":"<ask the user>","options":["<opt>","<opt>"],"why":"<why it matters>"}],"blockers":["<blocker + the reason, e.g. ToS/license/no-API>"],"assumptions":["<anything you are ASSUMING about the goal that the user should confirm — omit if none>"]}
 Only when it is unambiguous (or the answers above resolve it), output the plan ONLY:
 {"plain_summary":"<one sentence>","blockers":["<caveat or omit>"],"ui_hint":"none|generate","steps":[{"action":"<short>","kind":"mcp|agent|prompt|parser|structured|router|consensus","tool":"<inventory id or null>","tier":"cheap|strong","fields":"<structured only: comma-sep field names>","condition":"<router only: contains:<word> | clean | always>","branch":"<then|else — ONLY on a step that is a router branch>"}]}
 ui_hint = "generate" ONLY when the flow's artifact genuinely requires human interaction beyond a simple approval — e.g. choosing from a list, filling a form, editing output, a dashboard to review before deciding, a visualization to interpret. ui_hint = "none" when notification/webhook/approval channels (Slack, email, message) are sufficient for the output — the user reads but does not need to operate a custom UI.
@@ -151,10 +151,13 @@ export function renderPlan(ir, ctx = null) {
     return { diagram_mermaid: '', diagram_ascii: '', summary_text: lines.join('\n') };
   }
   if (ir.mode === 'clarify' || (ir.clarify && ir.clarify.length)) {              // discover: plan の前に user に確認（図でなく質問を出す）
-    const lines = [`🐉 まず確認させて（最適な道具を選ぶため）:`, ''];
+    const lines = [];
+    const bt = briefText(ir.brief);
+    if (bt) lines.push('― これまでに確定 ―', bt, '');                            // PC2: 多ターンで貯めた確定要件/仮定を毎ターン再掲（MCP summary でも web パネルと同一可視）
+    lines.push(`🐉 まず確認させて（最適な道具を選ぶため）:`, '');
     (ir.clarify || []).forEach((c, i) => { lines.push(`Q${i + 1}. ${c.question}${c.options && c.options.length ? `  [${c.options.join(' / ')}]` : ''}`); if (c.why) lines.push(`    （${c.why}）`); });
     if ((ir.blockers || []).length) { lines.push('', '⚠️ 注意/地雷:'); for (const b of ir.blockers) lines.push(`  - ${b}`); }
-    lines.push('', '答えを選んだら、その回答を context.choices に入れて plan_flow を再度呼んでください。');
+    lines.push('', '答えを選んだら、その回答を context.choices に、この応答の brief を context.brief に入れて plan_flow を再度呼んでください（多ターンで要件が蓄積します）。');
     return { diagram_mermaid: '', diagram_ascii: '', summary_text: lines.join('\n') };
   }
   const stepByN = Object.fromEntries((ir.steps || []).map((s) => [s.n, s]));
@@ -265,7 +268,7 @@ The hub runs the DAG (same executor as the cockpit ▶ Run), firewalls the input
 
 // Wave 5: 対話修正。現 plan の steps を見せ「指示の変更だけ当てて他 step は維持」させ steps[] を再生成（§5 Wave5 v1=再生成、差分適用は最終形）。
 const stepsText = (steps) => (steps || []).map((s) => `${s.n}. [${s.kind}] ${s.action}${s.tool ? ` (tool: ${s.tool})` : s.kind !== 'prompt' ? ' (tool: none — gap)' : ''}`).join('\n');
-const REFINE_PROMPT = (prev, instruction, inv) => `You are REVISING an existing automation plan. Apply ONLY the requested change and keep every OTHER step identical (same action/kind/tool).
+const REFINE_PROMPT = (prev, instruction, inv, brief) => `You are REVISING an existing automation plan. Apply ONLY the requested change and keep every OTHER step identical (same action/kind/tool).${brief ? `\nRequirements settled with the user — keep honoring them:\n${brief}` : ''}
 Current plan: "${prev.plain_summary || prev.goal || ''}"
 Steps:
 ${stepsText(prev.steps)}
@@ -278,6 +281,27 @@ Output ONLY JSON: {"plain_summary":"<one plain sentence>","steps":[{"action":"<s
 // Wave(discover): clarify 再呼び出しの user 回答を prompt 文に。{question,answer} / 文字列どちらも受ける。
 const choicesText = (c) => Array.isArray(c) ? c.map((x) => typeof x === 'string' ? x : `${x.question}: ${x.answer ?? x.choice ?? ''}`).join('\n') : String(c || '');
 
+// PC2: 多ターン相談の蓄積ブリーフ。clarify を跨いで「確定/未解決/前提/blocker」を貯め、次ターンの planner に確定要件として注入する。
+// 北極星: web/MCP どちらの client も clarify 応答の brief をそのまま context.brief に戻せば、同じ質問を繰り返さず要件確定まで多ターン化できる。
+const briefItems = (a) => [...new Set((a || []).map((x) => typeof x === 'string' ? x : `${x.question}: ${x.answer ?? x.choice ?? ''}`).map((s) => s.trim()).filter(Boolean))];   // string/{question,answer} 混在を正規化＋重複排除
+const mergeBrief = (prev, { clarify, choices, blockers, assumptions } = {}) => {   // total: null/undefined を渡されても throw しない（呼び出しは context.choices 等で明示 null を渡しうる＝default 引数では防げない）
+  const P = prev || {};
+  return {
+    confirmed: briefItems([...(P.confirmed || []), ...(choices || [])]),         // 前ターンの確定 + 今回 user が答えた分（前 open を解決）
+    open: (clarify || []).map((c) => c.question).filter(Boolean),                 // いま聞いていること（次ターンで confirmed に移る・表示専用）
+    assumptions: briefItems([...(P.assumptions || []), ...(assumptions || [])]),  // planner が「こう仮定した」を明示（要 confirm・honest）
+    blockers: briefItems([...(P.blockers || []), ...(blockers || [])]),
+  };
+};
+const briefText = (b) => {   // PROMPT 注入 & clarify summary 用。settled な部分だけ（open は除く＝今まさに choices で解決中なので二重に渡さない）
+  if (!b) return '';
+  const L = [];
+  if (b.confirmed && b.confirmed.length) L.push('Confirmed: ' + b.confirmed.join(' / '));
+  if (b.assumptions && b.assumptions.length) L.push('Assumed (confirm if wrong): ' + b.assumptions.join(' / '));
+  if (b.blockers && b.blockers.length) L.push('Blockers noted: ' + b.blockers.join(' / '));
+  return L.join('\n');
+};
+
 // context={prev_plan,instruction} なら refine（前 plan に指示を当てて再生成・失敗時は前 plan を維持＝壊さない）。run は test 用に注入可。
 // Wave(discover・M1): planner が research→曖昧/地雷なら steps でなく {clarify,blockers} を返す→ caller(client) が user に聞いて context.choices で再呼び出し。検索は BYO AI 任せ（神龍は構造化のみ）。
 export async function plan({ goal, agents = [], tools = [], workflows = [], vendor = 'claude', search = null, context = null, gap = 'ask', cost = 'free', run = runVendorAsync }) {
@@ -286,12 +310,15 @@ export async function plan({ goal, agents = [], tools = [], workflows = [], vend
   if (!goal && !refine) throw new Error('goal required');
   const inv = inventoryText({ agents, tools, workflows });
   const choices = context && context.choices ? choicesText(context.choices) : '';
-  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv) : PROMPT(goal, inv, choices, cost), '');   // cost: 'free'(既定・従量0優先)|'paid_ok'(有料ツール可・要開示)
+  const brief = context && context.brief ? briefText(context.brief) : '';   // PC2: 確定済み要件を planner に再注入（多ターンで前回の回答を保持＝同じ質問を繰り返さない）
+  const out = await run(vendor, refine ? REFINE_PROMPT(context.prev_plan, String(context.instruction), inv, brief) : PROMPT(goal, inv, choices, cost, brief), '');   // cost: 'free'(既定・従量0優先)|'paid_ok'(有料ツール可・要開示)
   let ir;
   try {
     const parsed = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
-    if (!refine && Array.isArray(parsed.clarify) && parsed.clarify.length)        // discover: 曖昧/地雷 → plan せず user に確認を返す（再呼び出しで context.choices）
-      return { goal, mode: 'clarify', clarify: parsed.clarify, blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [], plain_summary: goal, source: 'clarify', nodes: [], edges: [], steps: [], missing: [], tools_needed: [] };
+    if (!refine && Array.isArray(parsed.clarify) && parsed.clarify.length)        // discover: 曖昧/地雷 → plan せず user に確認を返す（再呼び出しで context.choices＋brief）
+      return { goal, mode: 'clarify', clarify: parsed.clarify, blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [],
+        brief: mergeBrief(context && context.brief, { clarify: parsed.clarify, choices: context && context.choices, blockers: parsed.blockers, assumptions: parsed.assumptions }),   // PC2: 前回 brief＋今回 question/回答/仮定を統合し蓄積
+        plain_summary: goal, source: 'clarify', nodes: [], edges: [], steps: [], missing: [], tools_needed: [] };
     if (Array.isArray(parsed.steps) && parsed.steps.length) { ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', gap); if (Array.isArray(parsed.blockers) && parsed.blockers.length) ir.blockers = parsed.blockers; }   // 計画と一緒に残った注意点(blocker)を載せる
   } catch { /* fall through */ }
   if (!ir) {
