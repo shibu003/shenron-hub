@@ -145,6 +145,11 @@ export function routeFor(node, step, ctx) {
     label: `${klabel}${tier} → ${vendorName(r.vendor)}${r.model ? ` (${r.model})` : ''} · ${vendorCost(r.vendor)}${esc ? ' ↑strong on fail' : ''}` };
 }
 export function renderPlan(ir, ctx = null) {
+  if (ir.mode === 'unavailable') {                                              // PC0 honest failure: 計画モデル不在 → 偽フローを描かず理由と直し方だけ返す
+    const lines = ['🐉 まだ計画できません：計画モデル未接続', '', '直し方:'];
+    (ir.fix || []).forEach((f) => lines.push(`  - ${f}`));
+    return { diagram_mermaid: '', diagram_ascii: '', summary_text: lines.join('\n') };
+  }
   if (ir.mode === 'clarify' || (ir.clarify && ir.clarify.length)) {              // discover: plan の前に user に確認（図でなく質問を出す）
     const lines = [`🐉 まず確認させて（最適な道具を選ぶため）:`, ''];
     (ir.clarify || []).forEach((c, i) => { lines.push(`Q${i + 1}. ${c.question}${c.options && c.options.length ? `  [${c.options.join(' / ')}]` : ''}`); if (c.why) lines.push(`    （${c.why}）`); });
@@ -289,8 +294,14 @@ export async function plan({ goal, agents = [], tools = [], workflows = [], vend
       return { goal, mode: 'clarify', clarify: parsed.clarify, blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [], plain_summary: goal, source: 'clarify', nodes: [], edges: [], steps: [], missing: [], tools_needed: [] };
     if (Array.isArray(parsed.steps) && parsed.steps.length) { ir = buildPlanIR(goal || context.prev_plan.goal, parsed, refine ? 'refine' : 'llm', gap); if (Array.isArray(parsed.blockers) && parsed.blockers.length) ir.blockers = parsed.blockers; }   // 計画と一緒に残った注意点(blocker)を載せる
   } catch { /* fall through */ }
-  if (!ir) ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
-    : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic', gap);   // 初回 LLM 不在/壊れ → 1 prompt step
+  if (!ir) {
+    if (!refine && isStubFail(out))   // PC0 honest failure: 計画モデルが応答しない（APIキー無/--vendor stub/CLI 不達）→ 偽フロー(input→prompt→output)化せず unavailable を返す
+      return { goal, mode: 'unavailable', reason: 'planner-model', detail: String(out).slice(0, 160),
+        fix: ['hub env に ANTHROPIC_API_KEY を設定', 'または hub から claude/codex CLI を使える状態に', 'または起動時 --vendor を指定'],
+        plain_summary: goal, source: 'unavailable', nodes: [], edges: [], steps: [], missing: [], blockers: [] };
+    ir = refine ? context.prev_plan                                                                       // refine 失敗 → 元 plan 維持（編集を捨てない）
+      : buildPlanIR(goal, { plain_summary: goal, steps: [{ action: goal, kind: 'prompt', tool: null }] }, 'heuristic', gap);   // LLM は動いたが JSON 壊れ＝稀
+  }
   if (search && ir.missing.length) await discover(ir.missing, search);   // Wave 2: gap に外部ツール提案を mutate（caller が fence）
   return ir;
 }

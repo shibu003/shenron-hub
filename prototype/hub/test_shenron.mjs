@@ -41,6 +41,17 @@ const h = buildPlanIR('do a thing', { plain_summary: 'do a thing', steps: [{ act
 assert.equal(h.nodes.length, 3, 'heuristic: input+prompt+output');
 assert.equal(h.missing.length, 0, 'heuristic prompt is not a gap');
 
+// PC0 honest failure: 計画モデルが応答しない(runner stub sentinel)→ heuristic 偽フローでなく unavailable を返す
+for (const sentinel of ['[stub] (no vendor "stub")', '[claude → stub] planner unreachable']) {
+  const u = await plan({ goal: 'x', run: async () => sentinel });
+  assert.equal(u.mode, 'unavailable', `stub-fail planner → unavailable, not a fake flow: ${sentinel}`);
+  assert.equal(u.nodes.length, 0, 'unavailable: no fake input→prompt→output nodes');
+  assert.ok(u.fix && u.fix.length, 'unavailable: tells the user how to fix it');
+}
+// refine 中の stub-fail は unavailable にせず prev_plan を維持（!refine ガード・編集を捨てない）
+const keptOnStub = await plan({ goal: 'x', context: { prev_plan: h, instruction: 'tweak' }, run: async () => '[stub] (no vendor "stub")' });
+assert.equal(keptOnStub, h, 'refine + stub-fail → keep exact prev_plan, not unavailable');
+
 // full node-type palette + router branching (planner designs kinds AND wires them)
 const br = buildPlanIR('if it has errors alert, else save', { plain_summary: 'p', steps: [
   { action: 'reformat', kind: 'parser' },                                          // deterministic, no LLM

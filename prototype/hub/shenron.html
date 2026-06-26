@@ -227,8 +227,8 @@
             </div>
           </template>
 
-          <!-- Save & Run -->
-          <div class="flex gap-2">
+          <!-- Save & Run（PC0: unavailable=計画モデル不在では偽の実行可能 UI を見せない） -->
+          <div class="flex gap-2" x-show="plan.mode !== 'unavailable'">
             <input x-model="saveName" :placeholder="plan && plan.plain_summary || 'フロー名'"
               class="flex-1 border border-[#213e56] rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b6f97]">
             <button @click="saveWorkflow()" :disabled="!plan"

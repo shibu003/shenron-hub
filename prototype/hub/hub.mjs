@@ -1313,6 +1313,7 @@ async function planFlow({ goal, save, gap, context, cost }) {
   } : null;
   const ir = await shenronPlan({ goal, agents, tools, workflows, vendor: EXEC_VENDOR || 'claude', search, context, gap, cost: cost || (liveCfg().cost === 'paid_ok' ? 'paid_ok' : 'free') });   // cost 未指定なら config の既定（live）
   if (ir.mode === 'clarify') return { ...ir, available: availableSummary(), ...renderPlan(ir) };   // discover: plan せず user に確認を返す（保存しない）
+  if (ir.mode === 'unavailable') return { ...ir, available: availableSummary(), ...renderPlan(ir) };   // PC0 honest failure: 計画モデル不在 → 偽フローを保存も検証もしない
   const v = validateFlow(ir.nodes, ir.edges); layoutFlow(ir.nodes, v.edges);
   const saved = save ? saveWorkflow({ name: ir.plain_summary || ir.goal, nodes: ir.nodes, edges: v.edges }) : null;   // persist → cockpit 🗂 に出る
   const out = { ...ir, edges: v.edges, warnings: v.warnings, ...(saved ? { workflowId: saved.id } : {}), available: availableSummary() };
