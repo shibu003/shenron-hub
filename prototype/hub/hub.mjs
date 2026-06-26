@@ -573,11 +573,18 @@ const resolveVendor = ({ explicit = {}, tier, fallback = {} } = {}) => {
   const route = tier ? tierRoute(tier) : { vendor: null, model: undefined };
   return { vendor: explicit.vendor || route.vendor || EXEC_VENDOR || fallback.vendor || 'stub', model: explicit.model || route.model || fallback.model };
 };
+// Wave R2-B5 — 内部 handoff（prompt/consensus/mcp）の共通フィールド（id/from/to/skill/status/timestamps/history…）を
+// 1箇所で生成。kind〔B4〕＋ kind 別の `extra`（{prompt}/{consensus}/{mcp}）を history と runId の間に merge してフィールド順を保存。
+// 副作用（touch/push/save/承認ゲート/executor）は呼び側に残す＝mcp の sendMode 分岐が prompt/consensus と非対称ゆえ。
+function createInternalHandoff(run, node, input, from, { kind, to, skill, extra }) {
+  return { id: randomUUID().slice(0, 8), kind, from: from || run.flowId || 'flow', to, skill,
+    input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
+    history: [], ...extra, runId: run.id, node: node.id };
+}
 function firePromptNode(run, node, input, from) {
   const c = node.config || {};
-  const h = { id: randomUUID().slice(0, 8), kind: 'prompt', from: from || run.flowId || 'flow', to: 'prompt', skill: 'prompt',
-    input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
-    history: [], prompt: { template: c.template || '{input}', vendor: c.vendor, model: c.model, tier: c.tier }, runId: run.id, node: node.id };   // Wave G: per-node vendor/model/tier を持ち越す
+  const h = createInternalHandoff(run, node, input, from, { kind: 'prompt', to: 'prompt', skill: 'prompt',
+    extra: { prompt: { template: c.template || '{input}', vendor: c.vendor, model: c.model, tier: c.tier } } });   // Wave G: per-node vendor/model/tier を持ち越す
   touch(h, 'approved', 'auto'); state.handoffs.push(h); save();
   runPrompt(h);
 }
@@ -628,8 +635,7 @@ const routingCtx = () => ({ cost: liveCfg().cost === 'paid_ok' ? 'paid_ok' : 'fr
 function fireConsensusNode(run, node, input, from) {
   const vendors = String((node.config && node.config.vendors) || defaultConsensusVendors()).split(',').map((s) => s.trim()).filter(Boolean);
   const task = `${(node.config && node.config.prompt) || ''}\n${input || ''}`.trim();
-  const h = { id: randomUUID().slice(0, 8), kind: 'consensus', from: from || run.flowId || 'flow', to: 'consensus', skill: 'consensus', input: task,
-    status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(), history: [], consensus: { vendors }, runId: run.id, node: node.id };
+  const h = createInternalHandoff(run, node, task, from, { kind: 'consensus', to: 'consensus', skill: 'consensus', extra: { consensus: { vendors } } });
   touch(h, 'approved', 'auto'); state.handoffs.push(h); save(); runConsensus(h);
 }
 async function runConsensus(h) {
@@ -666,9 +672,8 @@ function fireRouterNode(run, node, input, from) {
 // human approval by DEFAULT; node.auto opts in (still killed by the global autorun master).
 function fireMcpNode(run, node, input, from) {
   const integ = readIntegrations().find((x) => x.id === node.server);
-  const h = { id: randomUUID().slice(0, 8), kind: 'mcp', from: from || run.flowId || 'flow', to: node.server || 'mcp', skill: node.tool || '?',
-    input: input || '', status: 'submitted', result: null, error: null, contextId: randomUUID(), createdAt: now(), updatedAt: now(),
-    history: [], mcp: { server: node.server, tool: node.tool, config: node.config || {} }, runId: run.id, node: node.id };
+  const h = createInternalHandoff(run, node, input, from, { kind: 'mcp', to: node.server || 'mcp', skill: node.tool || '?',
+    extra: { mcp: { server: node.server, tool: node.tool, config: node.config || {} } } });
   touch(h, 'submitted', h.from); state.handoffs.push(h);
   if (!integ) return void postResult(h.id, { error: `no integration "${node.server}" (connect it in ⚙ Settings)` }, 'hub');
   if (integ.enabled === false) return void postResult(h.id, { error: `integration "${node.server}" is disabled` }, 'hub');
