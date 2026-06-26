@@ -283,11 +283,19 @@ const choicesText = (c) => Array.isArray(c) ? c.map((x) => typeof x === 'string'
 
 // PC2: 多ターン相談の蓄積ブリーフ。clarify を跨いで「確定/未解決/前提/blocker」を貯め、次ターンの planner に確定要件として注入する。
 // 北極星: web/MCP どちらの client も clarify 応答の brief をそのまま context.brief に戻せば、同じ質問を繰り返さず要件確定まで多ターン化できる。
-const briefItems = (a) => [...new Set((a || []).map((x) => typeof x === 'string' ? x : `${x.question}: ${x.answer ?? x.choice ?? ''}`).map((s) => s.trim()).filter(Boolean))];   // string/{question,answer} 混在を正規化＋重複排除
+const briefItems = (a, byQuestion = false) => {   // string/{question,answer} 混在を正規化＋重複排除。byQuestion=true（confirmed 用）は質問キーで最新回答が勝つ（#2: 同じ質問の再回答で古い回答を上書き）。
+  const m = new Map();
+  for (const x of (a || [])) {
+    const s = (typeof x === 'string' ? x : `${x.question}: ${x.answer ?? x.choice ?? ''}`).trim();
+    if (!s) continue;
+    m.set(byQuestion && s.includes(': ') ? s.slice(0, s.indexOf(': ')) : s, s);   // byQuestion: 最初の ": " 前を key＝最新上書き／false: 全文 key＝従来の Set と同一（順序も first-seen で不変）
+  }
+  return [...m.values()];
+};
 const mergeBrief = (prev, { clarify, choices, blockers, assumptions } = {}) => {   // total: null/undefined を渡されても throw しない（呼び出しは context.choices 等で明示 null を渡しうる＝default 引数では防げない）
   const P = prev || {};
   return {
-    confirmed: briefItems([...(P.confirmed || []), ...(choices || [])]),         // 前ターンの確定 + 今回 user が答えた分（前 open を解決）
+    confirmed: briefItems([...(P.confirmed || []), ...(choices || [])], true),   // 前ターンの確定 + 今回 user が答えた分（前 open を解決）。#2: 質問キーで最新が勝つ＝同じ質問の再回答で重複させない
     open: (clarify || []).map((c) => c.question).filter(Boolean),                 // いま聞いていること（次ターンで confirmed に移る・表示専用）
     assumptions: briefItems([...(P.assumptions || []), ...(assumptions || [])]),  // planner が「こう仮定した」を明示（要 confirm・honest）
     blockers: briefItems([...(P.blockers || []), ...(blockers || [])]),

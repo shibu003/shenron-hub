@@ -2,6 +2,7 @@
 // Shared by the hub worker (and a candidate for reviewer-server.mjs / agents/agent.mjs to adopt later,
 // to collapse the three copies of this spawn logic into one — "big simple part", философия #2).
 import { spawnSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 // Async sibling of runVendor — for the HUB's in-process executor, which must NOT block its event loop
 // on a 180s LLM call (the worker.mjs process can use the sync one; the single-process hub cannot).
@@ -72,8 +73,18 @@ async function runGeminiApi(prompt, stub = '', model) {
   } catch (e) { return `[gemini failed → stub] ${e.message}\n` + stub; }
 }
 
+// T0（test 基盤）: 決定的 planner seam。`--vendor mock` + env SHENRON_MOCK_PLANNER=<生 planner 出力(JSON 配列)のパス> で
+// HTTP/E2E から planner を決定化する。queue はモジュール level state＝runner は hub に 1 回 import されるので index がプロセス内で持続
+// （1 boot=1 シナリオ・reset=hub 再起動 or 別 STATE_DIR）。dispatch 窓口 1 箇所ゆえ plan/node 実行/goal_suggest 全てが mock を通る。
+let _mockQueue = null, _mockIdx = 0;
 export function runVendorAsync(vendor, prompt, stub = '', { model } = {}) {   // Wave G: opts.model = この呼び出しだけ別モデル（flow の step ごと routing）
   const stubOut = stub || `[stub] (no vendor "${vendor}")`;
+  if (vendor === 'mock') {   // 1 コールずつ shift。文字列は生 planner 出力／オブジェクトは JSON.stringify。
+    if (_mockQueue === null) { try { _mockQueue = JSON.parse(readFileSync(process.env.SHENRON_MOCK_PLANNER, 'utf8')); } catch { _mockQueue = []; } }
+    if (!_mockQueue.length) return Promise.resolve(stubOut);   // 未設定/空 → 生 stub sentinel（plan が isStubFail→unavailable へ・無害な退行）
+    const r = _mockIdx < _mockQueue.length ? _mockQueue[_mockIdx++] : _mockQueue[_mockQueue.length - 1];   // ponytail: 枯渇→最後を再利用（1 プロセス 1 シナリオ）
+    return Promise.resolve(typeof r === 'string' ? r : JSON.stringify(r));
+  }
   if (vendor === 'ollama') return runOllama(prompt, stub, model);   // ローカル無料（cheap step 用）
   if (vendor === 'openai' || vendor === 'gpt') return process.env.OPENAI_API_KEY ? runOpenAiApi(prompt, stub, model) : Promise.resolve(`[openai → stub] OPENAI_API_KEY 未設定\n` + stub);   // clean GPT（BYO-key）
   if (vendor === 'gemini' || vendor === 'google') return process.env.GEMINI_API_KEY ? runGeminiApi(prompt, stub, model) : Promise.resolve(`[gemini → stub] GEMINI_API_KEY 未設定\n` + stub);   // Gemini（BYO-key・consensus 既定の1つ）
