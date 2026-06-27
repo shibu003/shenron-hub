@@ -137,6 +137,9 @@
   .node.trigger .port.out { border-color:var(--amber); }
   .port.in.valid { border-color:var(--green); background:var(--green); box-shadow:0 0 0 4px rgba(63,185,80,.22); }
   .port.in.invalid { border-color:var(--red); background:var(--red); box-shadow:0 0 0 4px rgba(248,81,73,.22); }
+  /* W3: ＋ Add-node affordance on a dangling OUT port (n8n) — sits just right of the OUT dot */
+  .addnext { position:absolute; right:-34px; top:50%; transform:translateY(-50%); width:20px; height:20px; border-radius:50%; background:var(--panel2); border:1px dashed var(--line); color:var(--dim); display:flex; align-items:center; justify-content:center; font-size:15px; line-height:1; cursor:pointer; z-index:4; }
+  .addnext:hover { border-color:var(--blue); color:var(--blue); }
   body.wiring, body.wiring .node { cursor:crosshair; }
 
   /* tier badge */
@@ -615,11 +618,14 @@ const isAiEdge = (e) => AI_AUX.has(comp(e.source)?.kind) || AI_AUX.has(comp(e.ta
 const matchStr = (t) => t.match?Object.entries(t.match).map(([k,v])=>`${k}=${v}`).join(' '):'';
 
 /* ui2: left palette + tutorial coach removed — nodes come from the ＋ menu, click a node to edit it. */
+// W3: a node created via a ＋ is placed to the right of its source and auto-wired (type-checked by tryConnect).
+function linkFromAdd(id){ if(!addSource) return; const s=POS[addSource], ln=NODES[NODES.length-1];
+  if(s && ln && ln.id===id){ ln.x=s.x+300; ln.y=s.y; } tryConnect(addSource, id); addSource=null; }
 function addComp(kind){ undoSnap(); const c=COMP[kind]; const id=nextId(c?kind:'node'); const y=40+NODES.filter(n=>n.kind!=='trigger'&&n.kind!=='mcp'&&n.kind!=='note').length*26;
   if(c){ const config={}; (c.fields||[]).forEach(f=>{ if(f.value!=null) config[f.key]=f.value; });
     NODES.push({ id, kind, accepts:c.accepts.slice(), emits:c.emits.slice(), config, x:200, y }); }
   else { NODES.push({ id, kind:'unset', accepts:['*'], emits:['*'], config:{}, x:200, y }); }   // blank node: choose the kind in the inspector
-  COLLAPSED.add(id); selectNode(id); render(); }
+  linkFromAdd(id); COLLAPSED.add(id); selectNode(id); render(); }
 // the node's ports change when its kind/中身 changes → drop wires that no longer type-match (and say so)
 function revalidateEdges(id){ const before=EDGES.length;
   EDGES=EDGES.filter(e=>(e.source!==id&&e.target!==id)||canConnect(e.source,e.target));
@@ -635,7 +641,7 @@ function removeNode(id){ NODES=NODES.filter(n=>n.id!==id); EDGES=EDGES.filter(e=
 function addMcpNode(tl){ undoSnap(); const id=nextId('mcp'); const mc=NODES.filter(n=>n.kind==='mcp').length; const {x,y}=canvasCenter(mc*24, mc*16);
   NODES.push(tl?{ id, kind:'mcp', server:tl.server, tool:tl.name, accepts:tl.accepts||['*'], emits:tl.emits||['*'], config:{}, auto:false, x, y }
                :{ id, kind:'mcp', server:'', tool:'', accepts:['*'], emits:['*'], config:{}, auto:false, x, y });   // blank: choose the tool in the inspector
-  COLLAPSED.add(id); selectNode(id); render(); }
+  linkFromAdd(id); COLLAPSED.add(id); selectNode(id); render(); }
 // an mcp node with no tool bound is also "unconfigured" → guard run/save like an unset component
 const NODE_UNSET = (n) => n.kind==='unset' || (n.kind==='mcp' && (!n.server || !n.tool)) || (n.kind==='workflow' && !n.ref);
 // A2 cascade: pick a server first (loads its tools), then a tool. accepts/emits come from the cached full server.
@@ -693,6 +699,10 @@ let noteEdit = null;   // id of the note in inline-edit mode (double-click to en
 // each .node is position:absolute so it is its own containing block for these absolutely-positioned spans.
 const hasPort=(arr)=>(arr||['*']).length>0;
 const portHTML=(hasIn,hasOut)=>`${hasIn?'<span class="port in" data-port="in"></span>':''}${hasOut?'<span class="port out" data-port="out"></span>':''}`;
+// W3: ＋ Add-node — show on an OUT port whose source has no downstream yet; click extends a left→right pipeline.
+let addSource=null;   // the upstream node a pending ＋ extends from (set on ＋ click, consumed by the next addComp/addMcpNode)
+const hasOutEdge=(id)=>EDGES.some(e=>e.source===id);
+const addNextHTML=(id,hasOut)=>(hasOut&&!hasOutEdge(id))?`<span class="addnext" data-src="${esc(id)}" title="次のノードを追加">+</span>`:'';
 function renderNodes(){
   const canvas=$('#world');
   const nodes=allNodes();
@@ -720,12 +730,12 @@ function renderNode(node, canvas){
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
     n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span><span class="icontile">${NI(NIC.agent,14)}</span> ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`
-      +portHTML(hasPort(a.accepts), hasPort(a.emits));
+      +portHTML(hasPort(a.accepts), hasPort(a.emits))+addNextHTML(id, hasPort(a.emits));
     return;
   }
   if(kind==='trigger'){   // ui2: card = title + summary only; the event/status editor lives in the right panel
     n.innerHTML=`<div class="name"><span class="icontile">${NI(NIC.trigger,14)}</span> トリガー</div><div class="co">${esc(triggerSummary(node.match))}</div>`
-      +portHTML(false, true);   // trigger = start point: OUT only, no input
+      +portHTML(false, true)+addNextHTML(id, true);   // trigger = start point: OUT only, no input
     return;
   }
   if(kind==='mcp'){
@@ -736,7 +746,7 @@ function renderNode(node, canvas){
     const mset=!!(node.server&&node.tool);
     n.innerHTML=`<div class="name"><span class="icontile">${NI(NIC.mcp,14)}</span> ${esc(mset?node.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
       +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(node.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`
-      +portHTML(hasPort(node.accepts), hasPort(node.emits));
+      +portHTML(hasPort(node.accepts), hasPort(node.emits))+addNextHTML(id, hasPort(node.emits));
     return;
   }
   if(kind==='note'){   // (b) annotation cards — colored, markdown, no ports
@@ -757,12 +767,13 @@ function renderNode(node, canvas){
   n.dataset.kind=kind;   // W2: per-kind accent tile（CSS `.node.comp[data-kind=…]`）— input/model/output/parser/router/workflow/langflow/unset
   n.innerHTML=`<div class="name"><span class="icontile">${meta.svg||''}</span> ${esc(cname)}${tierBadge}</div>`
     +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`
-    +portHTML(hasPort(node.accepts), hasPort(node.emits));   // input→OUT only, output→IN only (accepts/emits driven)
+    +portHTML(hasPort(node.accepts), hasPort(node.emits))+addNextHTML(id, hasPort(node.emits));   // input→OUT only, output→IN only (accepts/emits driven)
 }
 const WIRE_EDGE=13;   // px-from-border zone that starts a wire instead of a move
 function attachNode(n, id){
   n.addEventListener('pointerdown',e=>{
     if(e.button!==0)return;
+    if(e.target.closest('.addnext')) return;   // W3: ＋ has its own click handler (delegated on #world) — don't start a wire/drag
     // S1 (n8n化): the OUT port (right dot) is the primary wire start; the IN port (left tab) is a drop target only.
     if(!wiring && e.target.closest('.port.out') && !noteOf(id)) return startWire(e, id);
     if(e.target.closest('.port.in')) return;   // input ports don't start a drag (drop zone is the whole node, L810)
@@ -790,6 +801,9 @@ $('#canvas').addEventListener('pointerdown', e=>{                               
   const bg = e.target.id==='canvas'||e.target.id==='world'||e.target.tagName==='svg'||e.target.tagName==='g';
   if(!bg) return; panning={ x:e.clientX, y:e.clientY, px:PANX, py:PANY, moved:false }; $('#canvas').classList.add('panning');
 });
+// W3: ＋ Add-node — delegated so node ids (incl. agent ids with special chars) need no inline onclick. toggleMenu's
+// stopPropagation keeps the menu open (the document-click closer would otherwise fire — same trap fixed in a923574).
+$('#world').addEventListener('click', e=>{ const ab=e.target.closest('.addnext'); if(!ab) return; addSource=ab.dataset.src; toggleMenu(e,'addMenu'); });
 $('#canvas').addEventListener('wheel', e=>{                                          // ctrl/⌘+wheel = zoom at cursor; otherwise pan freely (trackpad)
   e.preventDefault();
   if(e.ctrlKey||e.metaKey){ zoomAt(ZOOM*(e.deltaY<0?1.12:1/1.12), e.clientX, e.clientY); }
@@ -1211,7 +1225,7 @@ function openModal({title, fields=[], submitLabel='OK', onSubmit, info}){
   const first=dlg.querySelector('[data-k]'); if(first) setTimeout(()=>first.focus(),30);
 }
 function toggleMenu(e, id='autoMenu'){ e.stopPropagation(); const t=$('#'+id); document.querySelectorAll('.menu-pop.open').forEach(m=>{ if(m!==t) m.classList.remove('open'); }); t.classList.toggle('open'); }
-function closeMenu(){ document.querySelectorAll('.menu-pop.open').forEach(m=>m.classList.remove('open')); }
+function closeMenu(){ addSource=null; document.querySelectorAll('.menu-pop.open').forEach(m=>m.classList.remove('open')); }   // W3: clear a pending ＋ when the menu dismisses (agent/trigger/note paths don't consume it)
 document.addEventListener('click', e=>{ if(!e.target.closest('.menu')) closeMenu(); });
 
 /* Langflow-style keyboard shortcuts */
