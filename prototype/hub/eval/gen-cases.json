@@ -1,0 +1,7 @@
+[
+  { "what": "return the current UTC date and time in ISO 8601 format (use the Python standard library only, no network)", "expect": { "kind": "assert", "rule": "regex:\\d{4}-\\d{2}-\\d{2}" } },
+  { "what": "compute the SHA-256 hex digest of the string 'shenron' using the Python standard library and return it", "expect": { "kind": "assert", "rule": "regex:[0-9a-f]{64}" } },
+  { "what": "base64-encode the ASCII string 'hello world' using the Python standard library and return the encoded text", "expect": { "kind": "assert", "rule": "contains:aGVsbG8" } },
+  { "what": "fetch the current temperature for Tokyo from the wttr.in JSON API (https://wttr.in/Tokyo?format=j1) and return the response", "expect": { "kind": "assert", "rule": "contains:temp" } },
+  { "what": "fetch the public IP address as JSON from https://api.ipify.org?format=json and return it", "expect": { "kind": "assert", "rule": "contains:ip" } }
+]

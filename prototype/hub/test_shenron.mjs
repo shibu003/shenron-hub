@@ -1,7 +1,7 @@
 // test_shenron.mjs — Wave 1 self-check for buildPlanIR (pure IR assembly; no LLM).
 // run: node prototype/hub/test_shenron.mjs
 import assert from 'node:assert';
-import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan, evalExpect, goalStatus } from './shenron.mjs';
+import { buildPlanIR, suggestionFromSearch, discover, toLangflowFlow, extractCode, genComponent, plan, flowSkill, componentKey, matchComponent, verifyMcpServer, neededCredentials, renderPlan, evalExpect, runGenEval, goalStatus } from './shenron.mjs';
 import { spawnSync } from 'node:child_process';
 import { openStdio } from '../mcp/mcp-client.mjs';
 import { classify, SEED_RULES, addAllowRule } from '../permissions.mjs';
@@ -478,6 +478,44 @@ assert.ok(!('routing' in renderPlan(rir)), 'routing: omitted when no ctx (backwa
   // checkResults リングバッファ上限（hub.mjs:checkOutcome の cap・最新を残す）
   let buf = []; for (let i = 0; i < 60; i++) { buf.push(i); if (buf.length > 50) buf = buf.slice(-50); }
   assert.ok(buf.length <= 50 && buf[buf.length - 1] === 59, 'R-1 checkResults ring buffer caps at 50, keeps newest');
+}
+// ---------- Wave N1: runGenEval（gen 品質 eval harness・fake 注入で決定論検証） ----------
+{
+  const cases = [
+    { what: 'a', expect: { kind: 'assert', rule: 'contains:ok' } },
+    { what: 'b', expect: { kind: 'assert', rule: 'contains:ok' } },
+  ];
+  // gen を fake 注入（LLM/python 不要）。run/sandbox は素通しされる契約。
+  const genOk = async ({ what }) => ({ what, iters: 1, converged: true, output: 'all ok here' });
+  // ① 全 converge + assert pass → convergeRate/passRate 1.0
+  const r1 = await runGenEval(cases, { gen: genOk });
+  assert.equal(r1.cases, 2, 'N1: cases counted');
+  assert.equal(r1.convergeRate, 1, 'N1: all converge → 1.0');
+  assert.equal(r1.passRate, 1, 'N1: all assert pass → 1.0');
+  assert.ok(r1.results.every((x) => x.converged && x.ok), 'N1: per-case flags set');
+  // ② 1件 sandbox fail（converged:false）→ convergeRate 下降・passRate も下降・reason は error/no-converge
+  let n = 0;
+  const genHalf = async ({ what }) => (++n === 1 ? { what, iters: 3, converged: false, error: 'still broken' } : { what, iters: 1, converged: true, output: 'all ok here' });
+  const r2 = await runGenEval(cases, { gen: genHalf });
+  assert.equal(r2.convergeRate, 0.5, 'N1: one fail → convergeRate 0.5');
+  assert.equal(r2.passRate, 0.5, 'N1: non-converged case cannot pass');
+  assert.equal(r2.results[0].ok, false, 'N1: failed case ok=false');
+  assert.equal(r2.results[0].reason, 'still broken', 'N1: reason carries gen error (no-converge)');
+  // ③ converge するが assert fail（output が rule を満たさない）→ convergeRate 1.0 だが passRate 下降
+  const genBad = async ({ what }) => ({ what, iters: 1, converged: true, output: 'nothing matches' });
+  const r3 = await runGenEval(cases, { gen: genBad });
+  assert.equal(r3.convergeRate, 1, 'N1: converged even when output wrong');
+  assert.equal(r3.passRate, 0, 'N1: assert fail → passRate 0 (regression signal)');
+  // 空 dataset → /0 を避けて 0% 報告
+  const r0 = await runGenEval([], { gen: genOk });
+  assert.deepEqual({ c: r0.cases, cr: r0.convergeRate, pr: r0.passRate }, { c: 0, cr: 0, pr: 0 }, 'N1: empty dataset → 0/0/0 (no NaN)');
+  // run/sandbox が gen へ素通しされる契約（live で実 vendor+verifyMcpServer に届く保証）
+  let threaded = null;
+  const genCapture = async ({ what, run, sandbox }) => { threaded = { run, sandbox }; return { what, iters: 1, converged: true, output: 'ok' }; };
+  const RUN = async () => 'x', SANDBOX = () => ({ ok: true });
+  await runGenEval([{ what: 'a', expect: { kind: 'assert', rule: 'contains:ok' } }], { gen: genCapture, run: RUN, sandbox: SANDBOX });
+  assert.ok(threaded.run === RUN && threaded.sandbox === SANDBOX, 'N1: run/sandbox passed through to gen unchanged');
+  console.log('N1 runGenEval OK — converge/pass rates + pass-through verified');
 }
 // ---------- Wave U-1: MCP surface divergence guard ----------
 // 公開している tool は必ず dispatch 経路を持つこと。TOOLS に足して配線を忘れたらここで red。

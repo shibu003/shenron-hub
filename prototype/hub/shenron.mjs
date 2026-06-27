@@ -522,6 +522,22 @@ export async function evalExpect(expect, actual, { run = runVendorAsync, vendor,
   return { ok: true, reason: `unknown expect.kind "${expect?.kind}" (no-op pass)` };
 }
 
+// Wave N1 — gen-eval（生成品質を測る harness・loss#3＝堀の生死）。純粋関数（state 非依存）→ test_shenron が fake 注入で決定論検証。
+// 契約: (cases:[{what, expect:{kind,rule}}], {run, sandbox, gen=genComponent, evaluate=evalExpect}) → {cases, convergeRate, passRate, results[]}
+//   各 case を gen({what,run,sandbox}) で生成→収束したら evaluate(expect, output, {run}) で期待判定。収束しなければ ok=false（reason=error/no-converge）。
+//   run/sandbox は gen へ素通し（test は fake 注入で LLM/python 不要・hub は未指定＝genComponent 既定の実 vendor+verifyMcpServer）。evalExpect 再利用＝新評価器ゼロ。
+export async function runGenEval(cases, { run, sandbox, gen = genComponent, evaluate = evalExpect } = {}) {
+  const list = Array.isArray(cases) ? cases : [];
+  const results = [];
+  for (const c of list) {
+    const r = await gen({ what: c.what, run, sandbox });
+    const scored = r.converged ? await evaluate(c.expect, r.output, { run }) : { ok: false, reason: r.error || 'no-converge' };
+    results.push({ what: c.what, converged: !!r.converged, iters: r.iters, ok: !!scored.ok, reason: scored.reason });
+  }
+  const n = results.length || 1;                                                  // 空 dataset は /0 を避けて 0% 報告
+  return { cases: results.length, convergeRate: results.filter((x) => x.converged).length / n, passRate: results.filter((x) => x.ok).length / n, results };
+}
+
 // Wave Goals-2 — ゴールの停滞/期限接近を判定する純粋関数（state 非依存・evalExpect 踏襲）→ test_shenron が直接 import。
 // 契約: (g, now:ms, {stallMs, deadlineMs}) → { stalled, deadlineNear }
 //   lastActivity = max(最新 checkin.ts, g.createdAt)。stalled = active かつ無活動 > stallMs。

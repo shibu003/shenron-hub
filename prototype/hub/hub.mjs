@@ -30,7 +30,7 @@ import { addMemory, listMemories, deleteMemory, relevantMemories } from './memor
 import { runDoctor } from './doctor.mjs';   // Wave N-3
 import { register, verifyEmail, login, checkSession, logout, listUsers, userCount, resetRequest, resetPassword, getRole, setRole } from './auth.mjs';
 import { writeJsonAtomic, createStore } from './state.mjs';   // Cliff-1: 永続 JSON store（atomic write で torn-write 撲滅）
-import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, goalStatus, visibleTo } from './shenron.mjs';
+import { plan as shenronPlan, toLangflowFlow, genComponent, genArtifactUi, flowSkill, componentKey, matchComponent, neededCredentials, renderPlan, evalExpect, runGenEval, goalStatus, visibleTo } from './shenron.mjs';
 import { redact, applyPass, auditAppend, auditVerify, reputationFrom, buildReceipt, signReceipt, DEFAULT_PASSPORT, normalizePassport, sendMode, CAP_VOCAB } from '../trust.mjs';
 import { readPermissions, writePermissions, addAllowRule } from '../permissions.mjs';   // Wave 11b: browser-control allow/ask/deny ruleset
 import { MATCH_OPS, triggerMatches, cronMatch, lastDue } from '../match.mjs';
@@ -509,6 +509,17 @@ async function checkOutcome(run) {
   } catch (e) {
     trail('outcome-check', { runId: run.id, error: e.message }); console.error('[checkOutcome]', run.id, e.message);   // setImmediate は例外を握り潰す → 明示 trail + log
   }
+}
+
+// Wave N1 — gen-eval 実行の単一ソース（POST route と mcpDispatch run_gen_eval が共有）。dataset 読込→runGenEval（実 vendor+verifyMcpServer・live stochastic）→genEvalHistory ring（checkResults 同型 cap50・state.json・「無ければ空」後方互換）。trail が save() 込み。
+async function doGenEval() {
+  const cases = JSON.parse(fs.readFileSync(path.join(HERE, 'eval', 'gen-cases.json'), 'utf8'));
+  const r = await runGenEval(cases);
+  const rec = { ...r, at: new Date().toISOString() };
+  (state.genEvalHistory ||= []).push(rec);
+  if (state.genEvalHistory.length > 50) state.genEvalHistory = state.genEvalHistory.slice(-50);   // ring（list_gen_eval 用・末尾2行の passRate 差＝回帰）
+  trail('gen-eval', { cases: r.cases, convergeRate: r.convergeRate, passRate: r.passRate });       // reason に生 output は載せない（assert 経路は egress 無し）
+  return rec;
 }
 // Wave R-2: 壊れた run の generated component を再生成 → approved:false でペンディング化
 async function repairRun(run) {
@@ -1421,6 +1432,8 @@ async function mcpDispatch(name, args) {
   if (name === 'forget')             return deleteMemory(args.id);
   if (name === 'set_check')          return setCheck(args.automation, args.expect);   // Wave R-1
   if (name === 'list_check_results') return (state.checkResults || []).slice(-(args.limit || 20));   // Wave R-1
+  if (name === 'run_gen_eval')       return await doGenEval();                        // Wave N1: gen 品質 eval（POST route と単一ソース）
+  if (name === 'list_gen_eval')      return (state.genEvalHistory || []).slice(-(args.limit || 20));   // Wave N1
   if (name === 'list_drift_alerts')  return (state.driftAlerts  || []).slice(-(args.limit || 20));   // Wave R-3
   if (name === 'repair_run') {                                                          // Wave R-2: 手動修復トリガー
     const run = state.runs[args.runId]; if (!run) throw new Error(`no run "${args.runId}"`);
@@ -1517,6 +1530,8 @@ const ROUTES = {
     json(res, 200, { autorun: AUTORUN, agents: publicAgents(), handoffs: state.handoffs.map((h) => ({ ...ref(h), input: h.input, result: h.result, error: h.error, history: h.history, runId: h.runId || null, redacted: h.redacted || null, consensus: h.consensus || null, checkpoint: h.checkpoint || null })), runs: Object.values(state.runs).slice(-20).map((r) => ({ id: r.id, flowId: r.flowId, status: r.status, done: Object.keys(r.outputs).length, total: r.nodes.length, outputs: r.outputs, skipped: r.skipped || [], routerPick: r.routerPick || {} })), reputation: reputationFrom(state.audit, state.handoffs, Object.keys(state.agents)), scheduler: { on: schedulerOn(), note: schedulerNote() } }) },   // Wave R: reputation + scheduler 状態（live）
   'GET /api/check-results': { a: 'bearer', h: (req, res, { u }) =>   // Wave R-1: 直近の成果検証結果（list_check_results）
     json(res, 200, (state.checkResults || []).slice(-(Number(u.searchParams.get('limit')) || 20))) },
+  'GET /api/shenron/gen-eval': { a: 'bearer', h: (req, res, { u }) =>   // Wave N1: gen-eval history（list_gen_eval）。末尾2行の passRate 差＝回帰
+    json(res, 200, (state.genEvalHistory || []).slice(-(Number(u.searchParams.get('limit')) || 20))) },
   'GET /api/drift-alerts': { a: 'bearer', h: (req, res, { u }) =>    // Wave R-3: drift 検出アラート（list_drift_alerts）
     json(res, 200, (state.driftAlerts || []).slice(-(Number(u.searchParams.get('limit')) || 20))) },
   'GET /api/shared': { a: 'bearer', h: (req, res, { u }) =>          // Wave A1: 共有エージェント庫（list_shared の HTTP 面）
@@ -1726,6 +1741,12 @@ const ROUTES = {
         trail('gen-component', { what: r.what, iters: r.iters, converged: r.converged, registered: saved ? saved.id : null });
         json(res, 200, saved ? { ...r, id: saved.id, approved: false } : r);
       })
+      .catch((e) => json(res, 400, { error: e.message }));
+    return;
+  } },
+  'POST /api/shenron/gen-eval': { a: 'bearer', h: (req, res) => {                                                   // Wave N1: gen 品質 eval（loss#3＝堀の生死）。dataset 各 what を生成→収束→evalExpect→集計→history
+    doGenEval()                                                                    // run/sandbox 既定＝実 vendor+verifyMcpServer（live・stochastic で正しい。vendor 未設定なら converge 0＝「測れた(0%)」）
+      .then((rec) => json(res, 200, rec))
       .catch((e) => json(res, 400, { error: e.message }));
     return;
   } },
