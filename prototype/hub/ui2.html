@@ -103,6 +103,11 @@
   .node.trigger { min-width:204px; border-color:var(--amber); background:#1b1407; } .node.trigger .name { color:var(--amber); background:rgba(210,153,34,.14); }
   .node.mcp { min-width:240px; border-color:#2ea043; background:#0c1f12; } .node.mcp .name { color:#3fb950; background:rgba(46,160,67,.14); } .node.mcp .port { border-color:#2ea043; }
   .node.comp { min-width:244px; border-color:#8957e5; background:#150f23; } .node.comp .name { color:#a371f7; background:rgba(137,87,229,.16); } .node.comp .port { border-color:#8957e5; }
+  /* W4: AI 補助 kind（model/parser）= n8n 式 円サブノード。consumer 底辺の ◆ へ破線で上向き接続（drawLinks の vpath）＝「この部品が使う AI」を形で示す */
+  .node.comp.ai { width:104px; min-width:104px; max-width:104px; height:104px; border-radius:50%; padding:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .node.comp.ai .aibody { display:flex; flex-direction:column; align-items:center; gap:6px; padding:0 12px; text-align:center; }
+  .node.comp.ai .ailabel { font-size:11px; font-weight:600; color:#a371f7; max-width:84px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .node.comp.ai .port.out:hover { transform:translate(-50%,-50%) scale(1.2); }   /* keep the top-center OUT centered on hover (override .port:hover translateY) */
   /* per-node collapse (B1): fold the settings body via the header chevron */
   .ntoggle { cursor:pointer; color:var(--dim); font-size:11px; line-height:1; padding:0 1px; user-select:none; flex:none; }
   .ntoggle:hover { color:var(--txt); }
@@ -765,6 +770,12 @@ function renderNode(node, canvas){
   const cname=(node.config?.name||'').trim()||meta.label||(isSet?kind:t('comp_unset'));
   const tierBadge=node.tier?`<span class="tier-badge ${node.tier}">${node.tier}</span>`:'';
   n.dataset.kind=kind;   // W2: per-kind accent tile（CSS `.node.comp[data-kind=…]`）— input/model/output/parser/router/workflow/langflow/unset
+  const aiNode=AI_AUX.has(kind); n.classList.toggle('ai', aiNode);   // W4: model/parser を円サブノードに（CSS `.node.comp.ai`）
+  if(aiNode){   // W4: AI 補助＝compact 円。上端中央 OUT から consumer 底辺の ◆ へ vpath で供給（設定は inspector 側）。入力は whole-node drop zone（円に IN 足場は出さない）
+    n.innerHTML=`<div class="aibody"><span class="icontile">${meta.svg||''}</span><div class="ailabel">${esc(cname)}</div></div>`
+      +`<span class="port out" data-port="out" style="top:0;left:50%;right:auto;transform:translate(-50%,-50%)"></span>`;
+    return;
+  }
   n.innerHTML=`<div class="name"><span class="icontile">${meta.svg||''}</span> ${esc(cname)}${tierBadge}</div>`
     +`<div class="co"><span class="kindchip comp">${esc(isSet?(meta.label||kind):'未設定')}</span>${esc(isSet?(meta.desc||''):t('comp_pick_kind'))}${res!=null?' · '+esc(String(res).slice(0,40)):''}</div>`
     +portHTML(hasPort(node.accepts), hasPort(node.emits))+addNextHTML(id, hasPort(node.emits));   // input→OUT only, output→IN only (accepts/emits driven)
@@ -823,14 +834,18 @@ function borderPoint(id, tx, ty){ const r=nodeRect(id); if(!r)return null;
 function endpointPos(e, end){
   const id = end==='src' ? e.source : e.target;
   const r = nodeRect(id); if(!r) return center(id);
+  const aiv = AI_AUX.has(comp(e.source)?.kind);   // W4: source が AI 円サブノード → 縦接続（src=上端中央 / tgt=consumer 底辺中央の◆）。router(非 AI_AUX)とは kind が排他
   if(end==='src'){
+    if(aiv) return { x:r.x+r.w/2, y:r.y };                                    // AI サブノード: 上端中央から出力
     const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;   // same router test as drawLinks
     const fy = br ? (br==='else'?0.72:0.28) : 0.5;                            // then=upper lane / else=lower lane
     return { x:r.x+r.w, y:r.y+r.h*fy };
   }
+  if(aiv) return { x:r.x+r.w/2, y:r.y+r.h };                                  // consumer: 底辺中央の◆で受ける
   return { x:r.x, y:r.y+r.h/2 };
 }
 function fpath(a,b){ const dx=Math.max(36, Math.abs(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
+function vpath(a,b){ const dy=Math.max(36, Math.abs(b.y-a.y)*0.5); return `M${a.x},${a.y} C${a.x},${a.y-dy} ${b.x},${b.y+dy} ${b.x},${b.y}`; }   // W4: AI 供給の縦 bezier（a=円サブノード上端→上方向, b=consumer 底辺◆→下方向）
 function canvasPt(e){ const r=$('#canvas').getBoundingClientRect(); return { x:(e.clientX-r.left-PANX)/ZOOM, y:(e.clientY-r.top-PANY)/ZOOM }; }   // screen → world (account for pan + zoom)
 function canConnect(src,tgt){ if(!src||!tgt||src===tgt)return false; const tn=nodeOf(tgt); if(!tn||tn.kind==='trigger'||tn.kind==='note'||noteOf(src))return false;
   const e=nodeOf(src)?.emits||['*'], a=tn.accepts||['*']; return e.includes('*')||a.includes('*')||e.some(x=>a.includes(x)); }
@@ -888,10 +903,12 @@ function drawLinks(){
     const cnt = pw && pw.knownUpstream ? pw.previewRemoved.reduce((n,r)=>n+r.count,0) : null;   // concrete strip count from the dry-run
     const br = comp(e.source)?.kind==='router' ? (e.branch||'then') : null;                     // Wave E2: router branch label
     const ai = !fenced && !br && isAiEdge(e);                                                    // W1: AI 補助 edge（fenced/router 分岐より下位＝可読性で分岐構造を勝たせる）
-    const lbl=(br?(br+': '):'')+(fenced?(''+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):ai?'var(--aiwire)':typeColor(e.type);
+    const aiv = ai && AI_AUX.has(comp(e.source)?.kind);                                          // W4: source が AI 円サブノード → 縦 vpath＋◆（矢印なし・上→下供給）。fenced/router 下位は ai 経由で継承
+    const lbl=(br?(br+': '):'')+(fenced?(''+(cnt!=null?cnt:'')+' '):'')+esc(e.type), d=aiv?vpath(a,b):fpath(a,b), mx=(a.x+b.x)/2, my=(a.y+b.y)/2, w=Math.max(22, lbl.length*6+10), col=fenced?'var(--amber)':br?(br==='then'?'var(--blue)':'var(--grey)'):ai?'var(--aiwire)':typeColor(e.type);
     const sel=selEdge===e.id?'<path d="'+d+'" fill="none" stroke="#fff" stroke-width="5" opacity=".25"/>':'';
-    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85" marker-end="url(#arrow)"${fenced?' stroke-dasharray="6 3"':ai?' stroke-dasharray="5 5"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
+    return sel+`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" opacity=".85"${aiv?'':' marker-end="url(#arrow)"'}${fenced?' stroke-dasharray="6 3"':ai?' stroke-dasharray="5 5"':''}/><path class="hit" d="${d}" data-edge="${e.id}"></path>`
       +`<circle cx="${a.x}" cy="${a.y}" r="3.5" fill="#0a121b" stroke="${col}" stroke-width="2"/>`
+      +(aiv?`<rect x="${b.x-5}" y="${b.y-5}" width="10" height="10" transform="rotate(45 ${b.x} ${b.y})" fill="#0a121b" stroke="var(--aiwire)" stroke-width="2"/>`:'')
       +`<rect x="${mx-w/2}" y="${my-9}" rx="5" width="${w}" height="16" fill="#0a121b" stroke="${col}"/><text x="${mx}" y="${my+3}" text-anchor="middle" font-size="10" fill="${col}">${lbl}</text>`;
   }).join('');
   const he = state.handoffs.slice(-50).map(h=>{ const a=center(h.from),b=center(h.node||h.to); if(!a||!b)return '';
