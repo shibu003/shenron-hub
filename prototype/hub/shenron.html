@@ -259,7 +259,7 @@
           </template>
 
           <!-- Save & Run（PC0: unavailable=計画モデル不在では偽の実行可能 UI を見せない） -->
-          <div class="flex gap-2" x-show="plan.mode !== 'unavailable'">
+          <div class="flex gap-2" x-show="plan && plan.mode !== 'unavailable'">
             <input x-model="saveName" :placeholder="plan && plan.plain_summary || 'フロー名'"
               class="flex-1 border border-[#213e56] rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b6f97]">
             <button @click="saveWorkflow()" :disabled="!plan"
@@ -587,6 +587,9 @@
     </main>
   </div>
 
+  <!-- T2: cockpit の純ロジックを module から読み window.CL に橋渡し（Alpine app は CDN script でグローバル参照ゆえ明示代入が要る）。 -->
+  <script type="module">import * as CL from '/cockpit-logic.mjs'; window.CL = CL;</script>
+
   <script>
     function app() {
       return {
@@ -744,9 +747,9 @@
         // PC2: 多ターン相談。回答を {question,answer} pair で送り（bare 文字列だと planner がどの質問の答えか分からない）、
         // 確定要件 brief を round-trip して蓄積（2回目以降の clarify でも1回目の回答が消えない）。deepen=「もっと詰める」＝新回答なしで brief だけ送り再 clarify。
         async submitClarify(deepen = false) {
-          const choices = (this.plan?.clarify || [])
-            .map((q, qi) => this.clarifyChoices[qi] != null ? { question: q.question, answer: this.clarifyChoices[qi] } : null)
-            .filter(Boolean);
+          // T2: ペア化は cockpit-logic.mjs に単一化（通常はこれを使う＝test_cockpit が番兵）。
+          // ponytail: SW(giogio-v1) が古い HTML/未知の module を配信し window.CL 未定義になっても壊れないよう同ロジックの inline fallback を握る（module 復帰で自動的に primary に戻る）。
+          const choices = (window.CL?.pairChoices || ((plan, cc) => (plan?.clarify || []).map((q, qi) => cc?.[qi] != null ? { question: q.question, answer: cc[qi] } : null).filter(Boolean)))(this.plan, this.clarifyChoices);
           if ((!choices.length && !deepen) || this.planning) return;
           this.planning = true;
           try {

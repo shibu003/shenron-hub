@@ -73,6 +73,7 @@ const UI_FILE = path.join(HERE, 'ui.html');
 const UI2_FILE = path.join(HERE, 'ui2.html');
 const SETTINGS_FILE = path.join(HERE, 'settings.html');
 const SHENRON_UI_FILE = path.join(HERE, 'shenron.html');
+const COCKPIT_LOGIC_FILE = path.join(HERE, 'cockpit-logic.mjs');   // T2: cockpit の純ロジック（pairChoices）を HTML と test で共有＝/cockpit-logic.mjs で配信
 const CANVAS_FILE = path.join(HERE, 'canvas.html');   // Wave Canvas-1: 成果物ギャラリー（/artifacts）
 const MANIFEST_FILE = path.join(HERE, 'manifest.json');
 const SW_FILE = path.join(HERE, 'sw.js');
@@ -1477,6 +1478,10 @@ const ROUTES = {
   'GET /shenron': { a: 'open', h: (req, res) => {
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(SHENRON_UI_FILE)); }
     catch { return json(res, 404, { error: 'shenron.html not found' }); }
+  } },
+  'GET /cockpit-logic.mjs': { a: 'open', h: (req, res) => {   // T2: cockpit の純ロジック module（shenron.html が import・generic static は作らず明示 1 本）
+    try { res.writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-cache' }); return res.end(fs.readFileSync(COCKPIT_LOGIC_FILE)); }
+    catch { return json(res, 404, { error: 'cockpit-logic.mjs not found' }); }
   } },
   'GET /artifacts': { a: 'open', h: (req, res) => {   // Wave Canvas-1: 成果物ギャラリー
     try { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fs.readFileSync(CANVAS_FILE)); }
