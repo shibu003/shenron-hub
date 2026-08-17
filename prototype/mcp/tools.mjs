@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 shibu003
 // tools.mjs — single source of truth for MCP tool DEFINITIONS (Wave U-1).
 // Both surfaces import this so the tool LIST can never re-diverge:
 //   - stdio  (server.mjs)        → TOOLS.filter(forStdio)  + dynamic agent_<name>

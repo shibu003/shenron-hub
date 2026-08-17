@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 shibu003
 // echo-mcp-server.mjs — a tiny zero-dep MCP server (stdio) used to VERIFY Wave G end-to-end without any
 // external credentials. Its tools perform a real, observable side-effect: they APPEND the message to
 // prototype/mcp/.echo-outbox.log (gitignored) and return a confirmation. So "agent → mcp node → Run →

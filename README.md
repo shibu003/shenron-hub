@@ -63,7 +63,14 @@ Node バージョン・Playwright Chromium・ポート競合・`A2A_SHARED_TOKEN
 
 ## ライセンス
 
-MIT — `LICENSE` 参照。
+**コア: Elastic License 2.0** — [`LICENSE`](LICENSE) 参照。
+**MCP 接続面 (`prototype/mcp/`): Apache-2.0。**
+
+自分のマシン・自分のチームでの self-host は無制限。禁止しているのは、
+Shenron を第三者にホスト型 / マネージド型サービスとして提供することだけです。
+
+どのファイルがどちらに属するかは [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md) を参照。
+MIT 時代のリリースは MIT のまま利用できます。
 
 ---
 

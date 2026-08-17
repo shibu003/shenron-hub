@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 shibu003
 // server.mjs — Shenron MCP server (MCP-first control plane, docs/10). Zero-dependency.
 // Lets an AI operate Shenron: discover/search/run agents + workflows + automations over MCP (stdio, JSON-RPC).
 //

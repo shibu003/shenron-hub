@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 shibu003
 // mcp-client.mjs — minimal zero-dependency MCP client. Speaks JSON-RPC 2.0 to a connected MCP server
 // so the hub executor can ACTUALLY CALL a server's tool (Wave G real side-effect), riding each server's
 // OWN auth (philosophy #1: adopt, don't build authz). Two transports:
