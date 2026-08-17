@@ -1303,7 +1303,7 @@ applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations()
 async function loadReadiness(){ try{ const r=await api('/api/shenron/readiness'); const b=document.getElementById('planBadge'); if(!b) return;
   b.style.display='inline-flex';
   if(r.model){ b.className='ok'; b.textContent='🟢 Ready'; b.title='Planning model connected ('+(r.vendor||'claude')+')'; }
-  else { b.className='bad'; b.textContent='🔴 モデル未接続'; b.title=(r.fix||[]).join(' / '); }
+  else { b.className='bad'; b.textContent='🔴 No model'; b.title=(r.fix||[]).join(' / '); }
 }catch{} }
 // Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「編集」の着地点）。showFlows の click と同処理。
 (async()=>{ const fid=new URLSearchParams(location.search).get('flow'); if(!fid) return;

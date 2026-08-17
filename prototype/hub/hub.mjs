@@ -1346,7 +1346,7 @@ function plannerReadiness() {
   const model = v === 'stub' ? false : (hasKey || ((!v || v === 'claude') && _cliProbe.claude) || (v === 'codex' && _cliProbe.codex));
   return {
     model, vendor: v || 'claude',   // #7: hasKey はどこからも読まれない exposed surface ＝削除（model 計算の内部変数は残す）
-    fix: model ? [] : ['hub の env に ANTHROPIC_API_KEY を設定', 'または hub から claude / codex CLI を使える状態に（本人サブスク＝従量0）', 'または起動時に --vendor を指定'],
+    fix: model ? [] : ['Set ANTHROPIC_API_KEY in the hub env', 'or make the claude / codex CLI reachable from the hub (your own subscription = no per-use cost)', 'or pass --vendor at startup'],
     integrations: readIntegrations().filter((it) => it.enabled !== false).length,
     credentials: listCredentials().length,
   };
