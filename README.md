@@ -17,8 +17,8 @@ Node ≥ 20 が必要。
 npx shenron-hub
 
 # または リポジトリから直接:
-git clone https://github.com/shibu003/Shenron.git
-cd Shenron
+git clone https://github.com/shibu003/shenron-hub.git
+cd shenron-hub
 node bin/shenron.mjs
 ```
 
@@ -64,3 +64,10 @@ Node バージョン・Playwright Chromium・ポート競合・`A2A_SHARED_TOKEN
 ## ライセンス
 
 MIT — `LICENSE` 参照。
+
+---
+
+## このリポジトリについて
+
+開発リポジトリから **動くコードだけを取り出した公開ミラー**です（hub 本体・MCP surface・エージェント実行系・テスト）。
+設計メモ・開発ログ・運用ドキュメントは含みません。ライブ環境: <https://hub.shibubu.ai>

@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-[#0a0c10]">
+<html lang="ja" class="h-full bg-[#0a0c10]">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shenron</title>
+  <title>神龍</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Shenron">
+  <meta name="apple-mobile-web-app-title" content="神龍">
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' fill='%230f172a'/%3E%3Cg fill='none' stroke='%235b9bd1' stroke-width='9' stroke-linecap='round'%3E%3Ccircle cx='90' cy='90' r='52'/%3E%3Cpath d='M90 22v16M90 142v16M22 90h16M142 90h16'/%3E%3Ccircle cx='90' cy='90' r='10' fill='%235b9bd1' stroke='none'/%3E%3C/g%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -34,7 +34,7 @@
 
   <!-- 認証確認中 -->
   <div x-show="authed === null" class="h-full flex items-center justify-center bg-[#0a0c10]">
-    <p class="text-[#6d8aa0] text-sm animate-pulse">Connecting…</p>
+    <p class="text-[#6d8aa0] text-sm animate-pulse">接続中…</p>
   </div>
 
   <!-- ログインフォーム（auth mode 時のみ表示） -->
@@ -42,41 +42,41 @@
     <div class="w-full max-w-sm bg-[#0c1822] rounded-2xl p-8 space-y-5 shadow-xl">
       <div class="text-center">
         <div class="flex justify-center mb-2"><svg class="w-10 h-10 text-[#5b9bd1]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></div>
-        <h1 class="text-white text-xl font-bold font-mono tracking-widest">Shenron</h1>
+        <h1 class="text-white text-xl font-bold font-mono tracking-widest">神龍</h1>
       </div>
 
       <!-- ログイン -->
       <form x-show="!showReg" @submit.prevent="doLogin()" class="space-y-4">
-        <input x-model="loginEmail" type="email" placeholder="Email" required
+        <input x-model="loginEmail" type="email" placeholder="メールアドレス" required
           class="w-full bg-[#0f1f2c] text-white rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3b6f97] placeholder-[#5e84a0]" />
-        <input x-model="loginPw" type="password" placeholder="Password" required
+        <input x-model="loginPw" type="password" placeholder="パスワード" required
           class="w-full bg-[#0f1f2c] text-white rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3b6f97] placeholder-[#5e84a0]" />
         <p x-show="loginErr" x-text="loginErr" class="text-red-400 text-xs"></p>
         <button type="submit" :disabled="loginLoading"
           class="w-full bg-[#1f4663] hover:bg-[#27557a] disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors"
-          x-text="loginLoading ? '…' : 'Log in'"></button>
+          x-text="loginLoading ? '…' : 'ログイン'"></button>
         <p class="text-center text-[#7e9bb0] text-xs">
-          No account yet?
+          アカウントがない場合は
           <button type="button" @click="showReg=true;loginErr=''"
-            class="text-[#6fb1d8] hover:text-[#9cc8e4] underline">Sign up</button>
+            class="text-[#6fb1d8] hover:text-[#9cc8e4] underline">新規登録</button>
         </p>
       </form>
 
       <!-- 登録 -->
       <form x-show="showReg" @submit.prevent="doRegister()" class="space-y-4">
-        <input x-model="regEmail" type="email" placeholder="Email" required
+        <input x-model="regEmail" type="email" placeholder="メールアドレス" required
           class="w-full bg-[#0f1f2c] text-white rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3b6f97] placeholder-[#5e84a0]" />
-        <input x-model="regPw" type="password" placeholder="Password (8+ characters)" required
+        <input x-model="regPw" type="password" placeholder="パスワード（8文字以上）" required
           class="w-full bg-[#0f1f2c] text-white rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3b6f97] placeholder-[#5e84a0]" />
         <p x-show="regMsg" x-text="regMsg"
           :class="regMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'" class="text-xs"></p>
         <button type="submit" :disabled="loginLoading"
           class="w-full bg-[#1f4663] hover:bg-[#27557a] disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors"
-          x-text="loginLoading ? '…' : 'Create account'"></button>
+          x-text="loginLoading ? '…' : 'アカウント作成'"></button>
         <p class="text-center text-[#7e9bb0] text-xs">
-          Already have one?
+          すでにある場合は
           <button type="button" @click="showReg=false;regMsg=''"
-            class="text-[#6fb1d8] hover:text-[#9cc8e4] underline">Log in</button>
+            class="text-[#6fb1d8] hover:text-[#9cc8e4] underline">ログイン</button>
         </p>
       </form>
     </div>
@@ -87,16 +87,16 @@
     <!-- Sidebar -->
     <nav class="w-16 bg-[#0c1822] flex flex-col items-center py-4 gap-1 shrink-0 z-10 border-r border-[#182d3e]">
       <!-- サーフェス切替（どのページからもどこへでも） -->
-      <a href="/" title="Launcher" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
+      <a href="/" title="玄関" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V8l7-5 7 5v13"/><path d="M5 21h14"/><path d="M10 21v-6h4v6"/></svg>
       </a>
-      <a href="/ui2" title="Canvas" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
+      <a href="/ui2" title="キャンバス" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M9 9v11"/></svg>
       </a>
-      <a href="/artifacts" title="Artifacts" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
+      <a href="/artifacts" title="成果物" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       </a>
-      <a href="/settings" title="Settings (full)" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
+      <a href="/settings" title="設定（フル）" class="w-12 h-10 rounded-xl flex items-center justify-center text-[#6d8aa0] hover:bg-[#0f1f2c] hover:text-white transition-colors">
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v4M4 12v8M12 4v8M12 16v4M20 4v10M20 18v2"/><circle cx="4" cy="10" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="20" cy="16" r="2"/></svg>
       </a>
       <div class="w-8 h-px bg-[#213e56] my-2"></div>
@@ -113,7 +113,7 @@
         </button>
       </template>
       <!-- ログアウト（auth mode 時のみ: openDev では不要だが出ても害なし） -->
-      <button @click="doLogout()" title="Log out"
+      <button @click="doLogout()" title="ログアウト"
         class="mt-auto w-12 h-12 rounded-xl flex items-center justify-center text-[#a9c4d8] hover:bg-[#0f1f2c] hover:text-[#5e84a0] transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
@@ -126,33 +126,33 @@
 
       <!-- ====== WISH ====== -->
       <div x-show="tab === 'wish'" class="max-w-2xl mx-auto p-6 space-y-5">
-        <h1 class="text-2xl font-bold text-[#cfe0ee]">What do you want granted?</h1>
+        <h1 class="text-2xl font-bold text-[#cfe0ee]">何を叶えたいですか？</h1>
 
         <!-- PC1: 計画モデル可否バッジ（🔴 のとき plan は偽フローでなく mode:unavailable を返す＝PC0 相補） -->
         <div x-show="readiness" class="text-xs">
-          <span x-show="readiness && readiness.model" class="inline-flex items-center gap-1 text-green-400">🟢 Ready to plan<span class="text-[#5e84a0]" x-text="' (' + (readiness?.vendor || 'claude') + ')'"></span></span>
-          <span x-show="readiness && !readiness.model" class="inline-flex items-center gap-1 text-red-400" :title="(readiness?.fix || []).join(' / ')">🔴 No planning model connected — <span class="text-[#a9c4d8]" x-text="readiness?.fix?.[0] || ''"></span></span>
+          <span x-show="readiness && readiness.model" class="inline-flex items-center gap-1 text-green-400">🟢 計画できます<span class="text-[#5e84a0]" x-text="'（' + (readiness?.vendor || 'claude') + '）'"></span></span>
+          <span x-show="readiness && !readiness.model" class="inline-flex items-center gap-1 text-red-400" :title="(readiness?.fix || []).join(' / ')">🔴 計画モデル未接続 — <span class="text-[#a9c4d8]" x-text="readiness?.fix?.[0] || ''"></span></span>
         </div>
 
         <!-- Input card -->
         <div class="bg-[#0c1822] rounded-2xl shadow-sm border border-[#213e56] p-5 space-y-4">
           <textarea x-model="goal" @keydown.meta.enter.prevent="submitWish()" rows="4"
-            placeholder="e.g. send the team a report on Slack every Monday"
+            placeholder="例: 毎週月曜に Slack でチームにレポートを送る"
             class="w-full resize-none border border-[#213e56] rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b6f97] placeholder-[#46627a]"></textarea>
           <div class="flex items-center justify-between flex-wrap gap-3">
             <div class="flex items-center gap-4">
-              <span class="text-xs text-[#7e9bb0]">Cost</span>
+              <span class="text-xs text-[#7e9bb0]">コスト</span>
               <label class="flex items-center gap-1.5 cursor-pointer text-sm">
-                <input type="radio" x-model="cost" value="free" class="accent-[#5b9bd1]"> Free only
+                <input type="radio" x-model="cost" value="free" class="accent-[#5b9bd1]"> 無料のみ
               </label>
               <label class="flex items-center gap-1.5 cursor-pointer text-sm">
-                <input type="radio" x-model="cost" value="paid_ok" class="accent-[#5b9bd1]"> Paid OK
+                <input type="radio" x-model="cost" value="paid_ok" class="accent-[#5b9bd1]"> 有料OK
               </label>
             </div>
             <button @click="submitWish()" :disabled="planning || !goal.trim()"
               class="px-5 py-2.5 bg-[#1f4663] text-white rounded-xl text-sm font-medium hover:bg-[#27557a] disabled:opacity-40 transition-colors flex items-center gap-2">
               <span x-show="planning" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block"></span>
-              Make a plan
+              プランを立てる
             </button>
           </div>
         </div>
@@ -160,19 +160,19 @@
         <!-- Clarify mode -->
         <div x-show="plan && plan.mode === 'clarify'" class="space-y-4">
           <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <p class="text-sm font-medium text-amber-800">Tell me more</p>
+            <p class="text-sm font-medium text-amber-800">詳しく教えてください</p>
           </div>
 
           <!-- PC2: 要件ブリーフ（多ターンで蓄積する確定/仮定。質問=未解決, ブロッカー=下の赤枠と相補） -->
           <template x-if="plan && plan.brief && ((plan.brief.confirmed || []).length || (plan.brief.assumptions || []).length)">
             <div class="bg-[#0c1822] rounded-xl border border-[#213e56] p-4 space-y-1.5">
-              <p class="text-xs font-semibold text-[#6d8aa0] uppercase tracking-wide">Settled so far</p>
+              <p class="text-xs font-semibold text-[#6d8aa0] uppercase tracking-wide">これまでに確定</p>
               <template x-for="c in (plan.brief.confirmed || [])" :key="c">
                 <p class="text-sm text-[#9fe0b0]">✓ <span x-text="c"></span></p>
               </template>
               <template x-if="(plan.brief.assumptions || []).length">
                 <div class="pt-2 mt-1 border-t border-[#213e56] space-y-1">
-                  <p class="text-xs text-[#6d8aa0]">Assumptions — correct them in your next answer</p>
+                  <p class="text-xs text-[#6d8aa0]">仮定（違ったら次の回答で正してください）</p>
                   <template x-for="a in plan.brief.assumptions" :key="a">
                     <p class="text-sm text-[#d8c79f]">· <span x-text="a"></span></p>
                   </template>
@@ -183,7 +183,7 @@
 
           <template x-if="plan && plan.blockers && plan.blockers.length">
             <div class="bg-red-50 border border-red-200 rounded-xl p-4 space-y-1">
-              <p class="text-xs font-semibold text-red-700 uppercase tracking-wide">Blockers</p>
+              <p class="text-xs font-semibold text-red-700 uppercase tracking-wide">ブロッカー</p>
               <template x-for="b in plan.blockers"><p class="text-sm text-red-600" x-text="b"></p></template>
             </div>
           </template>
@@ -209,12 +209,12 @@
           <div class="flex flex-wrap gap-2">
             <button @click="submitClarify()" :disabled="planning || !Object.keys(clarifyChoices).length"
               class="px-5 py-2.5 bg-[#1f4663] text-white rounded-xl text-sm font-medium hover:bg-[#27557a] disabled:opacity-40 transition-colors">
-              ↩ Re-plan
+              ↩ 再プラン
             </button>
             <button @click="submitClarify(true)" :disabled="planning"
               class="px-5 py-2.5 border border-[#213e56] text-[#a9c4d8] rounded-xl text-sm font-medium hover:border-[#3b6f97] disabled:opacity-40 transition-colors"
-              title="Dig deeper from what is already settled, without a new answer">
-              Dig deeper
+              title="新しい回答なしで、これまでの確定要件をもとにさらに質問を深掘りします">
+              もっと詰める
             </button>
           </div>
         </div>
@@ -230,7 +230,7 @@
           <!-- Blockers -->
           <template x-if="plan && plan.blockers && plan.blockers.length">
             <div class="bg-red-50 border border-red-200 rounded-xl p-4 space-y-1">
-              <p class="text-xs font-semibold text-red-700 uppercase tracking-wide">Blockers</p>
+              <p class="text-xs font-semibold text-red-700 uppercase tracking-wide">ブロッカー</p>
               <template x-for="b in plan.blockers"><p class="text-sm text-red-600" x-text="b"></p></template>
             </div>
           </template>
@@ -238,7 +238,7 @@
           <!-- Missing tools -->
           <template x-if="plan && plan.missing && plan.missing.length">
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-              <p class="text-xs font-semibold text-amber-800 uppercase tracking-wide">Missing tools</p>
+              <p class="text-xs font-semibold text-amber-800 uppercase tracking-wide">不足ツール</p>
               <template x-for="(m, mi) in plan.missing" :key="mi">
                 <div class="flex items-center justify-between bg-[#0c1822] rounded-lg px-3 py-2.5 shadow-sm">
                   <div>
@@ -246,12 +246,12 @@
                     <p class="text-xs text-[#6d8aa0]" x-text="'step ' + m.step + ' · ' + m.kind"></p>
                   </div>
                   <div class="flex items-center gap-2">
-                    <span x-show="genState[mi] === 'done'" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-lg">generated → Deployments</span>
+                    <span x-show="genState[mi] === 'done'" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-lg">生成済 → Deployments</span>
                     <span x-show="genState[mi] === 'running'" class="text-xs text-[#6d8aa0] flex items-center gap-1">
-                      <span class="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin inline-block"></span> generating
+                      <span class="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin inline-block"></span> 生成中
                     </span>
                     <button x-show="!genState[mi]" @click="generateComponent(m.what, mi)"
-                      class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">Generate</button>
+                      class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">生成</button>
                   </div>
                 </div>
               </template>
@@ -260,15 +260,15 @@
 
           <!-- Save & Run（PC0: unavailable=計画モデル不在では偽の実行可能 UI を見せない） -->
           <div class="flex gap-2" x-show="plan && plan.mode !== 'unavailable'">
-            <input x-model="saveName" :placeholder="plan && plan.plain_summary || 'Flow name'"
+            <input x-model="saveName" :placeholder="plan && plan.plain_summary || 'フロー名'"
               class="flex-1 border border-[#213e56] rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b6f97]">
             <button @click="saveWorkflow()" :disabled="!plan"
               class="px-4 py-2.5 border border-[#2a5575] text-[#6fb1d8] rounded-xl text-sm font-medium hover:bg-[#0f2a3d] disabled:opacity-40 transition-colors whitespace-nowrap">
-              Save
+              保存
             </button>
             <button @click="runPlan()" :disabled="!plan || !(plan.nodes && plan.nodes.length)"
               class="px-5 py-2.5 bg-[#1f4663] text-white rounded-xl text-sm font-medium hover:bg-[#27557a] disabled:opacity-40 transition-colors whitespace-nowrap">
-              ▶ Run
+              ▶ 実行
             </button>
           </div>
         </div>
@@ -277,10 +277,10 @@
       <!-- ====== WORKFLOWS ====== -->
       <div x-show="tab === 'workflows'" class="p-6 space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-xl font-bold text-[#cfe0ee]">Saved workflows</h2>
-          <button @click="loadWorkflows()" class="text-sm text-[#6fb1d8] hover:underline">↻ Refresh</button>
+          <h2 class="text-xl font-bold text-[#cfe0ee]">保存済みワークフロー</h2>
+          <button @click="loadWorkflows()" class="text-sm text-[#6fb1d8] hover:underline">↻ 更新</button>
         </div>
-        <p x-show="workflows.length === 0" class="text-sm text-[#6d8aa0] py-12 text-center">No saved flows yet</p>
+        <p x-show="workflows.length === 0" class="text-sm text-[#6d8aa0] py-12 text-center">保存済みフローはありません</p>
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <template x-for="wf in workflows" :key="wf.id">
             <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm p-5 space-y-3 hover:shadow-md transition-shadow flex flex-col">
@@ -295,18 +295,18 @@
                 </div>
                 <div class="flex gap-1.5">
                   <button @click="shareWorkflow(wf)"
-                    :title="wf.visibility === 'shared' ? 'Shared: visible in the team vault (click to unshare)' : 'Private: only you (click to share to the vault)'"
+                    :title="wf.visibility === 'shared' ? '共有中：チームの庫に公開（クリックで非共有に戻す）' : '非共有：自分だけ（クリックで庫に共有）'"
                     class="px-2.5 py-1 text-xs border rounded-lg transition-colors"
                     :class="wf.visibility === 'shared' ? 'border-emerald-300 text-emerald-600 hover:border-emerald-400' : 'border-[#213e56] text-[#7e9bb0] hover:border-[#3b6f97] hover:text-[#6fb1d8]'"
                     x-html="wf.visibility === 'shared' ? '<svg width=14 height=14 viewBox=\'0 0 24 24\' fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round style=display:inline><circle cx=12 cy=12 r=9/><path d=\'M3 12h18\'/><path d=\'M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z\'/></svg>' : '<svg width=14 height=14 viewBox=\'0 0 24 24\' fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round style=display:inline><path d=\'M9 15l6-6\'/><path d=\'M11 6l1-1a4 4 0 0 1 6 6l-1 1\'/><path d=\'M13 18l-1 1a4 4 0 0 1-6-6l1-1\'/></svg>'"></button>
-                  <a :href="'/ui2?flow=' + encodeURIComponent(wf.id)" title="Edit in the canvas"
+                  <a :href="'/ui2?flow=' + encodeURIComponent(wf.id)" title="キャンバスで編集"
                     class="px-2.5 py-1 text-xs border border-[#213e56] rounded-lg text-[#7e9bb0] hover:border-[#3b6f97] hover:text-[#6fb1d8] transition-colors no-underline inline-flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg></a>
-                  <button @click="cloneWorkflow(wf.id)" title="Duplicate — fork it, change it, reuse it inside another flow"
+                  <button @click="cloneWorkflow(wf.id)" title="複製（fork → 改造して別フローの部品に再利用）"
                     class="px-2.5 py-1 text-xs border border-[#213e56] rounded-lg text-[#7e9bb0] hover:border-[#3b6f97] hover:text-[#6fb1d8] transition-colors">⧉</button>
-                  <button @click="makeSkill(wf.id)" title="Generate a Claude Code Skill"
+                  <button @click="makeSkill(wf.id)" title="Claude Code Skill を生成"
                     class="px-2.5 py-1 text-xs border border-[#213e56] rounded-lg text-[#7e9bb0] hover:border-[#3b6f97] hover:text-[#6fb1d8] transition-colors inline-flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></button>
                   <button @click="runWorkflow(wf.id)"
-                    class="px-3 py-1 bg-[#1f4663] text-white rounded-lg text-xs font-medium hover:bg-[#27557a] transition-colors">▶ Run</button>
+                    class="px-3 py-1 bg-[#1f4663] text-white rounded-lg text-xs font-medium hover:bg-[#27557a] transition-colors">▶ 実行</button>
                 </div>
               </div>
             </div>
@@ -317,20 +317,20 @@
         <div x-show="skills.length" class="pt-4 mt-2 border-t border-[#182d3e]">
           <div class="flex items-center justify-between mb-3">
             <div>
-              <h3 class="text-sm font-semibold text-[#cfe0ee]">Generated skills</h3>
-              <p class="text-xs text-[#6d8aa0] mt-0.5">Flows written out as Claude Code SKILL.md files. <code class="text-[#6fb1d8]">~/.claude/skills</code> entries fire in every repository — a substitute for shipping a library.</p>
+              <h3 class="text-sm font-semibold text-[#cfe0ee]">生成済みスキル</h3>
+              <p class="text-xs text-[#6d8aa0] mt-0.5">flow を Claude Code の SKILL.md に書き出したもの。<code class="text-[#6fb1d8]">~/.claude/skills</code> 行は全リポジトリで発火（ライブラリ配布の代替）。</p>
             </div>
-            <button @click="loadSkills()" class="text-sm text-[#6fb1d8] hover:underline">↻ Refresh</button>
+            <button @click="loadSkills()" class="text-sm text-[#6fb1d8] hover:underline">↻ 更新</button>
           </div>
           <div class="space-y-1.5">
             <template x-for="s in skills" :key="s.scope + ':' + s.slug">
               <div class="flex items-center gap-3 bg-[#0c1822] rounded-lg border border-[#213e56] px-3 py-2">
                 <span class="text-xs font-medium px-1.5 py-0.5 rounded border"
                   :class="s.scope === 'user' ? 'border-emerald-400/40 text-emerald-400' : 'border-[#213e56] text-[#7e9bb0]'"
-                  x-text="s.scope === 'user' ? '~/ all repos' : 'repo'"></span>
+                  x-text="s.scope === 'user' ? '~/ 全リポジトリ' : 'repo'"></span>
                 <code class="text-xs text-[#cfe0ee] truncate" x-text="s.slug"></code>
                 <span class="text-xs text-[#6d8aa0] truncate flex-1" x-text="s.name"></span>
-                <button @click="deleteSkill(s)" title="Delete skill"
+                <button @click="deleteSkill(s)" title="スキルを削除"
                   class="shrink-0 px-2 py-1 text-xs border border-[#213e56] rounded-lg text-[#7e9bb0] hover:border-[#a8455a] hover:text-[#d8788c] transition-colors inline-flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
               </div>
             </template>
@@ -342,34 +342,34 @@
       <div x-show="tab === 'garage'" class="p-6 space-y-4">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-xl font-bold text-[#cfe0ee]">Shared agent vault</h2>
-            <p class="text-xs text-[#6d8aa0] mt-1">Flows and parts shared with the team. Trust is shown as numbers — how many adopted it, and how much drift it has.</p>
+            <h2 class="text-xl font-bold text-[#cfe0ee]">共有エージェント庫</h2>
+            <p class="text-xs text-[#6d8aa0] mt-1">チームで共有されたフロー・部品の棚。信頼は「何人が使い・drift ゼロか」の実績数字で示す。</p>
           </div>
-          <button @click="loadShared()" class="text-sm text-[#6fb1d8] hover:underline">↻ Refresh</button>
+          <button @click="loadShared()" class="text-sm text-[#6fb1d8] hover:underline">↻ 更新</button>
         </div>
-        <p x-show="shared.length === 0" class="text-sm text-[#6d8aa0] py-12 text-center">Nothing shared yet — press the share button on a flow to put it in the vault</p>
+        <p x-show="shared.length === 0" class="text-sm text-[#6d8aa0] py-12 text-center">まだ共有された資産はありません（Flows の共有ボタンを押すと庫に載ります）</p>
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <template x-for="it in shared" :key="it.kind + ':' + it.id">
             <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm p-5 space-y-3 hover:shadow-md transition-shadow flex flex-col">
               <div class="flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="text-xs px-1.5 py-0.5 rounded shrink-0" :class="it.kind === 'workflow' ? 'bg-[#0f2a3d] text-[#6fb1d8]' : 'bg-amber-50 text-amber-600'" x-text="it.kind === 'workflow' ? 'flow' : 'part'"></span>
+                  <span class="text-xs px-1.5 py-0.5 rounded shrink-0" :class="it.kind === 'workflow' ? 'bg-[#0f2a3d] text-[#6fb1d8]' : 'bg-amber-50 text-amber-600'" x-text="it.kind === 'workflow' ? 'フロー' : '部品'"></span>
                   <p class="font-semibold text-[#cfe0ee] text-sm" x-text="it.name"></p>
                 </div>
                 <p x-show="it.summary" class="text-xs text-[#6d8aa0] mt-1 line-clamp-2" x-text="it.summary"></p>
                 <p class="text-xs text-[#6d8aa0] mt-2" x-text="'maker: ' + (it.maker || '—')"></p>
               </div>
               <div class="flex items-center gap-3 text-xs pt-2 border-t border-[#182d3e]">
-                <span class="text-[#7e9bb0]" x-text="it.adoptedBy + ' adopted'"></span>
+                <span class="text-[#7e9bb0]" x-text="it.adoptedBy + ' 採用'"></span>
                 <span :class="it.reliability ? 'text-emerald-600' : 'text-[#5e84a0]'"
-                  :title="it.reliability ? (it.reliability.passed + '/' + it.reliability.total + ' checks passed') : 'no check history'"
+                  :title="it.reliability ? (it.reliability.passed + '/' + it.reliability.total + ' 検証pass') : '検証履歴なし'"
                   x-text="it.reliability ? ('✓ ' + it.reliability.rate + '%') : '✓ —'"></span>
                 <span :class="it.drift === null ? 'text-[#5e84a0]' : (it.drift > 0 ? 'text-rose-500' : 'text-[#6d8aa0]')"
                   x-text="'drift ' + (it.drift === null ? '—' : it.drift)"></span>
               </div>
               <div x-show="it.kind === 'workflow'" class="flex justify-end">
-                <button @click="cloneWorkflow(it.id)" title="Copy this shared flow into your own — the original stays untouched"
-                  class="px-3 py-1 bg-[#1f4663] text-white rounded-lg text-xs font-medium hover:bg-[#27557a] transition-colors">▶ Duplicate</button>
+                <button @click="cloneWorkflow(it.id)" title="この共有フローを自分のコピーに複製して使う（元は不変）"
+                  class="px-3 py-1 bg-[#1f4663] text-white rounded-lg text-xs font-medium hover:bg-[#27557a] transition-colors">▶ 複製</button>
               </div>
             </div>
           </template>
@@ -378,8 +378,8 @@
 
       <!-- ====== RUNS ====== -->
       <div x-show="tab === 'runs'" class="p-6 space-y-4">
-        <h2 class="text-xl font-bold text-[#cfe0ee]">Runs</h2>
-        <p x-show="runs.length === 0" class="text-sm text-[#6d8aa0] py-12 text-center">No run history</p>
+        <h2 class="text-xl font-bold text-[#cfe0ee]">実行</h2>
+        <p x-show="runs.length === 0" class="text-sm text-[#6d8aa0] py-12 text-center">実行履歴はありません</p>
         <div class="space-y-4">
           <template x-for="run in runs" :key="run.id">
             <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm overflow-hidden">
@@ -390,13 +390,13 @@
                   <p class="font-semibold text-[#cfe0ee] truncate" x-text="flowName(run.flowId, run.id)"></p>
                   <div class="flex items-center gap-2 mt-1 flex-wrap">
                     <span class="text-xs font-mono text-[#5e84a0]" x-text="run.id"></span>
-                    <span class="text-xs text-[#6d8aa0]" x-text="run.done + ' / ' + run.total + ' steps'"></span>
+                    <span class="text-xs text-[#6d8aa0]" x-text="run.done + ' / ' + run.total + ' ステップ'"></span>
                     <span x-show="errCount(run) > 0"
                       class="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium"
-                      x-text="errCount(run) + ' errors'"></span>
+                      x-text="errCount(run) + ' 件のエラー'"></span>
                     <span x-show="stubCount(run) > 0 && errCount(run) === 0"
                       class="text-xs bg-[#0f1f2c] text-[#6d8aa0] px-1.5 py-0.5 rounded"
-                      x-text="stubCount(run) + ' stubbed (no LLM configured)'"></span>
+                      x-text="stubCount(run) + ' 件 stub（LLM未設定）'"></span>
                   </div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
@@ -407,7 +407,7 @@
                       'bg-[#0f1f2c] text-[#6d8aa0]': run.status === 'cancelled'
                     }" x-text="statusJa(run.status)"></span>
                   <button x-show="run.status === 'running'" @click="stopRun(run.id)"
-                    class="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">⏹ Stop</button>
+                    class="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">⏹ 停止</button>
                 </div>
               </div>
 
@@ -447,11 +447,11 @@
 
       <!-- ====== HANDOFFS ====== -->
       <div x-show="tab === 'handoffs'" class="p-6 space-y-5">
-        <h2 class="text-xl font-bold text-[#cfe0ee]">Approvals</h2>
+        <h2 class="text-xl font-bold text-[#cfe0ee]">承認</h2>
 
         <!-- Pending -->
         <div x-show="pendingHandoffs.length > 0" class="space-y-3">
-          <h3 class="text-xs font-semibold text-amber-700 uppercase tracking-wide">⏳ Waiting for approval</h3>
+          <h3 class="text-xs font-semibold text-amber-700 uppercase tracking-wide">⏳ 承認待ち</h3>
           <template x-for="h in pendingHandoffs" :key="h.id">
             <div class="bg-[#0c1822] rounded-xl border border-amber-200 shadow-sm p-5 space-y-4">
               <div>
@@ -465,8 +465,8 @@
                 :src="h.checkpoint && h.checkpoint.screenshot || ''"
                 class="w-full max-h-52 object-contain rounded-lg border border-[#213e56] bg-[#0a0c10]" alt="screenshot">
               <div class="flex gap-3">
-                <button @click="approveHandoff(h.id)" class="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors">Approve</button>
-                <button @click="declineHandoff(h.id)" class="flex-1 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors">Decline</button>
+                <button @click="approveHandoff(h.id)" class="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors">承認</button>
+                <button @click="declineHandoff(h.id)" class="flex-1 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors">拒否</button>
               </div>
             </div>
           </template>
@@ -474,7 +474,7 @@
 
         <!-- Recent -->
         <div x-show="recentHandoffs.length > 0" class="space-y-2">
-          <h3 class="text-xs font-semibold text-[#6d8aa0] uppercase tracking-wide">Done</h3>
+          <h3 class="text-xs font-semibold text-[#6d8aa0] uppercase tracking-wide">完了済み</h3>
           <template x-for="h in recentHandoffs" :key="h.id">
             <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm px-4 py-3 flex items-start justify-between gap-3">
               <div class="min-w-0">
@@ -490,26 +490,26 @@
         </div>
 
         <p x-show="pendingHandoffs.length === 0 && recentHandoffs.length === 0"
-          class="text-sm text-[#6d8aa0] py-12 text-center">Nothing waiting for approval</p>
+          class="text-sm text-[#6d8aa0] py-12 text-center">承認待ちはありません</p>
       </div>
 
       <!-- ====== DEPLOYMENTS ====== -->
       <div x-show="tab === 'deployments'" class="p-6 space-y-8">
         <div class="flex items-center justify-between">
-          <h2 class="text-xl font-bold text-[#cfe0ee]">Deployed tools</h2>
-          <button @click="loadDeployments()" class="text-sm text-[#6fb1d8] hover:underline">↻ Refresh</button>
+          <h2 class="text-xl font-bold text-[#cfe0ee]">デプロイ済みツール</h2>
+          <button @click="loadDeployments()" class="text-sm text-[#6fb1d8] hover:underline">↻ 更新</button>
         </div>
 
         <!-- Integrations -->
         <section class="space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-[#c2d6e6]">Integrations (MCP)</h3>
-            <button @click="showAddInt = !showAddInt" class="text-xs text-[#6fb1d8] border border-[#2a5575] px-2.5 py-1 rounded-lg hover:bg-[#0f2a3d] transition-colors">＋ Add</button>
+            <button @click="showAddInt = !showAddInt" class="text-xs text-[#6fb1d8] border border-[#2a5575] px-2.5 py-1 rounded-lg hover:bg-[#0f2a3d] transition-colors">＋ 追加</button>
           </div>
 
           <!-- Add form -->
           <div x-show="showAddInt" x-transition class="bg-[#0a0c10] rounded-xl border border-[#213e56] p-4 space-y-2">
-            <input x-model="newInt.label" placeholder="Label (e.g. My Tool)"
+            <input x-model="newInt.label" placeholder="ラベル (例: My Tool)"
               class="w-full border border-[#213e56] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b6f97]">
             <input x-model="newInt.command" placeholder="コマンド (例: npx my-server) または URL (https://...)"
               class="w-full border border-[#213e56] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b6f97]">
@@ -519,18 +519,18 @@
                 <option value="search">search</option>
               </select>
               <button @click="addIntegration()" :disabled="!newInt.label"
-                class="flex-1 bg-[#1f4663] text-white rounded-lg text-sm py-2 hover:bg-[#27557a] disabled:opacity-40 transition-colors">Add</button>
-              <button @click="showAddInt = false" class="px-3 text-[#6d8aa0] hover:text-[#a9c4d8] text-sm">Cancel</button>
+                class="flex-1 bg-[#1f4663] text-white rounded-lg text-sm py-2 hover:bg-[#27557a] disabled:opacity-40 transition-colors">追加</button>
+              <button @click="showAddInt = false" class="px-3 text-[#6d8aa0] hover:text-[#a9c4d8] text-sm">キャンセル</button>
             </div>
           </div>
 
-          <p x-show="integrations.length === 0" class="text-sm text-[#6d8aa0]">None</p>
+          <p x-show="integrations.length === 0" class="text-sm text-[#6d8aa0]">なし</p>
           <div class="space-y-2">
             <template x-for="it in integrations" :key="it.id">
               <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm px-4 py-3 flex items-center justify-between">
                 <div class="min-w-0">
                   <p class="text-sm font-medium text-[#c2d6e6] truncate" x-text="it.label"></p>
-                  <p class="text-xs text-[#6d8aa0]" x-text="it.kind + ' · ' + (it.tools ? it.tools.length : 0) + ' tools' + (it.generated ? ' · generated' : '')"></p>
+                  <p class="text-xs text-[#6d8aa0]" x-text="it.kind + ' · ' + (it.tools ? it.tools.length : 0) + ' tools' + (it.generated ? ' · 生成済' : '')"></p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
                   <input type="checkbox" :checked="it.enabled !== false"
@@ -547,7 +547,7 @@
         <!-- Automations -->
         <section class="space-y-3">
           <h3 class="font-semibold text-[#c2d6e6]">Automations</h3>
-          <p x-show="automations.length === 0" class="text-sm text-[#6d8aa0]">None</p>
+          <p x-show="automations.length === 0" class="text-sm text-[#6d8aa0]">なし</p>
           <div class="space-y-2">
             <template x-for="m in automations" :key="m.id">
               <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm px-4 py-3 flex items-center justify-between">
@@ -556,7 +556,7 @@
                   <p class="text-xs text-[#6d8aa0]" x-text="(m.trigger || 'manual') + ' · workflow: ' + m.workflow"></p>
                 </div>
                 <button @click="fireAutomation(m.workflow)"
-                  class="shrink-0 ml-3 px-3 py-1.5 bg-[#0f1f2c] text-[#a9c4d8] rounded-lg text-xs hover:bg-[#143247] hover:text-[#9cc8e4] transition-colors">▶ Run</button>
+                  class="shrink-0 ml-3 px-3 py-1.5 bg-[#0f1f2c] text-[#a9c4d8] rounded-lg text-xs hover:bg-[#143247] hover:text-[#9cc8e4] transition-colors">▶ 実行</button>
               </div>
             </template>
           </div>
@@ -564,8 +564,8 @@
 
         <!-- Generated Components -->
         <section class="space-y-3">
-          <h3 class="font-semibold text-[#c2d6e6]">Generated tools</h3>
-          <p x-show="components.length === 0" class="text-sm text-[#6d8aa0]">None</p>
+          <h3 class="font-semibold text-[#c2d6e6]">生成ツール</h3>
+          <p x-show="components.length === 0" class="text-sm text-[#6d8aa0]">なし</p>
           <div class="space-y-2">
             <template x-for="c in components" :key="c.id">
               <div class="bg-[#0c1822] rounded-xl border border-[#213e56] shadow-sm px-4 py-3 flex items-center justify-between">
@@ -574,9 +574,9 @@
                   <p class="text-xs text-[#6d8aa0]" x-text="c.iters + ' iters · ' + relTime(c.createdAt)"></p>
                 </div>
                 <div class="shrink-0 ml-3 flex items-center gap-2">
-                  <span x-show="c.approved" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ approved</span>
+                  <span x-show="c.approved" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ 承認済</span>
                   <button x-show="!c.approved" @click="approveComponent(c.id)"
-                    class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors">Approve</button>
+                    class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors">承認</button>
                 </div>
               </div>
             </template>
@@ -597,7 +597,7 @@
         tabs: [
           { id: 'wish',        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 16h-8l-4 3.5V16H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 5z"/><path d="M7.5 8.8l2.2 2.2-2.2 2.2"/><path d="M12.2 13.2h4.6"/></svg>', label: 'Wish'  },
           { id: 'workflows',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>', label: 'Flows' },
-          { id: 'garage',      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>', label: 'Vault' },
+          { id: 'garage',      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>', label: '庫'    },
           { id: 'runs',        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>', label: 'Runs'  },
           { id: 'handoffs',    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12l2.5 2.5 5-5"/></svg>', label: 'OKs'   },
           { id: 'deployments', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>', label: 'Tools' },
@@ -684,7 +684,7 @@
           this.loginLoading = true; this.regMsg = '';
           try {
             await this.api('POST', '/api/auth/register', { email: this.regEmail, password: this.regPw });
-            this.regMsg = '✓ Registered — a confirmation link was printed in the hub terminal. Open it, then log in.';
+            this.regMsg = '✓ 登録完了 — hub ターミナルに確認リンクが出力されました。クリックして認証後にログインしてください。';
           } catch (e) { this.regMsg = '✕ ' + e.message; }
           this.loginLoading = false;
         },
@@ -740,7 +740,7 @@
             r.mode = r.mode || (r.clarify && r.clarify.length ? 'clarify' : 'plan');
             this.plan = r;
             this.saveName = r.plain_summary || '';
-          } catch (e) { this.showToast('Error: ' + e.message, false); }
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
           this.planning = false;
         },
 
@@ -760,7 +760,7 @@
             this.plan = r;
             this.clarifyChoices = {};
             this.saveName = r.plain_summary || '';
-          } catch (e) { this.showToast('Error: ' + e.message, false); }
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
           this.planning = false;
         },
 
@@ -769,10 +769,10 @@
           try {
             await this.api('POST', '/api/shenron/gen-component', { what });
             this.genState = { ...this.genState, [mi]: 'done' };
-            this.showToast('Generated — approve it under Deployments > Generated tools');
+            this.showToast('生成完了 — Deployments > 生成ツール で承認してください');
           } catch (e) {
             this.genState = { ...this.genState, [mi]: null };
-            this.showToast('Generation error: ' + e.message, false);
+            this.showToast('生成エラー: ' + e.message, false);
           }
         },
 
@@ -785,8 +785,8 @@
               nodes: this.plan.nodes || [],
               edges: this.plan.edges || [],
             });
-            this.showToast('Saved');
-          } catch (e) { this.showToast('Save error: ' + e.message, false); }
+            this.showToast('保存しました');
+          } catch (e) { this.showToast('保存エラー: ' + e.message, false); }
         },
 
         async runPlan() {
@@ -794,8 +794,8 @@
           try {
             await this.api('POST', '/api/runflow', { nodes: this.plan.nodes, edges: this.plan.edges || [], input: this.goal });
             this.tab = 'runs';
-            this.showToast('▶ Run started');
-          } catch (e) { this.showToast('Run error: ' + e.message, false); }
+            this.showToast('▶ 実行開始');
+          } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
         },
 
         // ── Workflows ────────────────────────────────
@@ -812,16 +812,16 @@
           try {
             await this.api('POST', '/api/runflow', { id });
             this.tab = 'runs';
-            this.showToast('▶ Run started');
-          } catch (e) { this.showToast('Run error: ' + e.message, false); }
+            this.showToast('▶ 実行開始');
+          } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
         },
 
         async makeSkill(id) {   // DX-1: 既定 user scope（~/.claude/skills）＝全リポジトリで発火＝lib 配布の代替。repo scope は MCP make_skill {scope:'repo'} で（legacy 既定）。
           try {
             const r = await this.api('POST', '/api/shenron/skill', { id, scope: 'user' });
             await this.loadSkills();
-            this.showToast('Skill created in ~/.claude/skills (fires in every repo): ' + (r && r.slug || ''));
-          } catch (e) { this.showToast('Skill error: ' + e.message, false); }
+            this.showToast('Skill を ~/.claude/skills に作成（全リポジトリで発火）: ' + (r && r.slug || ''));
+          } catch (e) { this.showToast('Skill エラー: ' + e.message, false); }
         },
         async loadSkills() {   // DX-1: 生成済み skill 一覧（repo + ~ 両 scope・マーカー付きのみ）
           try { this.skills = await this.api('GET', '/api/shenron/skills') || []; } catch { this.skills = []; }
@@ -830,16 +830,16 @@
           try {
             await this.api('POST', '/api/shenron/skills/delete', { slug: s.slug, scope: s.scope });
             await this.loadSkills();
-            this.showToast('Skill deleted: ' + s.slug);
-          } catch (e) { this.showToast('Delete error: ' + e.message, false); }
+            this.showToast('Skill 削除: ' + s.slug);
+          } catch (e) { this.showToast('削除エラー: ' + e.message, false); }
         },
 
         async cloneWorkflow(id) {   // Wave Remix-1: fork → 編集可能なコピー（元は不変・別フローに sub-flow として再利用可）
           try {
             const r = await this.api('POST', `/api/workflows/${encodeURIComponent(id)}/clone`, {});
             await this.loadWorkflows();
-            this.showToast('⧉ Duplicated: ' + (r && r.name || ''));
-          } catch (e) { this.showToast('Duplicate error: ' + e.message, false); }
+            this.showToast('⧉ 複製: ' + (r && r.name || ''));
+          } catch (e) { this.showToast('複製エラー: ' + e.message, false); }
         },
 
         async shareWorkflow(wf) {   // Wave T-0: 庫への共有/非共有トグル（visibility flip・owner 不変）。MCP share_workflow と同じ setVisibility を叩く
@@ -847,8 +847,8 @@
           try {
             const r = await this.api('POST', `/api/workflows/${encodeURIComponent(wf.id)}/${to}`, {});
             wf.visibility = r.visibility;   // レスポンスで楽観更新 → 共有ボタンが即トグル
-            this.showToast(r.visibility === 'shared' ? 'Shared to the vault' : 'Back to private');
-          } catch (e) { this.showToast('Share error: ' + e.message, false); }
+            this.showToast(r.visibility === 'shared' ? '庫に共有しました' : '非共有に戻しました');
+          } catch (e) { this.showToast('共有エラー: ' + e.message, false); }
         },
 
         // ── Runs (O1 live SSE) ───────────────────────
@@ -873,22 +873,22 @@
         async stopRun(id) {
           try {
             await this.api('POST', `/api/runs/${id}/stop`, {});
-            this.showToast('⏹ Stopped');
-          } catch (e) { this.showToast('Stop error: ' + e.message, false); }
+            this.showToast('⏹ 停止しました');
+          } catch (e) { this.showToast('停止エラー: ' + e.message, false); }
         },
 
         // ── Handoffs ─────────────────────────────────
         async approveHandoff(id) {
           try {
             await this.api('POST', `/api/handoffs/${id}/approve`, {});
-            this.showToast('Approved');
-          } catch (e) { this.showToast('Error: ' + e.message, false); }
+            this.showToast('承認しました');
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
         },
 
         async declineHandoff(id) {
           try {
             await this.api('POST', `/api/handoffs/${id}/decline`, {});
-            this.showToast('Declined');
+            this.showToast('拒否しました');
           } catch { }
         },
 
@@ -908,7 +908,7 @@
 
         async toggleIntegration(id, on) {
           try { await this.api('POST', `/api/integrations/${encodeURIComponent(id)}/toggle`, { on }); }
-          catch (e) { this.showToast('Error: ' + e.message, false); await this.loadDeployments(); }
+          catch (e) { this.showToast('エラー: ' + e.message, false); await this.loadDeployments(); }
         },
 
         async addIntegration() {
@@ -920,41 +920,41 @@
             });
             this.newInt = { label: '', command: '', kind: 'mcp' };
             this.showAddInt = false;
-            this.showToast('Integration added');
+            this.showToast('Integration 追加');
             this.loadDeployments();
-          } catch (e) { this.showToast('Error: ' + e.message, false); }
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
         },
 
         async fireAutomation(workflowId) {
           try {
             await this.api('POST', '/api/runflow', { id: workflowId });
             this.tab = 'runs';
-            this.showToast('▶ Run started');
-          } catch (e) { this.showToast('Run error: ' + e.message, false); }
+            this.showToast('▶ 実行開始');
+          } catch (e) { this.showToast('実行エラー: ' + e.message, false); }
         },
 
         async approveComponent(id) {
           try {
             await this.api('POST', '/api/shenron/components/approve', { id });
-            this.showToast('Approved and registered');
+            this.showToast('承認・登録しました');
             this.loadDeployments();
-          } catch (e) { this.showToast('Error: ' + e.message, false); }
+          } catch (e) { this.showToast('エラー: ' + e.message, false); }
         },
 
 
         // ── Runs helpers ─────────────────────────────
         flowName(flowId, id) {
-          if (!flowId) return 'Run ' + id;
+          if (!flowId) return '実行 ' + id;
           return flowId.replace(/^workflow-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').trim() || flowId;
         },
         statusJa(s) {
-          return { running: 'running', completed: 'done', cancelled: 'stopped' }[s] || s;
+          return { running: '実行中', completed: '完了', cancelled: '停止済み' }[s] || s;
         },
         nodeLabel(k) {
           if (!k) return k;
-          if (/^input/.test(k))  return 'input';
-          if (/^output/.test(k)) return 'output';
-          if (/^s(\d+)$/.test(k)) return 'step ' + k.slice(1);
+          if (/^input/.test(k))  return '入力';
+          if (/^output/.test(k)) return '出力';
+          if (/^s(\d+)$/.test(k)) return 'ステップ ' + k.slice(1);
           return k;
         },
         parseLines(v) {
@@ -963,12 +963,12 @@
             if (l.startsWith('[error]')) {
               const msg = l.replace('[error]', '').trim();
               const m = msg.match(/no integration "([^"]+)"?/);
-              if (m) return { type: 'error', text: '"' + m[1] + '" is not connected — add it under Settings > Integrations' };
+              if (m) return { type: 'error', text: '「' + m[1] + '」が未接続 — Settings > Integrations で追加してください' };
               return { type: 'error', text: msg };
             }
             if (l.match(/^\[(?:prompt:stub|→ stub)\]/)) {
               const text = l.replace(/^\[[^\]]+\]\s*/, '').trim();
-              return { type: 'stub', text: text || '(stubbed reply — no LLM configured)' };
+              return { type: 'stub', text: text || '（LLM未設定のためスタブ応答）' };
             }
             return { type: 'normal', text: l };
           });
@@ -991,10 +991,10 @@
         relTime(ms) {
           if (!ms) return '';
           const d = Date.now() - ms;
-          if (d < 60000)    return 'now';
-          if (d < 3600000)  return Math.floor(d / 60000) + 'm ago';
-          if (d < 86400000) return Math.floor(d / 3600000) + 'h ago';
-          return Math.floor(d / 86400000) + 'd ago';
+          if (d < 60000)    return '今';
+          if (d < 3600000)  return Math.floor(d / 60000) + '分前';
+          if (d < 86400000) return Math.floor(d / 3600000) + '時間前';
+          return Math.floor(d / 86400000) + '日前';
         },
       };
     }
@@ -1009,23 +1009,23 @@
 <!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
 <div id="cmdk" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(4,8,13,.62)">
   <div style="max-width:520px;margin:12vh auto 0;background:#0c1822;border:1px solid #213e56;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px -24px #000">
-    <input id="cmdk-q" placeholder="Go to page…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
+    <input id="cmdk-q" placeholder="ページへ移動…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
       style="width:100%;box-sizing:border-box;background:#0a121b;border:0;border-bottom:1px solid #213e56;color:#cfe0ee;font:13px ui-monospace,Menlo,monospace;padding:14px 16px;outline:none">
     <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px"></div>
   </div>
 </div>
-<button id="cmdk-open" title="Go to page (⌘K)"
+<button id="cmdk-open" title="ページ移動 (⌘K)"
   style="position:fixed;right:14px;bottom:14px;z-index:99998;display:flex;align-items:center;gap:7px;background:#0c1822;border:1px solid #213e56;color:#7e9bb0;border-radius:8px;padding:7px 11px;font:11px ui-monospace,Menlo,monospace;cursor:pointer">
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-  Go <span style="opacity:.55">⌘K</span>
+  移動 <span style="opacity:.55">⌘K</span>
 </button>
 <script>(function(){
   var DEST=[
-    {label:'Launcher',  desc:'home',                  path:'/'},
-    {label:'Shenron',   desc:'grant a flow by talking', path:'/shenron'},
-    {label:'Canvas',    desc:'visual editor',          path:'/ui2'},
-    {label:'Artifacts', desc:'drive what you built',   path:'/artifacts'},
-    {label:'Settings',  desc:'routing, vault, alerts',  path:'/settings'}
+    {label:'玄関',      desc:'ランチャー',           path:'/'},
+    {label:'神龍',      desc:'会話でフローを叶える',  path:'/shenron'},
+    {label:'キャンバス', desc:'ビジュアルエディタ',    path:'/ui2'},
+    {label:'成果物',     desc:'作った道具を操作',      path:'/artifacts'},
+    {label:'設定',      desc:'経路・連携・保管庫・通知', path:'/settings'}
   ];
   var here=(location.pathname.replace(/\/+$/,'')||'/');
   var box=document.getElementById('cmdk'),q=document.getElementById('cmdk-q'),list=document.getElementById('cmdk-list'),sel=0,items=DEST.slice();
@@ -1038,9 +1038,9 @@
       return '<div data-i="'+i+'" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;cursor:pointer;font-family:ui-monospace,Menlo,monospace;background:'+(i===sel?'#15324a':'transparent')+'">'
         +'<span style="color:#cfe0ee;font-size:13px;min-width:88px">'+d.label+'</span>'
         +'<span style="color:#6d8aa0;font-size:11px;flex:1">'+d.desc+'</span>'
-        +(cur?'<span style="color:#5b9bd1;font-size:10px">current</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
+        +(cur?'<span style="color:#5b9bd1;font-size:10px">現在</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
         +'</div>';
-    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">no match</div>';
+    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">該当なし</div>';
     [].forEach.call(list.children,function(el){
       if(!el.dataset)return;
       el.onclick=function(){go(items[+el.dataset.i]);};

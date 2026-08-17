@@ -1,8 +1,7 @@
 <!doctype html>
-<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shenron — Settings</title>
+<title>神龍 — 設定</title>
 <!-- 神龍の全設定を1ページで。GET/POST /api/config（cost・scheduler・routing・providers）+ /api/autorun + /api/integrations。
      canvas (ui2) のトップバー設定から開く。同テーマ・ビルド不要・vanilla。MCP の get_config/set_config と同じ設定面の薄い view。 -->
 <style>
@@ -60,16 +59,16 @@
 </style>
 
 <header id="topbar">
-  <div class="brand"><svg class="reticle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>Shenron · Settings</div>
-  <a href="/ui2">← Back to canvas</a>
+  <div class="brand"><svg class="reticle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>神龍 · 設定</div>
+  <a href="/ui2">← キャンバスに戻る</a>
   <span id="conn"></span>
 </header>
 
 <main>
   <!-- 実行コスト -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><circle cx="16.5" cy="14.5" r="1.1"/></svg>Run cost</h2>
-    <p class="sub">Your default wallet. <b>free</b> = only tools that cost nothing per use (your own subscriptions, local execution). <b>paid_ok</b> = paid frontier models and tools are allowed too (cost is disclosed each time). Model routing for planning follows this setting.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><circle cx="16.5" cy="14.5" r="1.1"/></svg>実行コスト</h2>
+    <p class="sub">既定の財布。<b>free</b>＝従量0のツールのみ（本人サブスク・ローカル実行）。<b>paid_ok</b>＝有料の frontier モデル/ツールも許可（コストは都度開示）。プラン生成のモデル経路もこれに連動します。</p>
     <div class="seg" id="cost">
       <button data-cost="free">free</button>
       <button data-cost="paid_ok">paid_ok</button>
@@ -78,163 +77,163 @@
 
   <!-- スケジューラ -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>Scheduler</h2>
-    <p class="sub">Fires automations from cron and build-state events.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>スケジューラ</h2>
+    <p class="sub">cron / build-state イベントで自動化を発火します。</p>
     <div class="swrow">
       <label class="sw"><input type="checkbox" id="sched"><span class="track"><span class="knob"></span></span></label>
-      <div class="lbl"><b>in-hub scheduler</b><div id="schedState"></div></div>
+      <div class="lbl"><b>in-hub スケジューラ</b><div id="schedState"></div></div>
     </div>
     <div class="note warn" id="schedNote" style="margin-top:10px"></div>
   </div>
 
   <!-- ローカル実行 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>Local execution (autorun)</h2>
-    <p class="sub">Whether the hub runs local agents inside its own process. Turn it off and work only runs when a dedicated worker is up (broker-only).</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>ローカル実行（autorun）</h2>
+    <p class="sub">hub がローカル agent を自プロセスで代理実行するか。OFF にすると専用 worker 起動時のみ実行（broker-only）。</p>
     <div class="swrow">
       <label class="sw"><input type="checkbox" id="autorun"><span class="track"><span class="knob"></span></span></label>
-      <div class="lbl"><b>global autorun</b><div id="autorunState"></div></div>
+      <div class="lbl"><b>グローバル autorun</b><div id="autorunState"></div></div>
     </div>
   </div>
 
   <!-- モデル経路 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v5a3 3 0 0 0 3 3h7"/><path d="M14 9l3 3-3 3"/><path d="M7 14v6"/><circle cx="7" cy="4" r="1.4"/></svg>Model routing</h2>
-    <p class="sub">Where each step of a plan goes. <b>cheap</b> = light work (free subscription or local), <b>strong</b> = work that matters (your own Claude, etc). Blank = default.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v5a3 3 0 0 0 3 3h7"/><path d="M14 9l3 3-3 3"/><path d="M7 14v6"/><circle cx="7" cy="4" r="1.4"/></svg>モデル経路（routing）</h2>
+    <p class="sub">プランの各ステップの宛先。<b>cheap</b>＝軽い処理（無料サブスク/ローカル）、<b>strong</b>＝重要処理（本人 Claude 等）。空欄＝既定。</p>
     <div class="two">
       <div><label class="field">cheap · vendor</label><input type="text" id="r_cheap_v" placeholder="claude / ollama / codex …"></div>
-      <div><label class="field">cheap · model</label><input type="text" id="r_cheap_m" placeholder="(optional)"></div>
+      <div><label class="field">cheap · model</label><input type="text" id="r_cheap_m" placeholder="（任意）"></div>
       <div><label class="field">strong · vendor</label><input type="text" id="r_strong_v" placeholder="claude …"></div>
-      <div><label class="field">strong · model</label><input type="text" id="r_strong_m" placeholder="(optional)"></div>
+      <div><label class="field">strong · model</label><input type="text" id="r_strong_m" placeholder="（任意）"></div>
     </div>
-    <div class="row" style="margin-top:12px"><button class="btn go" id="saveRouting">Save routing</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn go" id="saveRouting">経路を保存</button></div>
   </div>
 
   <!-- プロバイダ詳細 -->
   <div class="card">
     <details>
-      <summary>Provider details (ollama / openai / anthropic)</summary>
-      <p class="sub">Default host/model on the runner side (changes apply after a hub restart). API keys cannot be set here — env / .dev.vars only.</p>
+      <summary>プロバイダ詳細（ollama / openai / anthropic）</summary>
+      <p class="sub">runner 側の既定 host/model（変更は hub 再起動で反映）。API キーはここでは設定できません（env / .dev.vars のみ）。</p>
       <div class="two">
         <div><label class="field">ollama · host</label><input type="text" id="p_ollama_host" placeholder="http://localhost:11434"></div>
         <div><label class="field">ollama · model</label><input type="text" id="p_ollama_model" placeholder="llama3.2 …"></div>
-        <div><label class="field">openai · model</label><input type="text" id="p_openai_model" placeholder="(optional)"></div>
-        <div><label class="field">anthropic · model</label><input type="text" id="p_anthropic_model" placeholder="(optional)"></div>
+        <div><label class="field">openai · model</label><input type="text" id="p_openai_model" placeholder="（任意）"></div>
+        <div><label class="field">anthropic · model</label><input type="text" id="p_anthropic_model" placeholder="（任意）"></div>
       </div>
-      <div class="row" style="margin-top:12px"><button class="btn go" id="saveProviders">Save providers</button></div>
+      <div class="row" style="margin-top:12px"><button class="btn go" id="saveProviders">プロバイダを保存</button></div>
     </details>
   </div>
 
   <!-- 連携 MCP サーバー -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg>Integrations (MCP servers)</h2>
-    <p class="sub">External tools a plan can reach. Only tools from servers that are ON get resolved.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg>連携（MCP サーバー）</h2>
+    <p class="sub">プランから使える外部ツール群。ON のサーバーのツールだけが解決対象になります。</p>
     <div id="integrations"></div>
     <div class="two" style="margin-top:10px">
-      <input type="text" id="ig_label" placeholder="Label (e.g. Slack)">
-      <input type="text" id="ig_conn" placeholder="command or https URL">
+      <input type="text" id="ig_label" placeholder="ラベル（例: Slack）">
+      <input type="text" id="ig_conn" placeholder="command または https URL">
     </div>
-    <input type="text" id="ig_tools" placeholder="tools (comma-separated, optional)" style="margin-top:8px">
-    <div class="row" style="margin-top:10px"><button class="btn go" id="addIg">＋ Add server</button></div>
+    <input type="text" id="ig_tools" placeholder="tools（カンマ区切り・任意）" style="margin-top:8px">
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addIg">＋ サーバーを追加</button></div>
   </div>
 
   <!-- オートメーション -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v5h-5"/></svg>Automations</h2>
-    <p class="sub">Saved flows running on their own (schedule / build-state). Turning one off stops it firing — it is not deleted.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v5h-5"/></svg>オートメーション</h2>
+    <p class="sub">保存済みフローの自動実行（スケジュール / build-state）。OFF で発火を即停止（削除はしません）。</p>
     <div id="automations"></div>
   </div>
 
   <!-- テンプレート -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/></svg>Templates</h2>
-    <p class="sub">Install a bundled flow in one click. It is copied in as an editable workflow.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/></svg>テンプレート</h2>
+    <p class="sub">同梱の定番フローをワンクリックで導入。導入後は編集可能なワークフローとして複製されます。</p>
     <div id="templates"></div>
   </div>
 
   <!-- ゴール -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>Goals</h2>
-    <p class="sub">Hand a long-running wish to Shenron (e.g. "1000 followers in 3 months") and track it with manual check-ins.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>ゴール</h2>
+    <p class="sub">長期の願い（例「3ヶ月でフォロワー1000」）を神龍に預け、手動チェックインで進捗を追います。</p>
     <div id="goals"></div>
     <div class="two" style="margin-top:10px">
-      <input type="text" id="g_wish" placeholder="Wish (e.g. grow my followers)">
-      <input type="text" id="g_metric" placeholder="Metric (e.g. followers)">
+      <input type="text" id="g_wish" placeholder="願い（例: フォロワーを増やす）">
+      <input type="text" id="g_metric" placeholder="指標（例: followers）">
     </div>
     <div class="two" style="margin-top:8px">
-      <input type="number" id="g_target" placeholder="Target (e.g. 1000)">
-      <input type="text" id="g_unit" placeholder="Unit (optional, e.g. people)">
+      <input type="number" id="g_target" placeholder="目標値（例: 1000）">
+      <input type="text" id="g_unit" placeholder="単位（任意・例: 人）">
     </div>
-    <div class="row" style="margin-top:10px"><button class="btn go" id="addGoal">＋ Add goal</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addGoal">＋ ゴールを追加</button></div>
   </div>
 
   <!-- 成果検証 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12l2.5 2.5 5-5"/></svg>Outcome checks</h2>
-    <p class="sub">Judges whether an automation produced what you expected, and alerts you when it did not. assert = deterministic ($0), judge = an AI answers yes/no.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12l2.5 2.5 5-5"/></svg>成果検証（自動チェック）</h2>
+    <p class="sub">オートメーションの実行結果が期待どおりか自動判定し、外れたら通知します。assert=決定論（$0）・judge=AI が yes/no。</p>
     <div id="checks"></div>
     <div class="two" style="margin-top:10px">
       <select id="ck_auto" style="padding:8px;border-radius:8px;background:var(--bg2,#1a1a2e);color:inherit;border:1px solid var(--bd,#333)"></select>
       <select id="ck_kind" style="padding:8px;border-radius:8px;background:var(--bg2,#1a1a2e);color:inherit;border:1px solid var(--bd,#333)">
-        <option value="assert">assert (deterministic, $0)</option>
+        <option value="assert">assert（決定論・$0）</option>
         <option value="judge">judge（AI yes/no）</option>
       </select>
     </div>
-    <input type="text" id="ck_rule" placeholder="Expected rule (assert: contains:done / regex:^OK / judge: is it polite?)" style="margin-top:8px">
-    <div class="row" style="margin-top:10px"><button class="btn go" id="addCheck">Set expectation</button></div>
+    <input type="text" id="ck_rule" placeholder="期待ルール（assert: contains:done / regex:^OK / judge: 丁寧か?）" style="margin-top:8px">
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addCheck">期待を設定</button></div>
     <div id="checkResults" style="margin-top:12px"></div>
   </div>
 
   <!-- R-3 ドリフト検出 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9 16H3z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.4" r=".7" fill="currentColor" stroke="none"/></svg>Drift detection</h2>
-    <p class="sub">A louder warning than an outcome check: recorded when the same automation fails three times running, or its output shape changes suddenly (detected automatically, read-only).</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9 16H3z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.4" r=".7" fill="currentColor" stroke="none"/></svg>ドリフト検出</h2>
+    <p class="sub">成果検証より上位の警告。同じオートメーションが3連続で失敗、または出力構造が急変したときに記録します（自動検出・読み取り専用）。</p>
     <div id="driftAlerts"></div>
   </div>
 
   <!-- Ambient-1 提案 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 18h5"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.6.5 1.3 1.4 1.3 2.4h5c0-1 .7-1.9 1.3-2.4A6 6 0 0 0 12 3z"/></svg>Suggestions from Shenron</h2>
-    <p class="sub">Shenron watches its own run history and offers things like "this could run on a schedule" or "this keeps failing". It does not read any external inbox.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 18h5"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.6.5 1.3 1.4 1.3 2.4h5c0-1 .7-1.9 1.3-2.4A6 6 0 0 0 12 3z"/></svg>神龍の提案</h2>
+    <p class="sub">神龍が自分の実行履歴を観察して「定期化できそう」「連続 fail 中」などを自動で提案します。外部受信箱は読みません。</p>
     <div id="suggestions"></div>
-    <div class="row" style="margin-top:8px"><button class="btn" onclick="loadSuggestions()">↺ Refresh</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn" onclick="loadSuggestions()">↺ 更新</button></div>
   </div>
 
   <!-- クレデンシャル保管庫 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Credential vault</h2>
-    <p class="sub">Stores the API keys and passwords a flow refers to by name (Keychain on macOS). <b>Values are never shown again</b> — only whether one exists.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>クレデンシャル保管庫</h2>
+    <p class="sub">フローが名前で参照する API キー / パスワードを安全に保存（macOS は Keychain）。<b>値は二度と表示されません</b>（在否のみ）。</p>
     <div id="credentials"></div>
     <div class="two" style="margin-top:10px">
-      <input type="text" id="cr_id" placeholder="Name (e.g. rakuten-password)">
-      <input type="password" id="cr_val" placeholder="Value (hidden once saved)">
+      <input type="text" id="cr_id" placeholder="名前（例: rakuten-password）">
+      <input type="password" id="cr_val" placeholder="値（保存後は表示されません）">
     </div>
-    <div class="row" style="margin-top:10px"><button class="btn go" id="addCr">＋ Save</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addCr">＋ 保存</button></div>
   </div>
 
   <!-- 通知 -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>Notifications (webhook)</h2>
-    <p class="sub">Pushes a notification to Slack, Discord or any webhook when a flow finishes or is cancelled.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>通知（Webhook）</h2>
+    <p class="sub">フロー実行の完了 / キャンセル時に Slack・Discord・任意の Webhook へ push 通知します。</p>
     <div id="notifiers"></div>
     <div class="two" style="margin-top:10px">
-      <input type="text" id="nt_label" placeholder="Label (e.g. Slack alerts)">
+      <input type="text" id="nt_label" placeholder="ラベル（例: Slack 通知）">
       <input type="text" id="nt_url" placeholder="Webhook URL">
     </div>
     <div class="two" style="margin-top:8px">
       <select id="nt_format" style="padding:8px;border-radius:8px;background:var(--bg2,#1a1a2e);color:inherit;border:1px solid var(--bd,#333)">
-        <option value="json">json (generic)</option>
+        <option value="json">json（汎用）</option>
         <option value="slack">slack（Incoming Webhook）</option>
       </select>
-      <input type="text" id="nt_token" placeholder="Bearer token (optional)">
+      <input type="text" id="nt_token" placeholder="Bearer トークン（任意）">
     </div>
-    <div class="row" style="margin-top:10px"><button class="btn go" id="addNt">＋ Register</button><button class="btn" id="testNt">Send test</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn go" id="addNt">＋ 登録</button><button class="btn" id="testNt">テスト送信</button></div>
   </div>
 
   <!-- 環境 / キー -->
   <div class="card">
-    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="4.5"/><path d="M11.7 11.7L20 20"/><path d="M16.5 16.5l2-2"/></svg>Environment &amp; API keys</h2>
-    <p class="sub">Shows only <b>whether</b> a key is present — never the value. The LLM can also run locally through <code>claude -p</code> at no per-use cost.</p>
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="4.5"/><path d="M11.7 11.7L20 20"/><path d="M16.5 16.5l2-2"/></svg>環境・API キー</h2>
+    <p class="sub">キーの<b>在否</b>のみ表示（値は出ません）。LLM はローカル <code>claude -p</code>（従量0）でも動きます。</p>
     <div class="row" id="keys"></div>
     <div class="row" id="modeRow"></div>
     <ul class="needs" id="needs" style="margin:8px 0 0; padding-left:18px"></ul>
@@ -256,18 +255,18 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&l
 let CFG = {};   // last configStatus()
 
 async function loadConfig(){
-  let s; try{ s=await api('/api/config'); $('#conn').textContent='● connected'; $('#conn').style.color='var(--green)'; }
-  catch{ $('#conn').textContent='○ hub offline'; $('#conn').style.color='var(--red)'; return; }
+  let s; try{ s=await api('/api/config'); $('#conn').textContent='● 接続'; $('#conn').style.color='var(--green)'; }
+  catch{ $('#conn').textContent='○ hub オフライン'; $('#conn').style.color='var(--red)'; return; }
   CFG=s; const c=s.config||{};
   // cost
   const cost = c.cost==='paid_ok'?'paid_ok':'free';
   document.querySelectorAll('#cost button').forEach(b=>b.classList.toggle('on', b.dataset.cost===cost));
   // scheduler
   $('#sched').checked = s.schedulerOn;
-  $('#schedState').textContent = s.schedulerOn ? 'ON — fires while the hub is up' : 'OFF — nothing scheduled will fire';
+  $('#schedState').textContent = s.schedulerOn ? 'ON — hub 起動中に発火' : 'OFF — 予定は発火しません';
   $('#schedNote').textContent = s.schedulerOn
-    ? 'Things fire only while this hub process is awake — your Mac on, or a 24/7 cloud instance. From a phone alone, with no resident hub, nothing fires; pair it with an external scheduler such as Apps Script.'
-    : 'The in-hub scheduler is OFF. Scheduled automations will not fire — turn it on, or use an external scheduler.';
+    ? '発火するのは「この hub プロセスが起きている間」だけ（あなたの Mac が ON、または 24/7 のクラウド常駐）。スマホのみで常駐 hub が無いと発火しません→外部スケジューラ（Apps Script 等）を併用。'
+    : 'in-hub スケジューラは OFF。予定された自動化は発火しません。ON にするか外部スケジューラを使ってください。';
   // routing
   const rt=c.routing||{};
   $('#r_cheap_v').value = rt.cheap?.vendor||''; $('#r_cheap_m').value = rt.cheap?.model||'';
@@ -282,8 +281,8 @@ async function loadConfig(){
     .map(([n,on])=>`<span class="badge ${on?'ok':'no'}">${on?'✓':'—'} ${n}</span>`).join('');
   // mode
   $('#modeRow').innerHTML = s.managed
-    ? `<span class="badge warn">managed hub</span><span class="sub" style="margin:0">Browser control needs Shenron running on your own machine.</span>`
-    : `<span class="badge ok">self-host</span><span class="sub" style="margin:0">Running locally: everything is available, browser control included.</span>`;
+    ? `<span class="badge warn">managed hub</span><span class="sub" style="margin:0">ブラウザ操作（browser-control）は本人マシンの神龍が必要です。</span>`
+    : `<span class="badge ok">self-host</span><span class="sub" style="margin:0">ローカル常駐：全機能（ブラウザ操作含む）が使えます。</span>`;
   // needs hints
   $('#needs').innerHTML = (s.needs||[]).map(n=>`<li>${esc(n)}</li>`).join('');
 }
@@ -294,10 +293,10 @@ async function loadIntegrations(){
     <div class="ig">
       <div class="nm"><b>${esc(it.label||it.id)}</b><span>${esc(it.kind||'mcp')} · ${(it.tools&&it.tools.length)||it.tools||0} tools</span></div>
       <label class="sw"><input type="checkbox" data-toggle="${esc(it.id)}" ${it.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
-    </div>`).join('') : `<div class="note">No MCP servers registered.</div>`;
+    </div>`).join('') : `<div class="note">登録された MCP サーバーはありません。</div>`;
   $('#integrations').querySelectorAll('[data-toggle]').forEach(el=>el.onchange=async()=>{
     await api(`/api/integrations/${encodeURIComponent(el.dataset.toggle)}/toggle`,{on:el.checked});
-    toast(el.checked?'Enabled':'Disabled'); loadIntegrations();
+    toast(el.checked?'有効化しました':'無効化しました'); loadIntegrations();
   });
 }
 
@@ -307,21 +306,21 @@ function triggerLabel(trigger){
   if(!trigger || !trigger.type) return '—';
   if(trigger.type==='build_state'){
     const parts=Object.entries(trigger.match||{}).map(([k,v])=>`${k}=${v}`);
-    return parts.length ? `build: ${parts.join(' ')}` : 'build event';
+    return parts.length ? `build: ${parts.join(' ')}` : 'build イベント';
   }
   if(trigger.type==='schedule'){
     const f=String(trigger.when||'').trim().split(/\s+/);
-    if(f.length!==5) return trigger.when || 'schedule';
-    const [mi,h,dom,mon,dow]=f, nd=s=>/^\d+$/.test(s), DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    if(f.length!==5) return trigger.when || 'スケジュール';
+    const [mi,h,dom,mon,dow]=f, nd=s=>/^\d+$/.test(s), DOW=['日','月','火','水','木','金','土'];
     const t=`${h}:${mi.padStart(2,'0')}`;
     let g;
-    if((g=mi.match(/^\*\/(\d+)$/)) && h==='*') return `every ${g[1]} min`;
-    if(mi==='0' && (g=h.match(/^\*\/(\d+)$/))) return `every ${g[1]} h`;
-    if(h==='*' && nd(mi)) return `hourly at :${mi}`;
+    if((g=mi.match(/^\*\/(\d+)$/)) && h==='*') return `${g[1]}分ごと`;
+    if(mi==='0' && (g=h.match(/^\*\/(\d+)$/))) return `${g[1]}時間ごと`;
+    if(h==='*' && nd(mi)) return `毎時 ${mi}分`;
     if(nd(mi) && nd(h)){
-      if(dom==='*' && mon==='*' && dow==='*') return `daily ${t}`;
-      if(dom==='*' && mon==='*' && nd(dow)) return `every ${DOW[(+dow)%7]} ${t}`;
-      if(nd(dom) && mon==='*' && dow==='*') return `monthly on the ${dom} ${t}`;
+      if(dom==='*' && mon==='*' && dow==='*') return `毎日 ${t}`;
+      if(dom==='*' && mon==='*' && nd(dow)) return `毎週${DOW[(+dow)%7]} ${t}`;
+      if(nd(dom) && mon==='*' && dow==='*') return `毎月${dom}日 ${t}`;
     }
     return trigger.when;   // ponytail: 変則 cron は生のまま。完全パーサは入れない（YAGNI）
   }
@@ -332,26 +331,26 @@ async function loadAutomations(){
   let list=[]; try{ list=await api('/api/automations'); }catch{}
   $('#automations').innerHTML = list.length ? list.map(a=>`
     <div class="ig">
-      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(triggerLabel(a.trigger))}${a.pausedReason==='drift'?' · <span style="color:var(--amber)">⚠ auto-paused by drift (toggle to resume)</span>':''}</span></div>
+      <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(triggerLabel(a.trigger))}${a.pausedReason==='drift'?' · <span style="color:var(--amber)">⚠ drift で自動停止（再開はトグル）</span>':''}</span></div>
       <label class="sw"><input type="checkbox" data-auto="${esc(a.id)}" ${a.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
-    </div>`).join('') : `<div class="note">No automations saved.</div>`;
+    </div>`).join('') : `<div class="note">保存されたオートメーションはありません。</div>`;
   $('#automations').querySelectorAll('[data-auto]').forEach(el=>el.onchange=async()=>{
     await api(`/api/automations/${encodeURIComponent(el.dataset.auto)}/toggle`,{on:el.checked});
-    toast(el.checked?'Enabled':'Disabled'); loadAutomations();
+    toast(el.checked?'有効化しました':'無効化しました'); loadAutomations();
   });
 }
 
 // --- interactions ---
 document.querySelectorAll('#cost button').forEach(b=>b.onclick=async()=>{
-  await api('/api/config',{cost:b.dataset.cost}); toast('Cost updated: '+b.dataset.cost); loadConfig();
+  await api('/api/config',{cost:b.dataset.cost}); toast('コストを更新: '+b.dataset.cost); loadConfig();
 });
-$('#sched').onchange = async (e)=>{ await api('/api/config',{scheduler:e.target.checked}); toast('Scheduler: '+(e.target.checked?'ON':'OFF')); loadConfig(); };
+$('#sched').onchange = async (e)=>{ await api('/api/config',{scheduler:e.target.checked}); toast('スケジューラ: '+(e.target.checked?'ON':'OFF')); loadConfig(); };
 $('#autorun').onchange = async (e)=>{ await api('/api/autorun',{on:e.target.checked}); toast('autorun: '+(e.target.checked?'ON':'OFF')); loadAutorun(); };
 $('#saveRouting').onclick = async ()=>{
   const mk=(v,m)=>{ const o={}; if(v.trim())o.vendor=v.trim(); if(m.trim())o.model=m.trim(); return Object.keys(o).length?o:undefined; };
   const routing={}; const cheap=mk($('#r_cheap_v').value,$('#r_cheap_m').value); const strong=mk($('#r_strong_v').value,$('#r_strong_m').value);
   if(cheap)routing.cheap=cheap; if(strong)routing.strong=strong;
-  await api('/api/config',{routing}); toast('Routing saved'); loadConfig();
+  await api('/api/config',{routing}); toast('モデル経路を保存しました'); loadConfig();
 };
 $('#saveProviders').onclick = async ()=>{
   const providers={};
@@ -359,19 +358,19 @@ $('#saveProviders').onclick = async ()=>{
   if(oh||om){ providers.ollama={}; if(oh)providers.ollama.host=oh; if(om)providers.ollama.model=om; }
   const oa=$('#p_openai_model').value.trim(); if(oa)providers.openai={model:oa};
   const an=$('#p_anthropic_model').value.trim(); if(an)providers.anthropic={model:an};
-  await api('/api/config',{providers}); toast('Providers saved — applies after a restart'); loadConfig();
+  await api('/api/config',{providers}); toast('プロバイダを保存しました（再起動で反映）'); loadConfig();
 };
 $('#addIg').onclick = async ()=>{
-  const label=$('#ig_label').value.trim(); if(!label) return toast('Enter a label');
+  const label=$('#ig_label').value.trim(); if(!label) return toast('ラベルを入力してください');
   const conn=$('#ig_conn').value.trim();
   const tools=($('#ig_tools').value||'').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,accepts:['*'],emits:['*']}));
   await api('/api/integrations',{ label, command:conn.startsWith('http')?'':conn, url:conn.startsWith('http')?conn:'', enabled:true, tools });
-  $('#ig_label').value=$('#ig_conn').value=$('#ig_tools').value=''; toast('Server added'); loadIntegrations();
+  $('#ig_label').value=$('#ig_conn').value=$('#ig_tools').value=''; toast('サーバーを追加しました'); loadIntegrations();
 };
 
 async function loadAutorun(){ let s; try{ s=await api('/api/state'); }catch{ return; }
   const on = s.autorun !== false; $('#autorun').checked = on;
-  $('#autorunState').textContent = on ? 'ON — the hub runs it' : 'OFF — waiting for a worker (broker-only)'; }
+  $('#autorunState').textContent = on ? 'ON — hub が代理実行' : 'OFF — worker 待ち（broker-only）'; }
 
 // --- テンプレート（ワンクリック install） ---
 async function loadTemplates(){
@@ -381,14 +380,14 @@ async function loadTemplates(){
     const warn=(t.warnings&&t.warnings.length)?`<div class="note warn" style="margin-top:6px">${t.warnings.map(esc).join(' / ')}</div>`:'';
     return `<div class="ig" style="display:block">
       <div class="nm" style="display:flex;justify-content:space-between;align-items:center">
-        <b>${esc(t.name||t.id)}</b><button class="btn go" data-install="${esc(t.id)}">Install</button>
+        <b>${esc(t.name||t.id)}</b><button class="btn go" data-install="${esc(t.id)}">導入</button>
       </div>
-      <div class="sub" style="margin:4px 0 0">${esc(t.summary||'')}${t.nodes?` · ${t.nodes} nodes`:''}</div>${warn}
+      <div class="sub" style="margin:4px 0 0">${esc(t.summary||'')}${t.nodes?` · ${t.nodes} ノード`:''}</div>${warn}
     </div>`;
-  }).join('') : `<div class="note">No bundled templates.</div>`;
+  }).join('') : `<div class="note">同梱テンプレートはありません。</div>`;
   $('#templates').querySelectorAll('[data-install]').forEach(el=>el.onclick=async()=>{
     const r=await api(`/api/templates/${encodeURIComponent(el.dataset.install)}/install`,{});
-    toast(r.warnings&&r.warnings.length?`Installed — ${r.warnings.length} thing(s) need configuring`:'Installed'); loadAutomations();
+    toast(r.warnings&&r.warnings.length?`導入しました（要設定: ${r.warnings.length}件）`:'導入しました'); loadAutomations();
   });
 }
 
@@ -396,8 +395,8 @@ async function loadTemplates(){
 async function loadUsers(){
   let users=[]; try{ const r=await api('/api/auth/users'); users=Array.isArray(r)?r:(r.users||[]); }catch{ return; }
   if(!users.length){ $('#users').innerHTML=''; return; }
-  $('#users').innerHTML = `<div class="sub" style="margin-bottom:6px">Registered users (${users.length})</div>`+users.map(u=>`
-    <div class="ig"><div class="nm"><b>${esc(u.email||u.id)}</b><span>${u.role==='admin'?'⬡ admin':'member'} · ${u.verified?'✓ verified':'unverified'}</span></div></div>`).join('');
+  $('#users').innerHTML = `<div class="sub" style="margin-bottom:6px">登録ユーザー（${users.length}）</div>`+users.map(u=>`
+    <div class="ig"><div class="nm"><b>${esc(u.email||u.id)}</b><span>${u.role==='admin'?'⬡ admin':'member'} · ${u.verified?'✓ 認証済み':'未認証'}</span></div></div>`).join('');
 }
 
 // --- ゴール（CRUD + 手動 checkin） ---
@@ -412,77 +411,77 @@ async function loadGoals(){
         <span>${esc(String(g.current??0))}${g.unit?esc(g.unit):''} / ${g.target!=null?esc(String(g.target)):'—'}${g.unit?esc(g.unit):''}${pct!=null?` · ${pct}%`:''} · <span style="color:${g.status==='stalled'?'#f0883e':g.status==='reached'?'#3fb950':'#8b949e'}">${esc(g.status||'active')}</span></span>
       </div>${bar}
       <div class="row" style="gap:8px;margin-top:8px">
-        <input type="number" data-ckval="${esc(g.id)}" placeholder="Enter the current value" style="flex:1">
-        <button class="btn" data-checkin="${esc(g.id)}">Log</button>
-        <button class="btn go" data-suggest="${esc(g.id)}" title="Ask Shenron for the next move">Next move</button>
-        <button class="btn" data-delgoal="${esc(g.id)}">Delete</button>
+        <input type="number" data-ckval="${esc(g.id)}" placeholder="現在値を入力" style="flex:1">
+        <button class="btn" data-checkin="${esc(g.id)}">記録</button>
+        <button class="btn go" data-suggest="${esc(g.id)}" title="神龍に次の一手を提案させる">次の手</button>
+        <button class="btn" data-delgoal="${esc(g.id)}">削除</button>
       </div>
     </div>`;
-  }).join('') : `<div class="note">No goals yet.</div>`;
+  }).join('') : `<div class="note">ゴールはまだありません。</div>`;
   $('#goals').querySelectorAll('[data-checkin]').forEach(el=>el.onclick=async()=>{
     const inp=$(`[data-ckval="${el.dataset.checkin}"]`); const v=inp.value.trim();
-    if(v==='') return toast('Enter the current value');
-    await api(`/api/goals/${encodeURIComponent(el.dataset.checkin)}/checkin`,{value:Number(v)}); toast('Progress logged'); loadGoals();
+    if(v==='') return toast('現在値を入力してください');
+    await api(`/api/goals/${encodeURIComponent(el.dataset.checkin)}/checkin`,{value:Number(v)}); toast('進捗を記録しました'); loadGoals();
   });
   $('#goals').querySelectorAll('[data-suggest]').forEach(el=>el.onclick=async()=>{   // Wave Goals-3: 次の手提案（planFlow・提案は「神龍の提案」にも push）
-    el.disabled=true; el.textContent='thinking…';
-    try{ const r=await api(`/api/goals/${encodeURIComponent(el.dataset.suggest)}/suggest`,{}); toast('Next move: '+((r&&(r.plain_summary||r.summary_text||r.goal))||'Suggestion generated').slice(0,80)); loadSuggestions(); }
-    catch{ toast('Could not generate a suggestion'); }
-    finally{ el.disabled=false; el.textContent='Next move'; }
+    el.disabled=true; el.textContent='考え中…';
+    try{ const r=await api(`/api/goals/${encodeURIComponent(el.dataset.suggest)}/suggest`,{}); toast('次の一手: '+((r&&(r.plain_summary||r.summary_text||r.goal))||'提案を生成しました').slice(0,80)); loadSuggestions(); }
+    catch{ toast('提案の生成に失敗しました'); }
+    finally{ el.disabled=false; el.textContent='次の手'; }
   });
   $('#goals').querySelectorAll('[data-delgoal]').forEach(el=>el.onclick=async()=>{
-    await api(`/api/goals/${encodeURIComponent(el.dataset.delgoal)}/delete`,{}); toast('Deleted'); loadGoals();
+    await api(`/api/goals/${encodeURIComponent(el.dataset.delgoal)}/delete`,{}); toast('削除しました'); loadGoals();
   });
 }
 $('#addGoal').onclick = async ()=>{
-  const wish=$('#g_wish').value.trim(); if(!wish) return toast('Enter a wish');
+  const wish=$('#g_wish').value.trim(); if(!wish) return toast('願いを入力してください');
   const body={ wish, metric:$('#g_metric').value.trim() };
   const t=$('#g_target').value.trim(); if(t) body.target=Number(t);
   const u=$('#g_unit').value.trim(); if(u) body.unit=u;
   await api('/api/goals',body);
-  $('#g_wish').value=$('#g_metric').value=$('#g_target').value=$('#g_unit').value=''; toast('Goal added'); loadGoals();
+  $('#g_wish').value=$('#g_metric').value=$('#g_target').value=$('#g_unit').value=''; toast('ゴールを追加しました'); loadGoals();
 };
 
 // --- 成果検証（automation に expect 付与・直近結果表示） ---
 async function loadChecks(){
   let autos=[]; try{ autos=await api('/api/automations'); }catch{}
   // automation select を埋める + expect 済みを一覧
-  $('#ck_auto').innerHTML = autos.length ? autos.map(a=>`<option value="${esc(a.id)}">${esc(a.name||a.id)}</option>`).join('') : `<option value="">(no automations)</option>`;
+  $('#ck_auto').innerHTML = autos.length ? autos.map(a=>`<option value="${esc(a.id)}">${esc(a.name||a.id)}</option>`).join('') : `<option value="">（オートメーション無し）</option>`;
   const withExpect = autos.filter(a=>a.expect&&a.expect.kind);
   $('#checks').innerHTML = withExpect.length ? withExpect.map(a=>`
     <div class="ig">
       <div class="nm"><b>${esc(a.name||a.id)}</b><span>${esc(a.expect.kind)}: ${esc(a.expect.rule||'')}</span></div>
-      <button class="btn" data-delcheck="${esc(a.id)}">Clear</button>
-    </div>`).join('') : `<div class="note">No automation has an expectation set.</div>`;
+      <button class="btn" data-delcheck="${esc(a.id)}">解除</button>
+    </div>`).join('') : `<div class="note">期待を設定したオートメーションはありません。</div>`;
   $('#checks').querySelectorAll('[data-delcheck]').forEach(el=>el.onclick=async()=>{
-    await api('/api/check',{automation:el.dataset.delcheck,expect:null}); toast('Expectation cleared'); loadChecks();
+    await api('/api/check',{automation:el.dataset.delcheck,expect:null}); toast('期待を解除しました'); loadChecks();
   });
-  // Recent check results（/api/check-results は生配列を返す）
+  // 直近の検証結果（/api/check-results は生配列を返す）
   let results=[]; try{ const r=await api('/api/check-results'); results=Array.isArray(r)?r:[]; }catch{}
   if(results.length){
-    $('#checkResults').innerHTML = `<div class="sub" style="margin-bottom:6px">Recent check results</div>`+results.slice(-5).reverse().map(r=>`
+    $('#checkResults').innerHTML = `<div class="sub" style="margin-bottom:6px">直近の検証結果</div>`+results.slice(-5).reverse().map(r=>`
       <div class="ig"><div class="nm"><b>${r.passed?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--red)">✕</span>'} ${esc(r.automationId||'')}</b><span>${esc(r.reason||'')}</span></div></div>`).join('');
   } else $('#checkResults').innerHTML='';
 }
 $('#addCheck').onclick = async ()=>{
-  const automation=$('#ck_auto').value; if(!automation) return toast('No automations');
-  const rule=$('#ck_rule').value.trim(); if(!rule) return toast('Enter an expected rule');
+  const automation=$('#ck_auto').value; if(!automation) return toast('オートメーションがありません');
+  const rule=$('#ck_rule').value.trim(); if(!rule) return toast('期待ルールを入力してください');
   await api('/api/check',{automation,expect:{kind:$('#ck_kind').value,rule}});
-  $('#ck_rule').value=''; toast('Expectation set'); loadChecks();
+  $('#ck_rule').value=''; toast('期待を設定しました'); loadChecks();
 };
 
 // --- R-3 ドリフト検出（連続失敗・構造急変・自動検出・読み取り専用） ---
-const DRIFT_KIND={consecutive_fail:'consecutive failures',structure_shift:'output shape changed'};
+const DRIFT_KIND={consecutive_fail:'連続失敗',structure_shift:'出力構造の急変'};
 async function loadDrift(){
   let list=[]; try{ const r=await api('/api/drift-alerts'); list=Array.isArray(r)?r:[]; }catch{}
   if(list.length){
     $('#driftAlerts').innerHTML = list.slice(-5).reverse().map(a=>`
-      <div class="ig"><div class="nm"><b><span style="color:var(--amber)">●</span> ${esc(a.automationId||'')}${a.action==='paused'?' <span style="color:var(--amber);font-weight:400">[auto-paused]</span>':''}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
-  } else $('#driftAlerts').innerHTML='<p class="sub">No drift detected.</p>';
+      <div class="ig"><div class="nm"><b><span style="color:var(--amber)">●</span> ${esc(a.automationId||'')}${a.action==='paused'?' <span style="color:var(--amber);font-weight:400">[自動停止]</span>':''}</b><span>${esc(DRIFT_KIND[a.kind]||a.kind||'')} · ${esc((a.at||'').slice(0,16).replace('T',' '))}</span></div></div>`).join('');
+  } else $('#driftAlerts').innerHTML='<p class="sub">ドリフトは検出されていません。</p>';
 }
 
 // --- Ambient-1 提案（list_suggestions / dismiss_suggestion / apply_suggestion） ---
-const KIND_LABEL = { automate:'suggests a schedule', fix:'suggests a fix', goal:'next move for a goal' };
+const KIND_LABEL = { automate:'定期化を提案', fix:'修正を提案', goal:'ゴールの次の手' };
 async function loadSuggestions(){
   let list=[]; try{ const r=await api('/api/suggestions?status=open'); list=r.suggestions||[]; }catch{}
   $('#suggestions').innerHTML = list.length ? list.map(s=>`
@@ -493,18 +492,18 @@ async function loadSuggestions(){
       </div>
       <div style="color:var(--txt);font-size:12px;margin:6px 0">${esc(s.reason)}</div>
       <div class="row" style="gap:8px;margin:0">
-        <button class="btn go" data-apply="${esc(s.id)}" data-kind="${esc(s.kind)}">✓ Apply</button>
-        <button class="btn" data-dismiss="${esc(s.id)}">✕ Dismiss</button>
+        <button class="btn go" data-apply="${esc(s.id)}" data-kind="${esc(s.kind)}">✓ 適用</button>
+        <button class="btn" data-dismiss="${esc(s.id)}">✕ 非表示</button>
       </div>
-    </div>`).join('') : `<div class="note">No suggestions — they appear on their own while the hub runs.</div>`;
+    </div>`).join('') : `<div class="note">提案はありません（hub が稼働中に自動で生成されます）。</div>`;
   $('#suggestions').querySelectorAll('[data-dismiss]').forEach(el=>el.onclick=async()=>{
-    await api(`/api/suggestions/${encodeURIComponent(el.dataset.dismiss)}/dismiss`,{}); toast('Dismissed'); loadSuggestions();
+    await api(`/api/suggestions/${encodeURIComponent(el.dataset.dismiss)}/dismiss`,{}); toast('非表示にしました'); loadSuggestions();
   });
   $('#suggestions').querySelectorAll('[data-apply]').forEach(el=>el.onclick=async()=>{
     const r=await api(`/api/suggestions/${encodeURIComponent(el.dataset.apply)}/apply`,{});
-    const msg = el.dataset.kind==='automate' ? 'Scheduled it to run daily at 9:00'
+    const msg = el.dataset.kind==='automate' ? '定期自動化を設定しました（毎日 9:00）'
               : (el.dataset.kind==='goal' && r&&r.applied&&r.applied.workflowId) ? `次の手フローを作成しました（Flows: ${r.applied.workflowId}）`   // Goals-3.1: 提案を実体化
-              : 'Applied';
+              : '適用しました';
     toast(msg); loadSuggestions();
   });
 }
@@ -514,18 +513,18 @@ async function loadCredentials(){
   let ids=[]; try{ const r=await api('/api/credentials',{action:'list'}); ids=r.ids||[]; }catch{}
   $('#credentials').innerHTML = ids.length ? ids.map(id=>`
     <div class="ig">
-      <div class="nm"><b>${esc(id)}</b><span>saved (value hidden)</span></div>
-      <button class="btn" data-delcr="${esc(id)}">Delete</button>
-    </div>`).join('') : `<div class="note">No credentials saved.</div>`;
+      <div class="nm"><b>${esc(id)}</b><span>保存済み（値は非表示）</span></div>
+      <button class="btn" data-delcr="${esc(id)}">削除</button>
+    </div>`).join('') : `<div class="note">保存されたクレデンシャルはありません。</div>`;
   $('#credentials').querySelectorAll('[data-delcr]').forEach(el=>el.onclick=async()=>{
-    await api('/api/credentials',{action:'delete',id:el.dataset.delcr}); toast('Deleted'); loadCredentials();
+    await api('/api/credentials',{action:'delete',id:el.dataset.delcr}); toast('削除しました'); loadCredentials();
   });
 }
 $('#addCr').onclick = async ()=>{
   const id=$('#cr_id').value.trim(), value=$('#cr_val').value;
-  if(!id) return toast('Enter a name'); if(!value) return toast('Enter a value');
+  if(!id) return toast('名前を入力してください'); if(!value) return toast('値を入力してください');
   await api('/api/credentials',{action:'set',id,value});
-  $('#cr_id').value=$('#cr_val').value=''; toast('Saved — the value is not shown again'); loadCredentials();
+  $('#cr_id').value=$('#cr_val').value=''; toast('保存しました（値は表示されません）'); loadCredentials();
 };
 
 // --- 通知（kind:notify の integration として登録） ---
@@ -536,27 +535,27 @@ async function loadNotifiers(){
       <div class="nm"><b>${esc(n.label||n.id)}</b><span>${esc(n.format||'json')} · ${esc(n.url||'')}</span></div>
       <div class="row" style="gap:8px">
         <label class="sw"><input type="checkbox" data-ntoggle="${esc(n.id)}" ${n.enabled!==false?'checked':''}><span class="track"><span class="knob"></span></span></label>
-        <button class="btn" data-delnt="${esc(n.id)}">Delete</button>
+        <button class="btn" data-delnt="${esc(n.id)}">削除</button>
       </div>
-    </div>`).join('') : `<div class="note">No notification targets registered.</div>`;
+    </div>`).join('') : `<div class="note">通知先は登録されていません。</div>`;
   $('#notifiers').querySelectorAll('[data-ntoggle]').forEach(el=>el.onchange=async()=>{
     await api(`/api/integrations/${encodeURIComponent(el.dataset.ntoggle)}/toggle`,{on:el.checked});
-    toast(el.checked?'Enabled':'Disabled'); loadNotifiers();
+    toast(el.checked?'有効化しました':'無効化しました'); loadNotifiers();
   });
   $('#notifiers').querySelectorAll('[data-delnt]').forEach(el=>el.onclick=async()=>{
-    await api(`/api/integrations/${encodeURIComponent(el.dataset.delnt)}/delete`,{}); toast('Deleted'); loadNotifiers();
+    await api(`/api/integrations/${encodeURIComponent(el.dataset.delnt)}/delete`,{}); toast('削除しました'); loadNotifiers();
   });
 }
 $('#addNt').onclick = async ()=>{
   const label=$('#nt_label').value.trim(), url=$('#nt_url').value.trim();
-  if(!url) return toast('Enter a webhook URL');
+  if(!url) return toast('Webhook URL を入力してください');
   const format=$('#nt_format').value, token=$('#nt_token').value.trim();
-  await api('/api/integrations',{ id: format==='slack'?'slack-notify':'webhook-notify', label:label||'Webhook alerts', kind:'notify', url, format, token, enabled:true, tools:[] });
-  $('#nt_label').value=$('#nt_url').value=$('#nt_token').value=''; toast('Notification target registered'); loadNotifiers();
+  await api('/api/integrations',{ id: format==='slack'?'slack-notify':'webhook-notify', label:label||'Webhook通知', kind:'notify', url, format, token, enabled:true, tools:[] });
+  $('#nt_label').value=$('#nt_url').value=$('#nt_token').value=''; toast('通知先を登録しました'); loadNotifiers();
 };
 $('#testNt').onclick = async ()=>{
   const r=await api('/api/notify/test',{}); const ok=(r.results||[]).filter(x=>x.ok).length;
-  toast(r.sent ? `Test sent: ${ok}/${r.sent} succeeded` : 'No enabled notification targets');
+  toast(r.sent ? `テスト送信: ${ok}/${r.sent} 成功` : '有効な通知先がありません');
 };
 
 loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredentials(); loadNotifiers(); loadGoals(); loadChecks(); loadDrift(); loadTemplates(); loadUsers(); loadSuggestions();
@@ -564,23 +563,23 @@ loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredenti
 <!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
 <div id="cmdk" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(4,8,13,.62)">
   <div style="max-width:520px;margin:12vh auto 0;background:#0c1822;border:1px solid #213e56;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px -24px #000">
-    <input id="cmdk-q" placeholder="Go to page…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
+    <input id="cmdk-q" placeholder="ページへ移動…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
       style="width:100%;box-sizing:border-box;background:#0a121b;border:0;border-bottom:1px solid #213e56;color:#cfe0ee;font:13px ui-monospace,Menlo,monospace;padding:14px 16px;outline:none">
     <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px"></div>
   </div>
 </div>
-<button id="cmdk-open" title="Go to page (⌘K)"
+<button id="cmdk-open" title="ページ移動 (⌘K)"
   style="position:fixed;right:14px;bottom:14px;z-index:99998;display:flex;align-items:center;gap:7px;background:#0c1822;border:1px solid #213e56;color:#7e9bb0;border-radius:8px;padding:7px 11px;font:11px ui-monospace,Menlo,monospace;cursor:pointer">
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-  Go <span style="opacity:.55">⌘K</span>
+  移動 <span style="opacity:.55">⌘K</span>
 </button>
 <script>(function(){
   var DEST=[
-    {label:'Launcher',  desc:'home',                  path:'/'},
-    {label:'Shenron',   desc:'grant a flow by talking', path:'/shenron'},
-    {label:'Canvas',    desc:'visual editor',          path:'/ui2'},
-    {label:'Artifacts', desc:'drive what you built',   path:'/artifacts'},
-    {label:'Settings',  desc:'routing, vault, alerts',  path:'/settings'}
+    {label:'玄関',      desc:'ランチャー',           path:'/'},
+    {label:'神龍',      desc:'会話でフローを叶える',  path:'/shenron'},
+    {label:'キャンバス', desc:'ビジュアルエディタ',    path:'/ui2'},
+    {label:'成果物',     desc:'作った道具を操作',      path:'/artifacts'},
+    {label:'設定',      desc:'経路・連携・保管庫・通知', path:'/settings'}
   ];
   var here=(location.pathname.replace(/\/+$/,'')||'/');
   var box=document.getElementById('cmdk'),q=document.getElementById('cmdk-q'),list=document.getElementById('cmdk-list'),sel=0,items=DEST.slice();
@@ -593,9 +592,9 @@ loadConfig(); loadIntegrations(); loadAutomations(); loadAutorun(); loadCredenti
       return '<div data-i="'+i+'" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;cursor:pointer;font-family:ui-monospace,Menlo,monospace;background:'+(i===sel?'#15324a':'transparent')+'">'
         +'<span style="color:#cfe0ee;font-size:13px;min-width:88px">'+d.label+'</span>'
         +'<span style="color:#6d8aa0;font-size:11px;flex:1">'+d.desc+'</span>'
-        +(cur?'<span style="color:#5b9bd1;font-size:10px">current</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
+        +(cur?'<span style="color:#5b9bd1;font-size:10px">現在</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
         +'</div>';
-    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">no match</div>';
+    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">該当なし</div>';
     [].forEach.call(list.children,function(el){
       if(!el.dataset)return;
       el.onclick=function(){go(items[+el.dataset.i]);};

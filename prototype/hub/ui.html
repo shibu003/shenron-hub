@@ -1,5 +1,4 @@
 <!doctype html>
-<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shenron — cockpit</title>
@@ -13,9 +12,7 @@
   * { box-sizing:border-box; }
   body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); overflow:hidden; }
   button { font:inherit; }
-  #topbar { display:flex; align-items:center; gap:12px; height:48px; padding:0 14px; border-bottom:1px solid var(--line); background:var(--panel); overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
-  #topbar::-webkit-scrollbar { display:none; }
-  #topbar > * { flex:none; }   /* ツールバーが幅を超えても縮まず、横スクロールで届く */
+  #topbar { display:flex; align-items:center; gap:12px; height:48px; padding:0 14px; border-bottom:1px solid var(--line); background:var(--panel); }
   .brand { font-weight:600; font-size:14px; white-space:nowrap; } .brand span { color:var(--dim); font-weight:400; }
   #flowName { background:#0d1117; border:1px solid var(--line); border-radius:7px; color:var(--txt); padding:6px 10px; font:inherit; width:200px; }
   .tb-actions { display:flex; align-items:center; gap:8px; }
@@ -398,7 +395,7 @@
     <div id="wishWrap">
       <textarea id="wishText" rows="2" placeholder="何を自動化したい？（例: 毎週月曜に Slack でレポート）"></textarea>
       <div id="wishClarify" hidden></div>
-      <div class="row2"><button id="btnWish" onclick="wishPlan()">🐉 Plan it</button></div>
+      <div class="row2"><button id="btnWish" onclick="wishPlan()">🐉 計画する</button></div>
     </div>
     <input id="palSearch" oninput="renderPalette()">
     <div id="palList"></div>
@@ -437,7 +434,7 @@
 
 <script>
 /* ---------- i18n (JA/EN toggle, persisted) ---------- */
-let LANG = localStorage.getItem('bh_lang') || 'en';   // 既定は英語 (保存済みの選択は尊重)
+let LANG = localStorage.getItem('bh_lang') || 'ja';
 const I18N = {
   save:{ja:'💾 保存',en:'💾 Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, stop:{ja:'⏹ 停止',en:'⏹ Stop'}, automate:{ja:'⚡ 自動化 ▾',en:'⚡ Automate ▾'},
   t_stopped:{ja:'実行を停止しました',en:'run stopped'}, t_nostop:{ja:'実行中の flow はありません',en:'no run in progress'},
