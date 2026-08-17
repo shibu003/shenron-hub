@@ -1,5 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>神龍 — canvas</title>
 <!-- Canvas-only flow editor (ui2). Top toolbar · full-bleed canvas · ONE resizable right panel.
      Click a node → its settings open in the right panel (drag the splitter to resize, Zed-style).
@@ -42,7 +43,7 @@
   #resizer::after { content:''; position:absolute; inset:0 2px; background:var(--line); transition:background .12s; }
   #resizer:hover::after, #resizer.drag::after { background:var(--blue); }
   #panel { width:var(--panelw,320px); flex:none; background:var(--panel); border-left:1px solid var(--line); overflow:auto; padding:14px; }
-  #canvas { position:relative; overflow:hidden; background-color:#06090d; cursor:grab; }
+  #canvas { position:relative; overflow:hidden; background-color:#06090d; cursor:grab; touch-action:none; }
   #canvas.panning { cursor:grabbing; }
   #world { position:absolute; top:0; left:0; width:6000px; height:4200px; transform-origin:0 0; will-change:transform;
            background-image:radial-gradient(circle at 1px 1px, #1a3550 1px, transparent 0); background-size:24px 24px; }
@@ -195,6 +196,20 @@
   #ctxMenu button:hover { background:#0a121b; } #ctxMenu .ctx-del { color:var(--red); }
   #nodeSearch { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:30; background:var(--panel); border:1px solid var(--blue); border-radius:9px; padding:6px 10px; display:none; gap:6px; align-items:center; box-shadow:0 8px 24px -10px #000; }
   #nodeSearch input { background:none; border:none; color:var(--txt); outline:none; font:inherit; width:160px; }
+
+  /* ── mobile (<=768px) — 右パネルを重ねる drawer にして canvas を全幅に。
+     topbar は 48px を保ったまま横スクロール (#main-wrap の calc(100vh - 49px) を壊さない)。 */
+  @media (max-width: 768px) {
+    #topbar { overflow-x:auto; overflow-y:hidden; gap:8px; padding:0 10px; scrollbar-width:none; }
+    #topbar::-webkit-scrollbar { display:none; }
+    #topbar > * { flex:none; }
+    #conn { min-width:auto; margin-left:8px; }
+    #panel { position:absolute; top:49px; right:0; bottom:0; width:min(90vw,340px); z-index:60;
+             box-shadow:0 0 36px rgba(0,0,0,.6); }
+    #resizer { display:none; }
+    .flowgrid { grid-template-columns:1fr 1fr; max-height:64vh; }
+    .menu-pop { min-width:200px; }
+  }
 </style>
 
 <header id="topbar">

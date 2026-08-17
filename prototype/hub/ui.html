@@ -1,5 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shenron — cockpit</title>
 <!-- Langflow-style visual flow-builder for the durable handoff hub. Left palette · top toolbar ·
      canvas · right inspector. Click a node to configure it. Drag the body to move, drag a port to
@@ -63,7 +64,7 @@
   .pal-add .row2 { display:flex; gap:6px; } .pal-add .row2 button { flex:1; }
   .pal-add button { border:1px solid var(--line); background:#0d1117; color:var(--txt); border-radius:7px; padding:6px; cursor:pointer; }
   .pal-add button:hover { border-color:var(--blue); }
-  #canvas { position:relative; overflow:hidden; background-color:#08090c; cursor:grab; }
+  #canvas { position:relative; overflow:hidden; background-color:#08090c; cursor:grab; touch-action:none; }
   #canvas.panning { cursor:grabbing; }
   #world { position:absolute; top:0; left:0; width:6000px; height:4200px; transform-origin:0 0; will-change:transform;
            background-image:radial-gradient(circle at 1px 1px, #2b313a 1px, transparent 0); background-size:24px 24px; }
@@ -314,9 +315,34 @@
   #ctxMenu button:hover { background:#0d1117; } #ctxMenu .ctx-del { color:var(--red); }
   #nodeSearch { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:30; background:var(--panel); border:1px solid var(--blue); border-radius:9px; padding:6px 10px; display:none; gap:6px; align-items:center; box-shadow:0 8px 24px -10px #000; }
   #nodeSearch input { background:none; border:none; color:var(--txt); outline:none; font:inherit; width:160px; }
+
+  /* ── mobile (<=768px) — 3 カラムを畳んで canvas を全幅に。palette / inspector は
+     重ねる drawer にし、topbar は高さ 48px を保ったまま横スクロール
+     (#main-wrap の calc(100vh - 49px) を壊さないため折り返さない)。 */
+  #btnPal { display:none; }
+  @media (max-width: 768px) {
+    #topbar { overflow-x:auto; overflow-y:hidden; gap:8px; padding:0 10px; scrollbar-width:none; }
+    #topbar::-webkit-scrollbar { display:none; }
+    #topbar > * { flex:none; }
+    #flowName { width:130px; }
+    #btnPal { display:inline-flex; }
+    #viewnav { width:38px; }
+    #app, #app.ins-open { grid-template-columns:1fr; }
+    #sidebar-pal { position:absolute; top:0; bottom:0; left:0; width:min(84vw,300px); z-index:60;
+                   transform:translateX(-102%); transition:transform .18s ease;
+                   box-shadow:0 0 36px rgba(0,0,0,.6); }
+    #sidebar-pal.m-open { transform:none; }
+    #sidebar-ins { position:absolute; top:0; bottom:0; right:0; width:min(90vw,340px); z-index:60;
+                   box-shadow:0 0 36px rgba(0,0,0,.6); }
+    #palResizer { display:none; }
+    .flowgrid { grid-template-columns:1fr 1fr; max-height:64vh; }
+    .trust-grid { grid-template-columns:1fr; }
+    #view-runs, #view-settings { padding:12px; }
+  }
 </style>
 
 <header id="topbar">
+  <button class="tb" id="btnPal" onclick="document.getElementById('sidebar-pal').classList.toggle('m-open')" title="palette">☰</button>
   <div class="brand">Shenron <span>· cockpit</span></div>
   <input id="flowName">
   <span id="savedTs" style="font-size:11px;color:var(--dim)"></span>
@@ -1076,7 +1102,8 @@ const edgeOf = (id) => EDGES.find(e=>e.id===id);
 $('#canvas').addEventListener('pointerdown', e=>{                                    // empty-canvas drag = pan; a click (no drag) = deselect
   if(wiring||e.button!==0) return;
   const bg = e.target.id==='canvas'||e.target.id==='world'||e.target.tagName==='svg'||e.target.tagName==='g';
-  if(!bg) return; panning={ x:e.clientX, y:e.clientY, px:PANX, py:PANY, moved:false }; $('#canvas').classList.add('panning');
+  if(!bg) return; $('#sidebar-pal').classList.remove('m-open');                       // mobile: canvas を触ったら palette drawer を閉じる
+  panning={ x:e.clientX, y:e.clientY, px:PANX, py:PANY, moved:false }; $('#canvas').classList.add('panning');
 });
 $('#canvas').addEventListener('wheel', e=>{                                          // ctrl/⌘+wheel = zoom at cursor; otherwise pan freely (trackpad)
   e.preventDefault();
