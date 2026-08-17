@@ -65,6 +65,7 @@ Node バージョン・Playwright Chromium・ポート競合・`A2A_SHARED_TOKEN
 
 **コア: Elastic License 2.0** — [`LICENSE`](LICENSE) 参照。
 **MCP 接続面 (`prototype/mcp/`): Apache-2.0。**
+仕様は [`prototype/mcp/PROTOCOL.md`](prototype/mcp/PROTOCOL.md)。
 
 自分のマシン・自分のチームでの self-host は無制限。禁止しているのは、
 Shenron を第三者にホスト型 / マネージド型サービスとして提供することだけです。
