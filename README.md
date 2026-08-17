@@ -69,7 +69,10 @@ Node バージョン・Playwright Chromium・ポート競合・`A2A_SHARED_TOKEN
 (`prototype/mcp/`) の仕様は [`prototype/mcp/PROTOCOL.md`](prototype/mcp/PROTOCOL.md)、
 範囲は [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md)。
 
-貢献には sign-off が要る: [`CLA.md`](CLA.md)。
+**この repo は canonical ではありません** — 開発は非公開側で進み、ここへは節目で
+反映される。そのため **PR は受け付けていません**（受け皿が無いものに CLA だけ置くのは
+不誠実なので置いていない）。protocol に対する実装・提案は
+[`shenron-protocol`](https://github.com/shibu003/shenron-protocol) へ。
 
 **生成物はあなたのものです** — `gen_component` / `gen_artifact_ui` が生成した
 コードに神龍のライセンスは及びません: [`GENERATED_OUTPUT_POLICY.md`](GENERATED_OUTPUT_POLICY.md)。
