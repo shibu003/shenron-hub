@@ -1,4 +1,5 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>神龍 — canvas</title>
@@ -215,38 +216,38 @@
 </style>
 
 <header id="topbar">
-  <div class="brand" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;display:inline-flex;align-items:center;gap:8px"><span style="color:var(--blue)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></span>神龍</div>
-  <input id="flowName" placeholder="無題のフロー">
+  <div class="brand" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;display:inline-flex;align-items:center;gap:8px"><span style="color:var(--blue)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></span>Shenron</div>
+  <input id="flowName" placeholder="Untitled flow">
   <span id="savedTs" style="font-size:11px;color:var(--dim)"></span>
-  <button class="tb" id="btnFlows" onclick="showFlows()" title="保存済みフローを開く"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
-  <a class="tb" href="/shenron" title="会話で flow を作るのは神龍。ここ（キャンバス）は視覚編集に専念" style="text-decoration:none">神龍で作る</a>
+  <button class="tb" id="btnFlows" onclick="showFlows()" title="Open a saved flow"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+  <a class="tb" href="/shenron" title="Shenron builds flows by talking; the canvas is for visual editing" style="text-decoration:none">Build with Shenron</a>
   <div class="tb-actions">
-    <button class="tb primary" id="btnSave" onclick="saveFlow()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 14h8v6H8z"/></svg> 保存</button>
-    <button class="tb" id="btnShare" onclick="toggleShare()" title="保存してから庫へ共有"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 10.9l7.8-3.8M8.1 13.1l7.8 3.8"/></svg> 共有</button>
-    <button class="tb go" id="btnRun" onclick="runFlow()">▶ 実行</button>
-    <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none">■ 停止</button>
+    <button class="tb primary" id="btnSave" onclick="saveFlow()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 14h8v6H8z"/></svg> Save</button>
+    <button class="tb" id="btnShare" onclick="toggleShare()" title="Save first, then share to the vault"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 10.9l7.8-3.8M8.1 13.1l7.8 3.8"/></svg> Share</button>
+    <button class="tb go" id="btnRun" onclick="runFlow()">▶ Run</button>
+    <button class="tb stop" id="btnStop" onclick="stopRun()" style="display:none">■ Stop</button>
     <button id="ckptBadge" onclick="openApprovals()"></button>
     <span id="planBadge" title=""></span>
-    <button class="tb" onclick="undo()" title="元に戻す (⌘Z)">↩</button>
-    <button class="tb" onclick="redo()" title="やり直す (⇧⌘Z)">↪</button>
+    <button class="tb" onclick="undo()" title="Undo (⌘Z)">↩</button>
+    <button class="tb" onclick="redo()" title="Redo (⇧⌘Z)">↪</button>
     <div class="menu">
-      <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ 追加</button>
+      <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ Add</button>
       <div class="menu-pop" id="addMenu">
-        <div class="mh">ノードを追加</div>
-        <button onclick="openAgentPicker();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="8" r="3.4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg> エージェント… — 一覧から配置</button>
-        <button onclick="addTrigger();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg> トリガー — 自動実行の起点</button>
-        <button onclick="addMcpNode();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg> MCP ツール — 外部アクション</button>
-        <button onclick="addComp('');closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/></svg> コンポーネント — 処理ブロック</button>
-        <button onclick="addNote();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4"/><path d="M8 12h7M8 16h5"/></svg> メモ</button>
-        <div class="mh">入出力</div>
-        <button onclick="document.getElementById('importFile').click();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/></svg> JSON を取り込む</button>
+        <div class="mh">Add a node</div>
+        <button onclick="openAgentPicker();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="8" r="3.4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg> Agent… — place one from the list</button>
+        <button onclick="addTrigger();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg> Trigger — where an automatic run starts</button>
+        <button onclick="addMcpNode();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M9 8V3M15 8V3"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg> MCP tool — an external action</button>
+        <button onclick="addComp('');closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/></svg> Component — a processing block</button>
+        <button onclick="addNote();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v4h4"/><path d="M8 12h7M8 16h5"/></svg> Note</button>
+        <div class="mh">Import / export</div>
+        <button onclick="document.getElementById('importFile').click();closeMenu()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/></svg> Import JSON</button>
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
       </div>
     </div>
-    <button class="tb" onclick="openArtifact()" title="成果物 UI をレンダリング（Wave UI S1）"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.1"/><circle cx="12" cy="8" r="1.1"/><circle cx="15.5" cy="10.5" r="1.1"/><path d="M12 21a2.5 2.5 0 0 0 0-5c-1.2 0-1.6-1.2-.8-2"/></svg> 成果物</button>
-    <a class="tb" href="/artifacts" title="成果物（作った道具を操作）" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> 成果物</a>
-    <a class="tb" href="/settings" title="設定" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M4 4v4M4 12v8M12 4v8M12 16v4M20 4v10M20 18v2"/><circle cx="4" cy="10" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="20" cy="16" r="2"/></svg> 設定</a>
-    <a class="tb" href="/" title="玄関" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 21V8l7-5 7 5v13"/><path d="M5 21h14"/><path d="M10 21v-6h4v6"/></svg> 玄関</a>
+    <button class="tb" onclick="openArtifact()" title="Render the artifact UI"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.1"/><circle cx="12" cy="8" r="1.1"/><circle cx="15.5" cy="10.5" r="1.1"/><path d="M12 21a2.5 2.5 0 0 0 0-5c-1.2 0-1.6-1.2-.8-2"/></svg> Artifact</button>
+    <a class="tb" href="/artifacts" title="Artifacts — drive what you built" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Artifacts</a>
+    <a class="tb" href="/settings" title="Settings" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M4 4v4M4 12v8M12 4v8M12 16v4M20 4v10M20 18v2"/><circle cx="4" cy="10" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="20" cy="16" r="2"/></svg> Settings</a>
+    <a class="tb" href="/" title="Launcher" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 21V8l7-5 7 5v13"/><path d="M5 21h14"/><path d="M10 21v-6h4v6"/></svg> Launcher</a>
   </div>
   <span id="conn"></span>
 </header>
@@ -255,17 +256,17 @@
   <main id="canvas">
     <div id="world"><svg class="links"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path></marker></defs><g id="staticlinks"></g><path id="tempwire" class="tw" fill="none"></path></svg></div>
     <div id="hint">
-      <div class="ec-h" style="display:flex;align-items:center;justify-content:center;gap:9px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="var(--blue)" stroke="none"/></svg>フローを作る</div>
-      <div class="ec-b">右上の <b>＋ 追加</b> でノードを置き、ノードの縁から次のノードへドラッグして配線します。</div>
+      <div class="ec-h" style="display:flex;align-items:center;justify-content:center;gap:9px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.6" fill="var(--blue)" stroke="none"/></svg>Build a flow</div>
+      <div class="ec-b">Use <b>＋ Add</b> at the top right to place a node, then drag from a node edge to the next one to wire them.</div>
       <div class="ec-act">
-        <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ ノードを追加</button>
-        <button class="tb" onclick="showFlows()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> 保存済みを開く</button>
+        <button class="tb primary" onclick="toggleMenu(event,'addMenu')">＋ Add a node</button>
+        <button class="tb" onclick="showFlows()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open a saved flow</button>
       </div>
     </div><div id="wireTip"></div>
-    <div id="nodeSearch"><input id="nodeSearchInput" placeholder="ノード検索…" oninput="nodeSearch(this.value)" onkeydown="if(event.key==='Escape')closeNodeSearch()"><span style="color:var(--dim);cursor:pointer;padding-left:4px" onclick="closeNodeSearch()">✕</span></div>
+    <div id="nodeSearch"><input id="nodeSearchInput" placeholder="Search nodes…" oninput="nodeSearch(this.value)" onkeydown="if(event.key==='Escape')closeNodeSearch()"><span style="color:var(--dim);cursor:pointer;padding-left:4px" onclick="closeNodeSearch()">✕</span></div>
     <div id="zoomctl">
-      <button onclick="zoomStep(-1)" title="縮小">−</button>
-      <button id="zoomPct" onclick="resetView()" title="100% に戻す">100%</button>
+      <button onclick="zoomStep(-1)" title="Zoom out">−</button>
+      <button id="zoomPct" onclick="resetView()" title="Back to 100%">100%</button>
       <button onclick="zoomStep(1)" title="拡大">＋</button>
       <button onclick="fitView()" title="全体表示">⤢</button>
       <button onclick="autoLayout()" title="自動整列">⊞</button>
@@ -303,7 +304,7 @@
 
 <script>
 /* ---------- i18n (JA/EN toggle, persisted) ---------- */
-let LANG = localStorage.getItem('bh_lang') || 'ja';
+let LANG = localStorage.getItem('bh_lang') || 'en';   // 既定は英語 (保存済みの選択は尊重)
 const I18N = {
   save:{ja:'保存',en:'Save'}, run:{ja:'▶ 実行',en:'▶ Run'}, stop:{ja:'⏹ 停止',en:'⏹ Stop'}, automate:{ja:'自動化 ▾',en:'Automate ▾'},
   t_stopped:{ja:'実行を停止しました',en:'run stopped'}, t_nostop:{ja:'実行中の flow はありません',en:'no run in progress'},
@@ -1128,11 +1129,13 @@ async function saveFlow(){ const f=buildFlow(); if(!f) return toast(t('t_wire1')
 // visibility flip だけ＝backend 不変。共有先は神龍の📚 庫（GET /api/shared）。未保存（id 無し）なら先に保存を促す。
 function renderShareBtn(){ const b=$('#btnShare'); if(!b) return; const saved=!!SAVED_ID, on=FLOW_VIS==='shared';
   const svg='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 10.9l7.8-3.8M8.1 13.1l7.8 3.8"/></svg>';
-  b.innerHTML=svg+' '+(on?'共有中':'共有'); b.style.color=on?'var(--green)':''; b.style.opacity=saved?'1':'.5';
-  b.title=!saved?'保存してから庫へ共有できます':on?'庫に共有中（クリックで非共有に戻す）':'庫に共有（チームの庫＝神龍📚 に公開）'; }
-async function toggleShare(){ if(!SAVED_ID) return toast('先に保存してください（保存後に庫へ共有できます）');
+  b.innerHTML=svg+' '+(on?(LANG==='ja'?'共有中':'Shared'):(LANG==='ja'?'共有':'Share')); b.style.color=on?'var(--green)':''; b.style.opacity=saved?'1':'.5';
+  b.title=!saved?(LANG==='ja'?'保存してから庫へ共有できます':'Save it first, then you can share to the vault')
+           :on?(LANG==='ja'?'庫に共有中（クリックで非共有に戻す）':'Shared to the vault (click to unshare)')
+              :(LANG==='ja'?'庫に共有（チームの庫＝神龍📚 に公開）':'Share to the team vault'); }
+async function toggleShare(){ if(!SAVED_ID) return toast(LANG==='ja'?'先に保存してください（保存後に庫へ共有できます）':'Save it first — then you can share to the vault');
   const on=FLOW_VIS==='shared', act=on?'unshare':'share';
-  let r; try{ r=await api('/api/workflows/'+encodeURIComponent(SAVED_ID)+'/'+act,{}); }catch(e){ return toast(e.message||'共有に失敗'); }
+  let r; try{ r=await api('/api/workflows/'+encodeURIComponent(SAVED_ID)+'/'+act,{}); }catch(e){ return toast(e.message||(LANG==='ja'?'共有に失敗':'Share failed')); }
   if(r&&r.error) return toast(r.error);
   FLOW_VIS=on?'private':'shared'; renderShareBtn();
   toast(on?'非共有に戻しました':'庫に共有しました（神龍の📚 庫に掲載）'); }
@@ -1299,7 +1302,7 @@ applyChrome(); initPanelResizer(); restoreView(); refresh(); fetchIntegrations()
 // PC1: 計画モデル可否を一度取得して topbar バッジに反映（プロセス内で不変なので poll 不要・PC0 相補）
 async function loadReadiness(){ try{ const r=await api('/api/shenron/readiness'); const b=document.getElementById('planBadge'); if(!b) return;
   b.style.display='inline-flex';
-  if(r.model){ b.className='ok'; b.textContent='🟢 計画可'; b.title='計画モデル接続済み（'+(r.vendor||'claude')+'）'; }
+  if(r.model){ b.className='ok'; b.textContent='🟢 Ready'; b.title='Planning model connected ('+(r.vendor||'claude')+')'; }
   else { b.className='bad'; b.textContent='🔴 モデル未接続'; b.title=(r.fix||[]).join(' / '); }
 }catch{} }
 // Wave Cockpit-1: ?flow=id で起動 → 該当フローを canvas に直接展開（shenron Flows「編集」の着地点）。showFlows の click と同処理。
