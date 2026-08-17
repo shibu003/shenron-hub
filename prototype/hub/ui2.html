@@ -280,13 +280,13 @@
 <div id="artifactPanel" style="display:none;position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.72)">
   <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(800px,95vw);max-height:92vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px -12px #000">
     <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);flex:none">
-      <b>成果物 UI</b>
-      <span style="color:var(--dim);font-size:11px">JSX を貼り付けて sandbox でレンダリング（fetch: api.anthropic.com → hub proxy）</span>
+      <b>Artifact UI</b>
+      <span style="color:var(--dim);font-size:11px">Paste JSX and render it in a sandbox (fetch: api.anthropic.com → hub proxy)</span>
       <span style="margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px" onclick="closeArtifact()">✕</span>
     </div>
     <div style="padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;flex:none">
       <textarea id="artifactCode" style="flex:1;min-height:72px;max-height:140px;background:#0a121b;border:1px solid var(--line);border-radius:7px;color:var(--txt);padding:7px 9px;font:11px/1.4 ui-monospace,Menlo,monospace;resize:vertical" placeholder="export default function App() { return <h1>Hello </h1>; }"></textarea>
-      <button class="tb go" onclick="renderArtifact()" style="align-self:flex-end;white-space:nowrap">▶ レンダリング</button>
+      <button class="tb go" onclick="renderArtifact()" style="align-self:flex-end;white-space:nowrap">▶ Render</button>
     </div>
     <div id="artifactFrameWrap" style="flex:1;min-height:240px;position:relative">
       <iframe id="artifactFrame" sandbox="allow-scripts" style="width:100%;height:100%;min-height:280px;border:none;background:#fff;display:block"></iframe>
@@ -297,9 +297,9 @@
 <dialog id="modal"></dialog>
 <div id="toast"></div>
 <div id="ctxMenu">
-  <button id="ctxDuplicate">⧉ 複製</button>
-  <button id="ctxInspect">設定を開く</button>
-  <button id="ctxDelete" class="ctx-del">✕ 削除</button>
+  <button id="ctxDuplicate">⧉ Duplicate</button>
+  <button id="ctxInspect">Open settings</button>
+  <button id="ctxDelete" class="ctx-del">✕ Delete</button>
 </div>
 
 <script>
@@ -1377,23 +1377,23 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape' && documen
 <!-- ⌘K サーフェス切替パレット（Zed流・全ページ共通・vanilla/依存ゼロ）— docs/THEME.md -->
 <div id="cmdk" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(4,8,13,.62)">
   <div style="max-width:520px;margin:12vh auto 0;background:#0c1822;border:1px solid #213e56;border-radius:12px;overflow:hidden;box-shadow:0 24px 70px -24px #000">
-    <input id="cmdk-q" placeholder="ページへ移動…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
+    <input id="cmdk-q" placeholder="Go to page…  (↑↓ Enter / Esc)" autocomplete="off" spellcheck="false"
       style="width:100%;box-sizing:border-box;background:#0a121b;border:0;border-bottom:1px solid #213e56;color:#cfe0ee;font:13px ui-monospace,Menlo,monospace;padding:14px 16px;outline:none">
     <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px"></div>
   </div>
 </div>
-<button id="cmdk-open" title="ページ移動 (⌘K)"
+<button id="cmdk-open" title="Go to page (⌘K)"
   style="position:fixed;left:14px;bottom:14px;z-index:99998;display:flex;align-items:center;gap:7px;background:#0c1822;border:1px solid #213e56;color:#7e9bb0;border-radius:8px;padding:7px 11px;font:11px ui-monospace,Menlo,monospace;cursor:pointer">
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-  移動 <span style="opacity:.55">⌘K</span>
+  Go <span style="opacity:.55">⌘K</span>
 </button>
 <script>(function(){
   var DEST=[
-    {label:'玄関',      desc:'ランチャー',           path:'/'},
-    {label:'神龍',      desc:'会話でフローを叶える',  path:'/shenron'},
-    {label:'キャンバス', desc:'ビジュアルエディタ',    path:'/ui2'},
-    {label:'成果物',     desc:'作った道具を操作',      path:'/artifacts'},
-    {label:'設定',      desc:'経路・連携・保管庫・通知', path:'/settings'}
+    {label:'Launcher',  desc:'home',                  path:'/'},
+    {label:'Shenron',   desc:'grant a flow by talking', path:'/shenron'},
+    {label:'Canvas',    desc:'visual editor',          path:'/ui2'},
+    {label:'Artifacts', desc:'drive what you built',   path:'/artifacts'},
+    {label:'Settings',  desc:'routing, vault, alerts',  path:'/settings'}
   ];
   var here=(location.pathname.replace(/\/+$/,'')||'/');
   var box=document.getElementById('cmdk'),q=document.getElementById('cmdk-q'),list=document.getElementById('cmdk-list'),sel=0,items=DEST.slice();
@@ -1406,9 +1406,9 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape' && documen
       return '<div data-i="'+i+'" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;cursor:pointer;font-family:ui-monospace,Menlo,monospace;background:'+(i===sel?'#15324a':'transparent')+'">'
         +'<span style="color:#cfe0ee;font-size:13px;min-width:88px">'+d.label+'</span>'
         +'<span style="color:#6d8aa0;font-size:11px;flex:1">'+d.desc+'</span>'
-        +(cur?'<span style="color:#5b9bd1;font-size:10px">現在</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
+        +(cur?'<span style="color:#5b9bd1;font-size:10px">current</span>':'<span style="color:#3f6075;font-size:10px">'+d.path+'</span>')
         +'</div>';
-    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">該当なし</div>';
+    }).join('')||'<div style="color:#6d8aa0;padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace">no match</div>';
     [].forEach.call(list.children,function(el){
       if(!el.dataset)return;
       el.onclick=function(){go(items[+el.dataset.i]);};
