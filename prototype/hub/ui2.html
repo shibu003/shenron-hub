@@ -616,7 +616,7 @@ function render(){ placeNodes(); renderNodes(); applySkipped(); drawLinks(); ren
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('multi', selSet.has(n.dataset.id)));        // ③b-2 multi-select highlight
   // checkpoint badge — 承認待ちがあれば topbar に出す（クリックで承認ダイアログ）
   const ckN=(state.handoffs||[]).filter(h=>h.status==='awaiting_approval').length;
-  const cb=$('#ckptBadge'); if(cb){ cb.style.display=ckN?'inline-flex':'none'; cb.textContent=`${ckN} 承認待ち`; } }
+  const cb=$('#ckptBadge'); if(cb){ cb.style.display=ckN?'inline-flex':'none'; cb.textContent=`${ckN} ${LANG==='ja'?'承認待ち':'pending'}`; } }
 function applySkipped(){ const r=(state.runs&&state.runs.length)?state.runs[state.runs.length-1]:null; const sk=new Set((r&&r.skipped)||[]);   // Wave E2: grey the branch a router did not take
   document.querySelectorAll('#canvas .node').forEach(n=>n.classList.toggle('skipped', sk.has(n.dataset.id))); }
 function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2600); }
@@ -752,7 +752,7 @@ function renderNode(node, canvas){
     if(n.contains(document.activeElement)) return;   // don't rebuild the card while a field inside it is focused
     // ui2: agent card is identity only (name · company · skill · status). Trust passport / policy / caps removed.
     n.innerHTML=`<div class="name"><span class="dot ${a.online?'on':''}"></span><span class="icontile">${NI(NIC.agent,14)}</span> ${esc(a.id)}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co"><span class="kindchip ag">エージェント</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?' · ▶ 実行中':a.online?'':' · オフライン'}</div>`
+      +`<div class="co"><span class="kindchip ag">${LANG==='ja'?'エージェント':'Agent'}</span>${esc(a.company||'—')}${a.skill?` · ${esc(a.skill)}`:''}${busy?(LANG==='ja'?' · ▶ 実行中':' · ▶ running'):a.online?'':(LANG==='ja'?' · オフライン':' · offline')}</div>`
       +portHTML(hasPort(a.accepts), hasPort(a.emits))+addNextHTML(id, hasPort(a.emits));
     return;
   }
@@ -768,7 +768,7 @@ function renderNode(node, canvas){
     n.classList.toggle('busy',busy);
     const mset=!!(node.server&&node.tool);
     n.innerHTML=`<div class="name"><span class="icontile">${NI(NIC.mcp,14)}</span> ${esc(mset?node.tool:t('comp_unset'))}${pending?`<span class="badge">${pending}</span>`:''}</div>`
-      +`<div class="co"><span class="kindchip mcp">MCPツール</span>${esc(node.server||'（サーバー未選択）')}${awaiting?' · ⏳ 承認待ち':busy?' · ▶ 実行中':''}</div>`
+      +`<div class="co"><span class="kindchip mcp">${LANG==='ja'?'MCPツール':'MCP tool'}</span>${esc(node.server||(LANG==='ja'?'（サーバー未選択）':'(no server selected)'))}${awaiting?(LANG==='ja'?' · ⏳ 承認待ち':' · ⏳ pending'):busy?(LANG==='ja'?' · ▶ 実行中':' · ▶ running'):''}</div>`
       +portHTML(hasPort(node.accepts), hasPort(node.emits))+addNextHTML(id, hasPort(node.emits));
     return;
   }
@@ -1075,8 +1075,8 @@ function openAgentPicker(){
   const dlg=$('#modal'); const ags=state.agents||[];
   const rows = ags.length ? ags.map(a=>{ const on=!HIDDEN.has(a.id);
     return `<button class="flowcard act" data-aid="${esc(a.id)}"><div class="fc-name">${NI(NIC.agent,13)} ${esc(a.id)}${on?' <span class="kindchip ag">配置済み</span>':''}</div><div class="mini">${esc(a.company||'—')}${a.skill?' · '+esc(a.skill):''}${a.online?'':' · オフライン'}</div></button>`;
-  }).join('') : `<div class="minfo">エージェントがありません（hub を agents/*.json 付きで起動してください）。</div>`;
-  dlg.innerHTML=`<div class="dh">エージェントを配置（${ags.length}）</div><div class="db flowgrid">${rows}</div><div class="df"><button class="act" id="agpClose">${t('cancel')}</button></div>`;
+  }).join('') : `<div class="minfo">${LANG==='ja'?'エージェントがありません（hub を agents/*.json 付きで起動してください）。':'No agents — start the hub with agents/*.json.'}</div>`;
+  dlg.innerHTML=`<div class="dh">${LANG==='ja'?`エージェントを配置（${ags.length}）`:`Place an agent (${ags.length})`}</div><div class="db flowgrid">${rows}</div><div class="df"><button class="act" id="agpClose">${t('cancel')}</button></div>`;
   if(!dlg.open) dlg.showModal();
   $('#agpClose').onclick=()=>dlg.close();
   dlg.querySelectorAll('[data-aid]').forEach(b=>b.onclick=()=>{ const id=b.dataset.aid;
