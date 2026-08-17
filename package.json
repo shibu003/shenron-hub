@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "神龍 (Shenron) — 自己ホスト型 MCP コントロールプレーン。願い(自然文)→発見→plan→生成→承認→実行→定期化。従量0(本人サブスク)・ローカル credentials・道具自動生成。",
   "type": "module",
-  "license": "SEE LICENSE IN LICENSE_SCOPE.md",
+  "license": "Apache-2.0",
   "engines": { "node": ">=20" },
   "bin": { "shenron": "bin/shenron.mjs" },
   "repository": { "type": "git", "url": "https://github.com/shibu003/Shenron.git" },

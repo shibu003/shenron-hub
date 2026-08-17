@@ -4,10 +4,10 @@
 # Shenron MCP protocol
 
 This directory is the boundary between Shenron and everything else, in both
-directions. It is **Apache-2.0** while the rest of the hub is Elastic License
-2.0 — see [`../../LICENSE_SCOPE.md`](../../LICENSE_SCOPE.md). Build a client, a
-connector, or an independent implementation against this boundary and you owe
-nothing back here.
+directions. The whole repository is **Apache-2.0** — see
+[`../../LICENSE_SCOPE.md`](../../LICENSE_SCOPE.md). Build a client, a connector,
+or an independent implementation against this boundary; the explicit patent
+grant in Apache-2.0 is there for exactly that.
 
 ## The two directions
 
@@ -17,7 +17,7 @@ nothing back here.
              ▼
    server.mjs ──── tools.mjs (89 tool descriptors)
              │
-       [ hub core — Elastic License 2.0 ]
+       [ hub core ]
              │
    mcp-client.mjs
              │  JSON-RPC 2.0 over stdio or HTTP

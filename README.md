@@ -63,15 +63,13 @@ Node バージョン・Playwright Chromium・ポート競合・`A2A_SHARED_TOKEN
 
 ## ライセンス
 
-**コア: Elastic License 2.0** — [`LICENSE`](LICENSE) 参照。
-**MCP 接続面 (`prototype/mcp/`): Apache-2.0。**
-仕様は [`prototype/mcp/PROTOCOL.md`](prototype/mcp/PROTOCOL.md)。
+**Apache License 2.0** — [`LICENSE`](LICENSE) 参照。
 
-自分のマシン・自分のチームでの self-host は無制限。禁止しているのは、
-Shenron を第三者にホスト型 / マネージド型サービスとして提供することだけです。
+自由に使い、改変し、商用製品に載せ、ホストしてよい。MCP 接続面
+(`prototype/mcp/`) の仕様は [`prototype/mcp/PROTOCOL.md`](prototype/mcp/PROTOCOL.md)、
+範囲は [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md)。
 
-どのファイルがどちらに属するかは [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md) を参照。
-MIT 時代のリリースは MIT のまま利用できます。
+貢献には sign-off が要る: [`CLA.md`](CLA.md)。
 
 ---
 
