@@ -56,8 +56,12 @@ async function runOpenAiApi(prompt, stub = '', model) {
 
 // Wave G: Gemini provider（generativeLanguage v1beta・BYO GEMINI_API_KEY）。consensus 既定 vendor の1つ＝これが無いと既定合議が stub 混入していた。
 // ponytail: key は x-goog-api-key ヘッダで（URL query に載せない＝ログ漏れ防止）。model は GEMINI_MODEL で上書き（不正なら API が 404/400 → stub に理由）。
+// 2026-08-17: 既定を gemini-2.0-flash から変更。実 API で 2.0-flash は 404（This model is
+// no longer available）＝Gemini vendor は導入以来ずっと stub に落ちていた。
+// 選定は実測（5 回ずつ）: 3.5-flash 5/5・3.6-flash 4/5・2.5-flash 3/5・3.7-flash 2/5・
+// flash-latest 2/5。-latest は最新＝最も混む版を指すので既定に向かない。上書きは GEMINI_MODEL。
 async function runGeminiApi(prompt, stub = '', model) {
-  model = model || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  model = model || process.env.GEMINI_MODEL || 'gemini-3.5-flash';
   try {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
