@@ -2,6 +2,7 @@
 // closed hub（A2A_SHARED_TOKEN 設定）で「認証境界」が table 化の前後で同値かを固定する：
 //   ・/api/* は token 無で 401（面ゲート）  ・公開例外（health/doctor/readiness/auth-verify）は token 無でも到達
 //   ・POST auth/role は非 admin で 403       ・oauth/.well-known は公開        ・/mcp 系は自前 bearerOk で 401
+// T3 追加（同一 closed hub・TOKEN 到達）：成功 path の shape（status だけでなく形）・error 404（不存在/未知）・POST 往復（save→list に出る）。
 // HOME/STATE_DIR を tmpdir に隔離（本番 ~/.shenron を汚さない）。
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
@@ -70,7 +71,39 @@ try {
   assert.notEqual(stop.status, 401, 'runs/:id/stop regex auth passed (token)');
   assert.notEqual(stop.status, 404, 'runs/:id/stop regex matched, not unknown-route (token)');
 
-  console.log('OK B8 route table — auth boundary + public exceptions + regex dispatch');
+  // ── T3: 成功 path は status だけでなく shape を固定（closed hub に TOKEN で到達＝openDev と同一ハンドラ・同 shape）──
+  const health = await (await GET('/api/health', TOKEN)).json();
+  assert.ok(health.ok === true && typeof health.version === 'string', 'health shape {ok,version}');
+  assert.ok(Array.isArray(await (await GET('/api/workflows', TOKEN)).json()), 'workflows is array');
+  const tpls = await (await GET('/api/templates', TOKEN)).json();
+  assert.ok(Array.isArray(tpls) && tpls.every((t) => 'id' in t && 'warnings' in t), 'templates [{id,…,warnings}]');
+  assert.ok(Array.isArray(await (await GET('/api/integrations', TOKEN)).json()), 'integrations is array');
+  assert.ok(Array.isArray(await (await GET('/api/automations', TOKEN)).json()), 'automations is array');
+  assert.ok(Array.isArray(await (await GET('/api/artifacts', TOKEN)).json()), 'artifacts is array');
+  const goals = await (await GET('/api/goals', TOKEN)).json();
+  assert.ok(goals && Array.isArray(goals.goals), 'goals {goals:[]}');
+  const cfg = await (await GET('/api/config', TOKEN)).json();
+  assert.ok(cfg && typeof cfg === 'object' && !/sk-[A-Za-z0-9]{20}/.test(JSON.stringify(cfg)), 'config object・生 secret 値を漏らさない(在否のみ)');
+
+  // ── T3: error path。handler 内の不存在は本物の 404／未マッチ path は dispatch 設計どおり（GET↔POST 非対称）を pin ──
+  assert.equal((await GET('/api/workflows?id=__nope__', TOKEN)).status, 404, 'workflows?id=不存在 → 404（handler 内 find 失敗）');
+  // 非対称（hub.mjs:1846-1849 を pin）: 未マッチ GET /api/*（token 有）→ 405「use POST」（/api 変更は POST 主の nudge）。token 無→401（path 存在を漏らさない）。未マッチ POST→404。
+  assert.equal((await GET('/api/__unknown_get__', TOKEN)).status, 405, '未マッチ GET(token) → 405 use POST');
+  assert.equal((await GET('/api/__unknown_get__')).status, 401, '未マッチ GET(no token) → 401（path leak 防止）');
+
+  // ── T3: POST 往復＝save した実体が list に出る（workflow→automation→integration の契約）──
+  const wf = await (await POST('/api/workflows', { name: 'T3-wf', nodes: [{ id: 'n1', kind: 'prompt', prompt: 'hi' }], edges: [] }, TOKEN)).json();
+  assert.ok(wf.id, 'POST workflow → id');
+  assert.ok((await (await GET('/api/workflows', TOKEN)).json()).some((w) => w.id === wf.id), 'workflow が list に出る');
+  const auto = await (await POST('/api/automations', { name: 'T3-auto', trigger: { type: 'manual' }, workflow: wf.id }, TOKEN)).json();
+  assert.equal(auto.workflow, wf.id, 'POST automation → workflow ref（saveAutomation は trigger.type+workflowId 必須）');
+  assert.ok((await (await GET('/api/automations', TOKEN)).json()).some((m) => m.id === auto.id), 'automation が list に出る');
+  const integ = await (await POST('/api/integrations', { label: 'T3MCP', kind: 'mcp', tools: [{ name: 'echo' }] }, TOKEN)).json();
+  assert.ok(integ.id && integ.tools.length === 1, 'POST integration → id + tools');
+  const gotInteg = (await (await GET('/api/integrations', TOKEN)).json()).find((i) => i.id === integ.id);
+  assert.ok(gotInteg && gotInteg.tools[0].name === 'echo', 'integration が tools 付きで list に出る');
+
+  console.log('OK route table — auth boundary(B8) + 成功 shape/error 404/POST 往復(T3)');
 } catch (e) { bad = true; console.error('FAIL', e.message); }
 finally { hub.kill(); }
 process.exit(bad ? 1 : 0);

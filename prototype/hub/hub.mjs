@@ -1345,7 +1345,7 @@ function plannerReadiness() {
   // --vendor stub は常に偽（テスト/未接続）。それ以外は API キー or 対応 CLI が在れば計画可。
   const model = v === 'stub' ? false : (hasKey || ((!v || v === 'claude') && _cliProbe.claude) || (v === 'codex' && _cliProbe.codex));
   return {
-    model, vendor: v || 'claude', hasKey,
+    model, vendor: v || 'claude',   // #7: hasKey はどこからも読まれない exposed surface ＝削除（model 計算の内部変数は残す）
     fix: model ? [] : ['hub の env に ANTHROPIC_API_KEY を設定', 'または hub から claude / codex CLI を使える状態に（本人サブスク＝従量0）', 'または起動時に --vendor を指定'],
     integrations: readIntegrations().filter((it) => it.enabled !== false).length,
     credentials: listCredentials().length,
