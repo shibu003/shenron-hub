@@ -71,6 +71,9 @@ Node バージョン・Playwright Chromium・ポート競合・`A2A_SHARED_TOKEN
 
 貢献には sign-off が要る: [`CLA.md`](CLA.md)。
 
+**生成物はあなたのものです** — `gen_component` / `gen_artifact_ui` が生成した
+コードに神龍のライセンスは及びません: [`GENERATED_OUTPUT_POLICY.md`](GENERATED_OUTPUT_POLICY.md)。
+
 ---
 
 ## このリポジトリについて
